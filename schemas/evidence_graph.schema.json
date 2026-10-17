@@ -1,0 +1,376 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Deterministic scientific evidence graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_artifacts",
+    "nodes",
+    "edges",
+    "evidence_records",
+    "axis_coverage"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "source_artifacts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/artifact"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/edge"
+      }
+    },
+    "evidence_records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/evidence"
+      }
+    },
+    "axis_coverage": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/coverage"
+      }
+    }
+  },
+  "definitions": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "entity_id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "gene",
+            "protein",
+            "metabolite",
+            "pathway",
+            "cell_type",
+            "clinical_phenotype",
+            "axis",
+            "condition_contrast",
+            "derived_readout"
+          ]
+        },
+        "entity_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "source",
+        "target",
+        "evidence_id",
+        "evidence_context",
+        "relation_status",
+        "direction",
+        "selected",
+        "provenance"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^edge_[0-9a-f]{20}$"
+        },
+        "type": {
+          "enum": [
+            "measured_association",
+            "paired_change_correlation",
+            "same_axis",
+            "same_pathway",
+            "expression_localization",
+            "estimated_association",
+            "supports",
+            "contradicts",
+            "literature_relation"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^ev_[0-9a-f]{20}$"
+        },
+        "evidence_context": {
+          "enum": [
+            "measured_evidence",
+            "derived_estimate",
+            "external_context",
+            "literature"
+          ]
+        },
+        "relation_status": {
+          "const": "factual"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "selected": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "not_applicable"
+            }
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_path",
+            "row_key",
+            "sha256",
+            "analysis_version"
+          ],
+          "properties": {
+            "artifact_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "row_key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "analysis_version": {
+              "type": "string"
+            }
+          }
+        },
+        "annotation_source": {
+          "$ref": "#/definitions/edge_annotation"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "entity_node_id",
+        "omics",
+        "cohort",
+        "evidence_layer",
+        "evidence_context",
+        "axis",
+        "direction",
+        "selected",
+        "provenance"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^ev_[0-9a-f]{20}$"
+        },
+        "entity_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "omics": {
+          "type": "string"
+        },
+        "cohort": {
+          "type": "string"
+        },
+        "evidence_layer": {
+          "type": "string"
+        },
+        "evidence_context": {
+          "enum": [
+            "measured_evidence",
+            "derived_estimate",
+            "external_context",
+            "literature"
+          ]
+        },
+        "axis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "direction": {
+          "type": "string"
+        },
+        "selected": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "not_applicable"
+            }
+          ]
+        },
+        "provenance": {
+          "$ref": "#/definitions/evidence_provenance"
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "axis",
+        "entity",
+        "omics",
+        "status",
+        "evidence_ids",
+        "source_path",
+        "source_sha256"
+      ],
+      "properties": {
+        "axis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "omics": {
+          "enum": [
+            "transcriptomics",
+            "proteomics",
+            "metabolomics"
+          ]
+        },
+        "status": {
+          "enum": [
+            "selected",
+            "observed_unselected",
+            "not_registered"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^ev_[0-9a-f]{20}$"
+          },
+          "uniqueItems": true
+        },
+        "source_path": {
+          "const": "knowledge/tme_metabolism_axes.yaml"
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "evidence_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "row_key",
+        "sha256",
+        "analysis_version"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "row_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "analysis_version": {
+          "type": "string"
+        }
+      }
+    },
+    "edge_annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_path",
+        "row_key",
+        "sha256"
+      ],
+      "properties": {
+        "artifact_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "row_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+# Public natural-language task configuration. Local copy is never release-managed.
+schema_version: '1.0'
+study:
+  design: user_defined
+  seed: 2024
+inputs: {}
+runtime:
+  workers: 2
+  r_workers: 1
+  rscript: Rscript
+  r_library_paths: []
+  retries: 3
+  llm_enabled: false
+llm:
+  enabled: true
+  provider: deepseek
+  base_url: https://api.deepseek.com
+  model: deepseek-flash
+  api_key_env: DEEPSEEK_API_KEY
+  temperature: 0
+  max_tokens: 8000
+  timeout_seconds: 120
+  max_retries: 2
+  max_schema_retries: 2
+  token_budget: 500000
+  cache: true
+reasoning:
+  max_iterations: 2
+  max_reasoning_iterations: 2
+distribution:
+  mode: native_collaborator_test
+  credential_storage: system
+  supported_entry: natural_language_tasks
+  scrna_included: false

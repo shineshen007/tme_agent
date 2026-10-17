@@ -1,0 +1,581 @@
+{
+  "archive": "tme_multiomics_native_test_20261015_v8.zip",
+  "sha256": "81c5a22426a59def7047319a125ae94c504b25e8bea3aedb409256ed95d9e927",
+  "original_manifest_files": 195,
+  "original_manifest_verified": true,
+  "imported_files": [
+    {
+      "path": "diagnose_macos.command",
+      "sha256": "9de6a4ec3a071e4e8dd57507c99362e8ed5d43eececdc5eabfd73af5650c3f22"
+    },
+    {
+      "path": "diagnose_windows.cmd",
+      "sha256": "65d0ba36353f3be59e40244563c33e58dab2941c67b7a9fbfd8c1aafb136efdf"
+    },
+    {
+      "path": "multiomics_tui/__init__.py",
+      "sha256": "38d001df711d552783e258d7a747b01f9bf5ba143f3f4e76c8be0cace3178bc9"
+    },
+    {
+      "path": "multiomics_tui/__main__.py",
+      "sha256": "999676e3134f24fead57388b112c8da185b68ffc6aae44551e020bd77e63fe82"
+    },
+    {
+      "path": "multiomics_tui/actions.py",
+      "sha256": "66717182516ba27e545542a084821f981edd700930a4de50a8af74b172f8fac9"
+    },
+    {
+      "path": "multiomics_tui/app.py",
+      "sha256": "d3d9788a17a64b32e78143bcd797d4461b1105f431259a484615e38857b958e3"
+    },
+    {
+      "path": "multiomics_tui/artifacts.py",
+      "sha256": "62f0f50285a27a82acd92b7d2a82355f48bb826d32122d887aed28deb9742d2e"
+    },
+    {
+      "path": "multiomics_tui/controller.py",
+      "sha256": "22ac048c1f7bca7fe4ada6070f3efc245ca046bd242daf404aa44ad9061ee170"
+    },
+    {
+      "path": "multiomics_tui/credentials.py",
+      "sha256": "b2ed2e48ab9cd0dcd490bb95eb3fc5351869cf48277957baadc75e815e11dcf6"
+    },
+    {
+      "path": "multiomics_tui/fallback.py",
+      "sha256": "63b18016d4198402efba538cdf0d0ae22969358e31925d83607ff9ae536a34af"
+    },
+    {
+      "path": "multiomics_tui/input_inspection.py",
+      "sha256": "1afde51bc8fd70fdf38fe8b8f21dd3a9cf7c5a9cee1ae76a2309d3ac7d131d78"
+    },
+    {
+      "path": "multiomics_tui/input_probe.R",
+      "sha256": "5868bc4caf5cb5a5e2c90ef83f3766a85b2ca1172ac0d38d110785197dfc5ca1"
+    },
+    {
+      "path": "multiomics_tui/jobs.py",
+      "sha256": "70ee5663894311fde54ed3fbc87d19094e6d0f56274ea7b1e356284eda0719ec"
+    },
+    {
+      "path": "multiomics_tui/language.py",
+      "sha256": "62270b935d696c5b0847d83cb683c9170c59c39f4cb16fa20df93e2cd5016faf"
+    },
+    {
+      "path": "multiomics_tui/llm.py",
+      "sha256": "832bb84c64e1675285d6694d3db07c5f1983e4057d5515173c83d0303a678f4a"
+    },
+    {
+      "path": "multiomics_tui/macos_guard.py",
+      "sha256": "cdf815d7fd78b2103c2f8bad2451dfcd007b6ffe3934f818ce229e57c30e9247"
+    },
+    {
+      "path": "multiomics_tui/model_client.py",
+      "sha256": "044722ea9200122e6c5dca9c8f9f66344ef1d87d8dfc76b04358dbdcc8be4066"
+    },
+    {
+      "path": "multiomics_tui/model_config.py",
+      "sha256": "ab632c8b083063c12a1d3f108b81c5680610d96e55fb85343ea9e3d7594b289a"
+    },
+    {
+      "path": "multiomics_tui/model_panel.py",
+      "sha256": "0a025a85a91d8d4bb87be273cf7bf89dd3930013385be830dbe01917ff56deaa"
+    },
+    {
+      "path": "multiomics_tui/native_supervisor.py",
+      "sha256": "6c034c7f1d53335a65be02d16d2be4306571c8894925e359775c8556bbaa17df"
+    },
+    {
+      "path": "multiomics_tui/nl.py",
+      "sha256": "0cc44a5fda0edb152fcca8bc5b64e42dc38be8e1d53b566b734acd4c6ab7099f"
+    },
+    {
+      "path": "multiomics_tui/output_contracts.py",
+      "sha256": "974330786671d301bd7ec1a18c1ec38f307101e45ba7da8e213433fb28ac9035"
+    },
+    {
+      "path": "multiomics_tui/output_probe.R",
+      "sha256": "44230f561174355b75b2bad58521d8026526278df93d8c538008308e3c010657"
+    },
+    {
+      "path": "multiomics_tui/platform_support.py",
+      "sha256": "f77e17991732b9e4480a2cf5bf2726ce3c93c0bcfb7e796e9a2b985fe8af9ca0"
+    },
+    {
+      "path": "multiomics_tui/prompt_editor.py",
+      "sha256": "2f24dc942cdacae636405576c4c8a96e20d10dfcc4e9de8eec93f927ffd43559"
+    },
+    {
+      "path": "multiomics_tui/prompts/qa.md",
+      "sha256": "c65e207f0c75aaba3eb571ba680aa43bacee1a39bf8bf511563780ecf91b5863"
+    },
+    {
+      "path": "multiomics_tui/prompts/router.md",
+      "sha256": "e3118697594a3d6ff389ad074e62933cc537e6ff1b069098904a08267e0adf03"
+    },
+    {
+      "path": "multiomics_tui/qa.py",
+      "sha256": "eec02d28e04d6e264b1e084c77102d76edf026d7092c48dc4ccb134cbf044fe5"
+    },
+    {
+      "path": "multiomics_tui/qa_guard.py",
+      "sha256": "a3b1171cffbffececc86163da415d1a1b1b9c416f485d8af6fe7361c25dc8d2c"
+    },
+    {
+      "path": "multiomics_tui/r_env.py",
+      "sha256": "4dd6451646f10980b55a4d7cd7a2f548aabf6b9091da90a25b90e661150d4b41"
+    },
+    {
+      "path": "multiomics_tui/r_preflight.R",
+      "sha256": "2bd592a3ec3c76f8cd344323f13aa5b427942b72566a632fd20b50290936f025"
+    },
+    {
+      "path": "multiomics_tui/root.py",
+      "sha256": "3f39c171f5331929b4d6048bf84fed2d0ad78eaac618eae5c30a0d4263a20f2b"
+    },
+    {
+      "path": "multiomics_tui/styles.tcss",
+      "sha256": "4cdab83a5ee2fac1506de01721942796435c9270acb1755ef882efbee448102b"
+    },
+    {
+      "path": "multiomics_tui/supervisor.py",
+      "sha256": "f9d69646f2b9ddc54b05c2b5219bdbb46c5efe455d454c4b66521c97a1cb05e7"
+    },
+    {
+      "path": "multiomics_tui/task_guard.py",
+      "sha256": "f545cb2aa130845194574d22bd199d1c531a78fb9071a5146328196352359c6f"
+    },
+    {
+      "path": "multiomics_tui/task_planner.py",
+      "sha256": "092ffb524aebc93077cfb7af26894753f6d0e54c0267cf32a6c0fd15f34ccaaf"
+    },
+    {
+      "path": "multiomics_tui/task_runner.py",
+      "sha256": "d70601bdba6576abf10a869033e4b610a1acc2794c9f4a595f6eaab432d787ff"
+    },
+    {
+      "path": "multiomics_tui/task_sessions.py",
+      "sha256": "31f1ca038fd6c20da5aca184f0e1807a9b772181fb0a342255e9383f5b95861a"
+    },
+    {
+      "path": "multiomics_tui/temp_paths.py",
+      "sha256": "6f98c30bf5352f52c65d846374ec8fc42dd3ede4cbc08f17b4e2c08f09f52b50"
+    },
+    {
+      "path": "multiomics_tui/windows_native.py",
+      "sha256": "d4b12b9a218e9c7e9c5130634831528072c3abcf7ea07cf1c9c38b27b9dae986"
+    },
+    {
+      "path": "native_dist/__init__.py",
+      "sha256": "e59c5239ab6172f45a9458671d4bf08996609af4d7a599ceed8c1761a5acb922"
+    },
+    {
+      "path": "native_dist/acceptance.py",
+      "sha256": "24d728bd04e27d061c9c3b6e5f4389b19932098c50fb6d12cda589a9402d0c04"
+    },
+    {
+      "path": "native_dist/bootstrap.py",
+      "sha256": "96861a254acc74938a72832b7be46fb4b335845c45d5b27c2ede5d78c3024f5f"
+    },
+    {
+      "path": "native_dist/bundled.py",
+      "sha256": "93790594d8a4e69f342d086e47fd4b57f55ca5496c53631bb87418bb2fc0ab2b"
+    },
+    {
+      "path": "native_dist/credential_probe.py",
+      "sha256": "5f24f36d80341a9fed5c3e735abf7841f28c49440abd1472ad67c989f7a880af"
+    },
+    {
+      "path": "native_dist/diagnostics.py",
+      "sha256": "f8590e54da867495d25a995547504536dece27213c6f369378e3f2f92250f729"
+    },
+    {
+      "path": "native_dist/doctor.py",
+      "sha256": "4a09bf619049a9904ef0ff534a95f24b51be794c95d459b4a34baa8bffe71b67"
+    },
+    {
+      "path": "native_dist/environment.py",
+      "sha256": "717ab2f7c8e52a3a29b0aab0e4b122b065d8b6f9b6f0de58dfc20d2f7d537d41"
+    },
+    {
+      "path": "native_dist/installers.catalog.json",
+      "sha256": "5a2fc3428dc4c7f5fd0ca8c30d1382fd01ffe997104a039ab605c1102405188c"
+    },
+    {
+      "path": "native_dist/layout.py",
+      "sha256": "63388e9e8c11b9db7d418578042a3cef43b3d039cdab9a29ec3185282f223c5c"
+    },
+    {
+      "path": "native_dist/macos_startup.py",
+      "sha256": "31ac3d50beb13e623b931aa0972b735da43eb1c2a6612d46d6af593c6e2d6483"
+    },
+    {
+      "path": "native_dist/package_copy.py",
+      "sha256": "4882fc94c54263fb629073cdaea9302d915cba3d7e41bab8adfc66247bf55f9d"
+    },
+    {
+      "path": "native_dist/r-bioc-packages.txt",
+      "sha256": "a59a07cf4efcf97977686c4c6a6b394dfa06d0272d959c1cf426e6f56c35912d"
+    },
+    {
+      "path": "native_dist/r-packages.txt",
+      "sha256": "850083d9a4eccc77fef19bad3353f0c1e016cda807692d386d4c6eadbd30991a"
+    },
+    {
+      "path": "native_dist/requirements-build.txt",
+      "sha256": "bba7e9fe636c1820f8b733c649e898b5a0b3f79af2e7c968a9821b01098d7056"
+    },
+    {
+      "path": "native_dist/requirements-native.txt",
+      "sha256": "e35b6e09459970e1623a46319b16d628eead4cec63ca50750d19788f77f24571"
+    },
+    {
+      "path": "native_dist/select_python.ps1",
+      "sha256": "8ffacc9681eab55b1236864e06daea0127b27beae9e5a23c94519f98dae1625f"
+    },
+    {
+      "path": "native_dist/v7_acceptance.py",
+      "sha256": "d6f1cb2b12585bd828be16e8c80bb0455102c90d2bae0dba80e889d3303227c6"
+    },
+    {
+      "path": "native_dist/v8_acceptance.py",
+      "sha256": "b9dab272adf22c0fe335a2987e84397f5cc963132a5b88a7cc73afe988a1fc23"
+    },
+    {
+      "path": "native_dist/windows_runtime.py",
+      "sha256": "15ef72f5ae1eea6026248d74d3ddbe16a919047465b6189baf588949f03dec61"
+    },
+    {
+      "path": "orchestrator/__init__.py",
+      "sha256": "4a020e936d7a6ebf480d837792ffb2d2ccbe1b68e76f235a09c2f99ff36eb395"
+    },
+    {
+      "path": "orchestrator/__main__.py",
+      "sha256": "8fda124942c1535a5de3d48057be3524a626b1f648786b7b6c0ec5fcc2aa1fec"
+    },
+    {
+      "path": "orchestrator/agent_loop.py",
+      "sha256": "f256c430cddfc23ededa2b658b2e496c6cec7366caddf43bfe711688f32cb15c"
+    },
+    {
+      "path": "orchestrator/agents.py",
+      "sha256": "628052adfeff5405d20a6e07cb6f493878ee9959a6ee7630459a17c8576720d0"
+    },
+    {
+      "path": "orchestrator/checkers.py",
+      "sha256": "c1a1b0863ae189dcd72311d8bc95657977e67fa14729ecab961566e8e47b45d9"
+    },
+    {
+      "path": "orchestrator/dossiers.py",
+      "sha256": "99b3ba898311b35b841526311aa36182e9fbde12dae4c6b314649739773d8725"
+    },
+    {
+      "path": "orchestrator/evidence_graph.py",
+      "sha256": "b10303f7be4217b55fd4fcd9481373eca138609dda56d0f0e60add7aa4f86d22"
+    },
+    {
+      "path": "orchestrator/evidence_records.py",
+      "sha256": "dbf8ad33f35611c951f328f9da2e99e086749132421349e94b45abeb5bb733b3"
+    },
+    {
+      "path": "orchestrator/figures.py",
+      "sha256": "add66502a462fcfbb53a2e4c39042978301147be03de680cf1cb895f157b44ac"
+    },
+    {
+      "path": "orchestrator/graph.py",
+      "sha256": "1c5a5eacb5b149d3062486a7cd979a06afc4ae31cc71501568679a8bd4b03be3"
+    },
+    {
+      "path": "orchestrator/inputs.py",
+      "sha256": "783d509a4fc6ca8be2991ac21b034c3a793d66770a63d7758a752515eec409ec"
+    },
+    {
+      "path": "orchestrator/integration.py",
+      "sha256": "2381e8aab28d55d608fbc395e87582ba538d6de1b605ca64f84f71f5bc8244ec"
+    },
+    {
+      "path": "orchestrator/io.py",
+      "sha256": "1412a2d5af54034b920eb5b40bb4400e76f4bdfdf76de69e87f69efa536e3a22"
+    },
+    {
+      "path": "orchestrator/literature.py",
+      "sha256": "3a41cb4bf3f782d3afba62736ac60261ac3293a45c1870470cfd9907c0dcdd7c"
+    },
+    {
+      "path": "orchestrator/llm_client.py",
+      "sha256": "dc020a426335ec3e3a9bf671354f2ec6b5edf728ddba12231d7062accbda4573"
+    },
+    {
+      "path": "orchestrator/loop_graph.py",
+      "sha256": "b5e4b32b1e799ae13fcb32235d1ba820a589739f944416f38f6170fa95dc86cb"
+    },
+    {
+      "path": "orchestrator/pathways.py",
+      "sha256": "56df948561570c29538f5e3abc3e522de01d98ab34dcd4a8ba3aa72dff930f1f"
+    },
+    {
+      "path": "orchestrator/prognosis.py",
+      "sha256": "b28139a2c56ad7d86d9af7eab6c35f67b05c951083196d00ba17dc9c37b6034d"
+    },
+    {
+      "path": "orchestrator/reanalysis.py",
+      "sha256": "c453af9c118f12e5f6d339bd28a63238e97236cd541284333169f26fdd5e309e"
+    },
+    {
+      "path": "orchestrator/reasoning.py",
+      "sha256": "c54ba66813a072202c9c878922e0049e5554ad678c3b9e1bd6a6ca7aa748f79a"
+    },
+    {
+      "path": "orchestrator/report.py",
+      "sha256": "3f76d2debcfb1cdeff64e91cec2f510fe70565e041485ba8055eed66314fb3ac"
+    },
+    {
+      "path": "orchestrator/runner.py",
+      "sha256": "9f4ef02deb94a7ae17ba66dba094d551380889493744cc4492aa8b5368119ff9"
+    },
+    {
+      "path": "orchestrator/scrna.py",
+      "sha256": "13355279f7eb7753dde30489d03a769ca528a657f6945186a8ecc67b9ae9fbb1"
+    },
+    {
+      "path": "orchestrator/state.py",
+      "sha256": "93ac0ba008dcc58200da1eae1aad2698bb2e17126385c52b11bf83b7a134d960"
+    },
+    {
+      "path": "orchestrator/statistics.py",
+      "sha256": "c3f08c80902460bdfcf64edaba219fef4448dde731e065e64d9ce0175a6f0a88"
+    },
+    {
+      "path": "prompts/agent_analyst.md",
+      "sha256": "399694b61b492f662baac78e54a37e47d03b064080d761b62d07de990c27c318"
+    },
+    {
+      "path": "prompts/agent_critic.md",
+      "sha256": "e0fd5246f9f892c8139005dea02c368fe47a0abb5130d8d8d3d22c16de470e2d"
+    },
+    {
+      "path": "prompts/agent_evidence_integrator.md",
+      "sha256": "9b8da778603f13643389beb2b2535d9bf8c263c1e5b5d620ad0e0fbc0dacead3"
+    },
+    {
+      "path": "prompts/agent_hypothesis_reasoner.md",
+      "sha256": "fa39ea95be9cc4b2655a6116975f617fb8f4661a9c76c1a8513eca49451b7a1b"
+    },
+    {
+      "path": "prompts/agent_librarian.md",
+      "sha256": "f154000443c4f1d4daaaeeae5773f4740c2af758a802b45c17a61be765fe80ce"
+    },
+    {
+      "path": "prompts/agent_reanalysis_proposer.md",
+      "sha256": "bcc1a0d2f6d7c1e5388188caa00bdc2df49ca968019103d0711bda868c344ad2"
+    },
+    {
+      "path": "prompts/agent_synth.md",
+      "sha256": "7c6222ff16b253ded3375aa2d957bc7b71c18a04c8287a3cbb72ca5f12a228ff"
+    },
+    {
+      "path": "prompts/hub_integrator.md",
+      "sha256": "8818bae1f124b3d01fdd9b10aa7c3970d9893acc2d1048e7fd2565c01a15e97d"
+    },
+    {
+      "path": "prompts/hub_planner.md",
+      "sha256": "99be816fbadbd625b927ab3f22cc59f49080a86bb4c609ef384cff96fef1169c"
+    },
+    {
+      "path": "prompts/shared_prefix.md",
+      "sha256": "9b3a5321d0e84e31b6e71a3361648b465688abe04c59dbcb05ae0d11d290a042"
+    },
+    {
+      "path": "prompts/spoke_metabolomics.md",
+      "sha256": "43126b0863694f36a1b0e30ddcd42f917960925111f131e940ca7d16404fe208"
+    },
+    {
+      "path": "prompts/spoke_proteomics.md",
+      "sha256": "820626a89eb4a29250bcdc06bc83b3ebc95f4dc49fb774e4592238ee096b5d89"
+    },
+    {
+      "path": "prompts/spoke_scrna.md",
+      "sha256": "ad5a924caf30807e1642aa84fe125addc463d2915a44841d06b911d66286f348"
+    },
+    {
+      "path": "prompts/spoke_transcriptomics.md",
+      "sha256": "91f61f468c9a18b19368d6f1c33bf33cf22e501080c772a5b0a38caba410fe5e"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "1e91d7cac69bc42b92a71cae08dd862f49057f09757b86c599aa7afaa27c6b11"
+    },
+    {
+      "path": "schemas/agent_analyst.schema.json",
+      "sha256": "075c321a7020565701f70d242d84aa6a5f708a49ce4a105d84001d1ef67e6b18"
+    },
+    {
+      "path": "schemas/agent_librarian.schema.json",
+      "sha256": "31cc2ea19519539dc0af469ceaa7caf16762ceb35c020c3acb9e59e24c179b32"
+    },
+    {
+      "path": "schemas/agent_reasoner.schema.json",
+      "sha256": "9572c4bdd14ede7489a828f22563cba936ab81dd1cb6bf3b6a561225874a388e"
+    },
+    {
+      "path": "schemas/agent_review.schema.json",
+      "sha256": "bde368026e938f80ad9229c83bc9ff9c722a544eee2752838627601f3189bc63"
+    },
+    {
+      "path": "schemas/agent_synthesis.schema.json",
+      "sha256": "1f6ed76d06667be42c9de7033bbdf3907bea72616b1bb59c4b9bf0bdc5060b7b"
+    },
+    {
+      "path": "schemas/dossier_manifest.schema.json",
+      "sha256": "692b2b3f7a27854dcf45637d8212aa4e9eedc659e9d9263f0b7630bc557d364b"
+    },
+    {
+      "path": "schemas/evidence.schema.json",
+      "sha256": "686e73ff9167893c02e813bbeebd3dfc62ec7bbdfece7b79a6a8a4eadaa828f5"
+    },
+    {
+      "path": "schemas/evidence_cluster.schema.json",
+      "sha256": "13b61c04dd37d48565112ea58d6c974adb4d2e67912c5fdd2116791c49ec3bed"
+    },
+    {
+      "path": "schemas/evidence_graph.schema.json",
+      "sha256": "84f9013faf4aa06a29dccfed273a6571e6cd6803cd3333a0454471afcd163640"
+    },
+    {
+      "path": "schemas/evidence_v2.schema.json",
+      "sha256": "98d6071018292297fca130accb8959ba4f43df9b45c4fc6a7a6680a5f58a7301"
+    },
+    {
+      "path": "schemas/hypothesis.schema.json",
+      "sha256": "aa8e795ce9c988073ef0b8f70bffb94c4569f6aabd154979581701fa5329efbc"
+    },
+    {
+      "path": "schemas/input_manifest.schema.json",
+      "sha256": "0d7f0cf6cd7abe891bc4558fbf64d4689e952c7f3383502b098a37c1339067e2"
+    },
+    {
+      "path": "schemas/prognosis_output.schema.json",
+      "sha256": "d7af1044d1d77ee230e345b84a5ff410fda138abed8ef5e9181724ea7d076b2d"
+    },
+    {
+      "path": "schemas/reanalysis_proposal.schema.json",
+      "sha256": "0e215ddf6173fc4312e854351766550162a5944d60bba99b11cdb2de11b3225c"
+    },
+    {
+      "path": "schemas/reanalysis_request.schema.json",
+      "sha256": "17ced74f3f2aa63b83c28a90790370e206d72bac4f863d294114f74603847e8d"
+    },
+    {
+      "path": "schemas/reanalysis_result.schema.json",
+      "sha256": "c403bd837f4fe7783f640882afc6d865e70ab8a254aa7f5fb0e7c6a25a21695b"
+    },
+    {
+      "path": "schemas/scrna_output.schema.json",
+      "sha256": "e87b98bd92555a9c31a9b00ac949aa014c61796480392ebe9bbc30da860c052e"
+    },
+    {
+      "path": "schemas/spoke_output.schema.json",
+      "sha256": "9dc827089ab4fce4e88a2918b6bd01da11f0e9213cc205b59c923404c90cb3c5"
+    },
+    {
+      "path": "scripts/00_run.sh",
+      "sha256": "41114d4dc1164af9dafebe5d047eed2b103f2ea4972817992578f98050820117"
+    },
+    {
+      "path": "scripts/01_prepare_resources.R",
+      "sha256": "acad5a95957469b7976740290c1b6bee7d752716c3c1f564553984a44548a82b"
+    },
+    {
+      "path": "scripts/01b_fetch_kegg.py",
+      "sha256": "11176c4ce0fb34c1990ba11f24d4e8a3684a7b3c41bd20ee63eb07c59d3e8435"
+    },
+    {
+      "path": "scripts/01c_fetch_kegg_human.py",
+      "sha256": "61e97bcfab1c3e23c59fe1aa54322d6c0368713ae9ff4b9e952aa39054736542"
+    },
+    {
+      "path": "scripts/02_statistics.R",
+      "sha256": "ff49c7069207e54f5c6cd7d3662e3cd090c9a0b3bcf99e0ac1845a94f045b36b"
+    },
+    {
+      "path": "scripts/02a_deseq_checkpointed.R",
+      "sha256": "f83359c23eea54a5d22a081640d7a1a113dd12eb656258108550c22419153ce2"
+    },
+    {
+      "path": "scripts/03_pathways.R",
+      "sha256": "52abdf4084d01c0d1862628bede69a2d210dbce2aab933786a498e3a1505e83d"
+    },
+    {
+      "path": "scripts/04_literature.py",
+      "sha256": "3e1842c9afb2af148bc9c31d25a9feb208416fb15822848f52e570dcc2e17de0"
+    },
+    {
+      "path": "scripts/04_retrieve_literature.py",
+      "sha256": "6d712194abbd5954de3445d8627857663708c27e47fcbc4635fb946166d7c556"
+    },
+    {
+      "path": "scripts/05_scrna_celltype.R",
+      "sha256": "81882b4b46b4b8c9ee3e7c87fea6d0ffa3600411f9a83ca3ef9915fa4458dd56"
+    },
+    {
+      "path": "scripts/06_prognosis.R",
+      "sha256": "280fe25e6a044d075fcbeedc2be0038310ad7e8e93df8b6435773e6b75c97f2c"
+    },
+    {
+      "path": "scripts/30_task_chain_reference.R",
+      "sha256": "7b77653518ee452fd8fae29d7fd44ec813ea5187057fe409da4044f5dad7ccf5"
+    },
+    {
+      "path": "scripts/31_task_chain_figure_review.R",
+      "sha256": "695e16fb376669fc370421a81b91739db2e7d6984b7b2655aa78436f38f30529"
+    },
+    {
+      "path": "setup_macos.command",
+      "sha256": "d8a26490e01394c2f845e2b7a1053d7236a27316a1070ab6dce8428693db1f7a"
+    },
+    {
+      "path": "setup_windows.cmd",
+      "sha256": "4c4922dfa41105ea2fabf7558c6231e316816258555be229f48e8334dc297e50"
+    },
+    {
+      "path": "start_macos.command",
+      "sha256": "e0eba8261af498eb3e1e0a72c2076d86baf0ba8e5ab15a06b16db0cac5d7b5dc"
+    },
+    {
+      "path": "start_windows.cmd",
+      "sha256": "1354bf3e3f965d7c1a8c33eba3dfa44ce0b11b86a3b687b1a3b4fdd8384bc7a1"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "93b27d3e7281884857c988fdf77f9ab7116e7d52dbddfae069c2b4a75dce44a8"
+    },
+    {
+      "path": "tests/test_codegen_audit_portable.py",
+      "sha256": "92bd89c0f551026fe49493411468419d97917ef929fda7a0f563440458ce6c71"
+    },
+    {
+      "path": "tests/test_macos_startup.py",
+      "sha256": "c7f8356e58684bb83e4386d5e1117a59ee184f7d4271ea42c810a91a7ad073d2"
+    },
+    {
+      "path": "tests/test_model_interfaces.py",
+      "sha256": "9f8a5824ea250940cfcc9ab28c9712ed470d9f61e7c69220aac5383bc36693ef"
+    },
+    {
+      "path": "tests/test_prompt_editor_portable.py",
+      "sha256": "f05553af19976c7fcc4def3d08fc2acc7c31b5b01f253a3223d5cb0060ca69ae"
+    },
+    {
+      "path": "tests/test_step_codegen_portable.py",
+      "sha256": "a8b794647a76598e4c74014a158959fd9983194540743937dd71b439c09ce3c8"
+    },
+    {
+      "path": "tests/test_task_planner_portable.py",
+      "sha256": "41aa0173928cf28b8f3915a0e28c01563863893e63242a1024f7242162d33eb5"
+    },
+    {
+      "path": "tests/test_v8_distribution.py",
+      "sha256": "6f3bedc694ccc6ae0c94ace0eea95beca181e8f2ca80650bc6f4543a77511cb9"
+    }
+  ],
+  "excluded_private_inputs_and_reference_data": true
+}

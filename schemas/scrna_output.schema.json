@@ -1,0 +1,154 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "omics",
+    "cohort_id",
+    "scope",
+    "evidence_boundary",
+    "n_cells",
+    "n_samples",
+    "n_celltypes",
+    "analyses",
+    "artifacts",
+    "qc",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "review_only",
+        "failed",
+        "blocked",
+        "skipped"
+      ]
+    },
+    "omics": {
+      "const": "scrna_context"
+    },
+    "cohort_id": {
+      "type": "array",
+      "items": {
+        "const": "external_atlas"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_boundary": {
+      "const": "external_context_not_independent_validation"
+    },
+    "n_cells": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "n_samples": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "n_celltypes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "analyses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "blocked",
+              "failed",
+              "skipped"
+            ]
+          },
+          "n_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "method": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "bytes"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "qc": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "step",
+          "message",
+          "resolved"
+        ],
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

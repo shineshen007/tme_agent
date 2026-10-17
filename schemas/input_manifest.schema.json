@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "cohorts",
+    "warnings",
+    "artifacts",
+    "clinical_conflicts_resolved"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "status": {
+      "const": "complete"
+    },
+    "cohorts": {
+      "type": "object"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "bytes"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "clinical_conflicts_resolved": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tnm_stage_unmapped": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Patients whose authoritative TNM stage could not be parsed to an ordinal I-IV."
+    }
+  },
+  "additionalProperties": false
+}

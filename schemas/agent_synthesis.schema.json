@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["hypotheses", "target_groups", "literature_stances"],
+  "properties": {
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "axis", "statement", "rationale", "supporting_evidence_ids",
+                     "counterevidence_ids", "cell_context_refs", "literature_pmids",
+                     "testable_predictions", "validation_experiments", "alternative_explanations",
+                     "unknowns", "validation_status"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "axis": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 1},
+          "rationale": {"type": "string", "minLength": 1},
+          "supporting_evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "counterevidence_ids": {"type": "array", "items": {"type": "string"}},
+          "cell_context_refs": {"type": "array", "items": {"type": "string"}},
+          "literature_pmids": {"type": "array", "items": {"type": "string"}},
+          "testable_predictions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["prediction", "readout", "expected_if_true", "expected_if_false"],
+              "properties": {
+                "prediction": {"type": "string"},
+                "readout": {"type": "string"},
+                "expected_if_true": {"type": "string"},
+                "expected_if_false": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "validation_experiments": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["model_system", "perturbation", "controls", "readout", "feasibility", "notes"],
+              "properties": {
+                "model_system": {"type": "string"},
+                "perturbation": {"type": "string"},
+                "controls": {"type": "string"},
+                "readout": {"type": "string"},
+                "feasibility": {"enum": ["high", "medium", "low"]},
+                "notes": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "alternative_explanations": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "unknowns": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "validation_status": {"const": "not_independently_validated"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "target_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group", "group_type", "targets"],
+        "properties": {
+          "group": {"type": "string", "minLength": 1},
+          "group_type": {"enum": ["axis", "pathway"]},
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind", "identifier", "evidence_ids", "rationale", "validation_approach", "caveats"],
+              "properties": {
+                "kind": {"enum": ["gene", "protein", "metabolite", "cell_type", "pathway"]},
+                "identifier": {"type": "string", "minLength": 1},
+                "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "rationale": {"type": "string"},
+                "validation_approach": {"type": "string"},
+                "caveats": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "literature_stances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pmid", "stance", "quote", "rationale"],
+        "properties": {
+          "pmid": {"type": "string", "pattern": "^[0-9]+$"},
+          "stance": {"enum": ["supports", "contradicts", "neutral", "unclear"]},
+          "quote": {"type": "string"},
+          "rationale": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

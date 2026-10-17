@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "omics",
+    "cohort_id",
+    "contrast",
+    "n_pairs",
+    "de",
+    "artifacts",
+    "qc",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "review_only",
+        "failed",
+        "blocked",
+        "skipped"
+      ]
+    },
+    "omics": {
+      "enum": [
+        "transcriptomics",
+        "proteomics",
+        "metabolomics"
+      ]
+    },
+    "cohort_id": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "contrast": {
+      "const": "tumor_vs_adjacent"
+    },
+    "n_pairs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "de": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "n_pairs",
+          "n_features",
+          "n_tested",
+          "up",
+          "down",
+          "cohort_id",
+          "method"
+        ],
+        "properties": {
+          "n_pairs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "n_features": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "n_tested": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "up": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "down": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "bytes"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "qc": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "step",
+          "message",
+          "resolved"
+        ],
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReanalysisRequest v1 (frozen artifact lookup only)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "trigger_hypothesis_id", "reason", "target_omics", "scientific_question", "analysis_type", "features", "pathways", "expected_resolution", "iteration"],
+  "properties": {
+    "request_id": {"type": "string", "pattern": "^R[1-9][0-9]*$"},
+    "trigger_hypothesis_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "trigger_issue_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "reason": {"enum": ["cross_omics_conflict", "missing_evidence", "counterevidence_check", "context_resolution"]},
+    "target_omics": {"enum": ["transcriptomics", "proteomics", "metabolomics", "scrna", "pathway", "prognosis"]},
+    "scientific_question": {"type": "string", "minLength": 1, "maxLength": 500},
+    "analysis_type": {"enum": ["de_evidence_lookup", "pathway_result_lookup", "scrna_context_lookup", "prognosis_association_lookup", "tcell_correlation_lookup"]},
+    "features": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:+-]+$"}},
+    "pathways": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9_.:+ -]+$"}},
+    "expected_resolution": {"enum": ["support", "contradict", "remain_uncertain"]},
+    "iteration": {"type": "integer", "minimum": 1}
+  },
+  "allOf": [
+    {"if": {"properties": {"analysis_type": {"const": "de_evidence_lookup"}}}, "then": {"properties": {"target_omics": {"enum": ["transcriptomics", "proteomics", "metabolomics"]}, "features": {"minItems": 1}, "pathways": {"maxItems": 0}}}},
+    {"if": {"properties": {"analysis_type": {"const": "pathway_result_lookup"}}}, "then": {"properties": {"target_omics": {"const": "pathway"}, "features": {"maxItems": 0}, "pathways": {"minItems": 1}}}},
+    {"if": {"properties": {"analysis_type": {"const": "scrna_context_lookup"}}}, "then": {"properties": {"target_omics": {"const": "scrna"}, "features": {"minItems": 1}, "pathways": {"maxItems": 0}}}},
+    {"if": {"properties": {"analysis_type": {"enum": ["prognosis_association_lookup", "tcell_correlation_lookup"]}}}, "then": {"properties": {"target_omics": {"const": "prognosis"}, "features": {"minItems": 1}, "pathways": {"maxItems": 0}}}}
+  ]
+}

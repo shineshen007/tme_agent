@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["omics", "cohort_scope", "key_findings", "pathway_highlights", "technical_caveats", "cell_context", "open_questions"],
+  "properties": {
+    "omics": {"enum": ["transcriptomics", "proteomics", "metabolomics", "scrna"]},
+    "cohort_scope": {"enum": ["tumor_vs_adjacent", "external_atlas_context"]},
+    "key_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["finding_id", "statement", "evidence_ids", "direction", "caveats"],
+        "properties": {
+          "finding_id": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 1},
+          "evidence_ids": {"type": "array", "items": {"type": "string"}},
+          "direction": {"enum": ["up", "down", "mixed", "not_significant"]},
+          "caveats": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "pathway_highlights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pathway", "direction", "evidence_ids"],
+        "properties": {
+          "pathway": {"type": "string", "minLength": 1},
+          "direction": {"enum": ["up", "down", "not_significant"]},
+          "evidence_ids": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "technical_caveats": {"type": "array", "items": {"type": "string"}},
+    "cell_context": {"type": "array", "items": {"type": "string"}},
+    "open_questions": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

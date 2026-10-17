@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "evidence_id",
+    "cohort_id",
+    "feature_id",
+    "artifact_path",
+    "row_key",
+    "effect_scale",
+    "omics",
+    "effect",
+    "padj",
+    "n_pairs",
+    "claim_type"
+  ],
+  "properties": {
+    "evidence_id": {
+      "type": "string"
+    },
+    "cohort_id": {
+      "type": "string"
+    },
+    "feature_id": {
+      "type": "string"
+    },
+    "artifact_path": {
+      "type": "string"
+    },
+    "row_key": {
+      "type": "string"
+    },
+    "effect_scale": {
+      "type": "string"
+    },
+    "omics": {
+      "enum": [
+        "transcriptomics",
+        "proteomics",
+        "metabolomics"
+      ]
+    },
+    "effect": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "padj": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "n_pairs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "claim_type": {
+      "const": "association"
+    }
+  }
+}

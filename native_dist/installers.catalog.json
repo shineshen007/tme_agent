@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-13",
+  "install_only_when_missing": true,
+  "installers": {
+    "python-windows-x64": {
+      "url": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-amd64.exe",
+      "sha256": "fb4f9f5d438b2396da0086dc70b935c530cb578e37adc6d354f7ad2037fee83b",
+      "bytes": 29935584,
+      "version": "3.13.16",
+      "verification": "downloaded_and_hashed",
+      "source": "https://www.python.org/downloads/release/python-31316/"
+    },
+    "r-windows-x64": {
+      "url": "https://cran.r-project.org/bin/windows/base/old/4.4.3/R-4.4.3-win.exe",
+      "sha256": "7eddfbab527aa3dc784ef165d9393ea85d3b93810e37fcf24b9c20087e2bbd29",
+      "version": "4.4.3",
+      "verification": "v4_verified_hash"
+    },
+    "r-macos-arm64": {
+      "url": "https://cran.r-project.org/bin/macosx/big-sur-arm64/base/R-4.4.3-arm64.pkg",
+      "sha256": "f768eb245c06b17740c6b6f1e0129b437584e73ce5f15a25d818698ebdc678f0",
+      "version": "4.4.3",
+      "verification": "v4_verified_hash"
+    },
+    "r-macos-x64": {
+      "url": "https://cran.r-project.org/bin/macosx/big-sur-x86_64/base/R-4.4.3-x86_64.pkg",
+      "sha256": "3c10252f6c32fbe9c5e88044a4291877cd881a7c14e7cd10ddb5cbbcfc24b0e0",
+      "version": "4.4.3",
+      "verification": "v4_verified_hash"
+    },
+    "python-macos-universal2": {
+      "url": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-macos11.pkg",
+      "sha256": "30666509020b4da0dd8bc2e773255f34d76b7bb80b66960a928d5f6daa0192d7",
+      "version": "3.13.16",
+      "verification": "official_release_page_sha256",
+      "source": "https://www.python.org/downloads/release/python-31316/"
+    }
+  }
+}

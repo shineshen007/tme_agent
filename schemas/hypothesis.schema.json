@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "status",
+    "hypotheses",
+    "limitations"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "review_only",
+        "blocked"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "testable_prediction",
+          "experimental_design",
+          "claim_type",
+          "evidence_ids",
+          "independent_omics",
+          "counterevidence_ids",
+          "measurement_status",
+          "validation_status",
+          "alternative_explanations",
+          "literature"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "testable_prediction": {
+            "type": "string"
+          },
+          "experimental_design": {
+            "type": "string"
+          },
+          "claim_type": {
+            "const": "hypothesis"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "independent_omics": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "transcriptomics",
+                "proteomics",
+                "metabolomics"
+              ]
+            },
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "counterevidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "measurement_status": {
+            "enum": [
+              "putative",
+              "ambiguous",
+              "verified"
+            ]
+          },
+          "validation_status": {
+            "const": "not_independently_validated"
+          },
+          "alternative_explanations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "literature": {
+            "type": "array"
+          },
+          "external_scrna_context": {
+            "type": "object",
+            "required": [
+              "boundary",
+              "genes"
+            ],
+            "properties": {
+              "boundary": {
+                "const": "external_pan_cancer_atlas_context_not_independent_validation"
+              },
+              "genes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "gene"
+                  ]
+                }
+              },
+              "deconvolution": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

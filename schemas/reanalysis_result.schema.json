@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReanalysisResult v1 (no new statistics)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "iteration", "analysis_type", "status", "reason_code", "referenced_evidence_ids", "source_rows", "new_evidence"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "request_id": {"type": "string"},
+    "iteration": {"type": ["integer", "null"]},
+    "analysis_type": {"type": ["string", "null"]},
+    "status": {"enum": ["no_new_evidence", "unsupported", "not_estimable"]},
+    "reason_code": {"type": "string", "minLength": 1},
+    "referenced_evidence_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^ev_[0-9a-f]{20}$"}},
+    "source_rows": {"type": "array", "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["artifact_path", "sha256", "row_key"], "properties": {"artifact_path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "row_key": {"type": "string", "minLength": 1}}}},
+    "new_evidence": {"type": "array", "maxItems": 0}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "unsupported"}}}, "then": {"properties": {"referenced_evidence_ids": {"maxItems": 0}, "source_rows": {"maxItems": 0}}}}
+  ]
+}

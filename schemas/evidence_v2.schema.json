@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EvidenceRecord v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_id", "source", "biological_entity", "observation", "evidence_quality", "relationship", "provenance"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "evidence_id": {"type": "string", "pattern": "^ev_[0-9a-f]{20}$"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["omics", "cohort", "assay", "analysis", "evidence_layer"],
+      "properties": {
+        "omics": {"enum": ["transcriptomics", "proteomics", "metabolomics", "scrna_context"]},
+        "cohort": {"type": "string"},
+        "assay": {"type": "string"},
+        "analysis": {"type": "string"},
+        "evidence_layer": {"enum": ["de", "prognosis", "tcell_correlation", "scrna_context"]}
+      }
+    },
+    "biological_entity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["entity_type", "entity_id", "symbol", "pathway", "cell_type", "tissue_context"],
+      "properties": {
+        "entity_type": {"type": "string"}, "entity_id": {"type": "string"},
+        "symbol": {"type": "string"}, "pathway": {"type": "string"},
+        "cell_type": {"type": "string"}, "tissue_context": {"type": "string"}
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["direction", "selected", "effect_scale", "claim_type", "effect", "pvalue", "padj", "n_pairs"],
+      "properties": {
+        "direction": {"type": "string"},
+        "selected": {"oneOf": [{"type": "boolean"}, {"const": "not_applicable"}]},
+        "effect_scale": {"type": "string"}, "claim_type": {"type": "string"},
+        "effect": {"type": ["number", "null"]},
+        "pvalue": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "padj": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "n_pairs": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "evidence_quality": {
+      "type": "object", "additionalProperties": false,
+      "required": ["measurement_reliability", "statistical_stability", "annotation_confidence", "evidence_context"],
+      "properties": {
+        "measurement_reliability": {"type": "string"},
+        "statistical_stability": {"type": "string"},
+        "annotation_confidence": {"type": "string"},
+        "evidence_context": {"enum": ["measured_evidence", "derived_estimate", "external_context", "literature"]}
+      }
+    },
+    "relationship": {
+      "type": "object", "additionalProperties": false,
+      "required": ["axis", "supports", "contradicts"],
+      "properties": {
+        "axis": {"type": "string"},
+        "supports": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "contradicts": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_path", "row_key", "analysis_version"],
+      "properties": {
+        "artifact_path": {"type": "string"},
+        "row_key": {"type": "string"},
+        "analysis_version": {"type": "string"}
+      }
+    }
+  }
+}

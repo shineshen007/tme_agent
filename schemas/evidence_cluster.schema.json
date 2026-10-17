@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EvidenceCluster interpretation contract",
+  "type": "object",
+  "required": ["evidence_clusters"],
+  "additionalProperties": false,
+  "properties": {
+    "evidence_clusters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cluster_id", "axis", "entities", "supporting_evidence_ids", "counterevidence_ids", "measured_omics", "modality_coverage", "concordance", "missing_links", "evidence_gaps", "open_questions", "alternative_interpretations"],
+        "additionalProperties": false,
+        "properties": {
+          "cluster_id": {"type": "string", "pattern": "^EC[0-9]+$"},
+          "axis": {"type": "string", "minLength": 1},
+          "entities": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "supporting_evidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "counterevidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "measured_omics": {"type": "array", "items": {"enum": ["transcriptomics", "proteomics", "metabolomics"]}, "uniqueItems": true},
+          "modality_coverage": {
+            "type": "object", "required": ["transcriptomics", "proteomics", "metabolomics"], "additionalProperties": false,
+            "properties": {
+              "transcriptomics": {"enum": ["selected", "observed_unselected", "unavailable"]},
+              "proteomics": {"enum": ["selected", "observed_unselected", "unavailable"]},
+              "metabolomics": {"enum": ["selected", "observed_unselected", "unavailable"]}
+            }
+          },
+          "concordance": {"enum": ["concordant", "partial", "discordant", "insufficient"]},
+          "missing_links": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "evidence_gaps": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "open_questions": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "alternative_interpretations": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+        }
+      }
+    }
+  }
+}
