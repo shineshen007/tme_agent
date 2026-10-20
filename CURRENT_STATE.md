@@ -2,13 +2,17 @@ updated_at: 2026-10-20T17:35:00+08:00
 
 ## current_goal
 
-v8.0.2 已准备（含品牌 logo 与 Paseo 风格 README）；发布流程待提交并打 tag。
+v8.0.2 已正式发布（tag v8.0.2，Release 附件齐全）；三平台 CI 全绿，公开更新器识别到 8.0.2。
 
 ## completed
 
+- v8.0.2 发布：commit e92448e 的 CI（run 39401541939）三平台 success；tag v8.0.2 触发发布工作流（run 39401561243），validate 与 publish 均 success。
+- Release 附件：`tme_agent-v8.0.2.zip`（441854 B）、`manifest-v8.0.2.json`（31250 B）、`SHA256SUMS-v8.0.2.txt`；`shasum -a 256 -c` 通过。
+- 发布清单与 tag 内容逐文件一致（171 项、`source_data` 为空）；ZIP 173 条目，含 3 个 `assets/*.svg` 与 `README.zh-CN.md`，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755。
+- 公开更新器 `ReleaseClient` 识别到最新正式版本 8.0.2。
 - v8.0.2 准备：新增 `assets/` 品牌资源（深浅主题 logo + lockup SVG，无 PNG）；README 改为 Paseo 风格版式并拆分为英文主版与 `README.zh-CN.md`。
-- 发行白名单扩展：`public_release.AREAS` 增加 `assets: {.svg}`，`TOP` 增加 `README.zh-CN.md`；公开发行文件 167 → 171 项；`public_release audit` 通过，`build` 产出 v8.0.2 ZIP（173 条目，3 个 SVG，`source_data` 为空）。
-- v8.0.2 本机回归：`public_release audit` 171 项通过；发行分布与 v8 分布测试通过。
+- 发行白名单扩展：`public_release.AREAS` 增加 `assets: {.svg}`，`TOP` 增加 `README.zh-CN.md`；公开发行文件 167 → 171 项。
+- v8.0.2 本机回归：`public_release audit` 171 项通过；发行分布与 v8 分布测试 57 passed；完整回归 155 passed / 1 skipped。
 - v8 ZIP 的195项内部清单通过，源码独立导入；原研究输入、参考数据、历史结果和环境均排除。
 - GPL-3.0-or-later、合成示例、本地配置、版本入口、白名单构建器、更新与回滚、CI和发布工作流完成。
 - 149项完整回归、44项更新专项通过（覆盖重叠）；Linux全新ZIP安装、doctor、CSV/RDS与GSVA合成任务、后台生命周期通过。

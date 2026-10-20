@@ -53,6 +53,13 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - 本机回归：探测相关三个测试文件 54 passed；`public_release audit` 167 项通过。
 - 第四次远程运行（d11740b，run 39392040336）：ubuntu、macOS、Windows **全部 success**，便携回归首次三平台通过。
 
+## 2026-10-20 v8.0.2 发布
+
+- 版本提交 e92448e 的 CI（run 39401541939）三平台 success；tag v8.0.2 触发发布工作流（run 39401561243），validate 与 publish 均 success。
+- Release 附件：`tme_agent-v8.0.2.zip`（441854 B）、`manifest-v8.0.2.json`（31250 B）、`SHA256SUMS-v8.0.2.txt`；`shasum -a 256 -c` 通过。
+- 发布清单与 tag 内容逐文件一致（171 项、`source_data` 为空）；ZIP 173 条目，含 3 个 `assets/*.svg` 与 `README.zh-CN.md`，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755。
+- `public_update.ReleaseClient` 识别到最新正式版本 8.0.2。
+
 ## 2026-10-20 v8.0.2 品牌与 README
 
 - 新增 `assets/`：`logo-on-dark.svg`、`logo-on-light.svg`（GitHub 深浅主题经 `<picture>` 自适应）、`logo-lockup.svg`（社交预览）；全部为手绘单色矢量，未生成 PNG（符合项目图件规范）。
