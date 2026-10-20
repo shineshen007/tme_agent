@@ -7,6 +7,7 @@ v8.1.0 已正式发布（tag `v8.1.0`，Release 附件齐全，三平台 CI 与�
 ## completed
 
 - v8.1.0 发布：提交 `8b9c63b`，tag `v8.1.0`；主分支 CI（run 39439373796）ubuntu、macOS、Windows 全部 success；发布工作流（run 39439385170）validate 与 publish 均 success。
+- 发布后文档记录提交 `402d6a1` 的 CI（run 39440307545）macOS job 首次被取消（15 分钟未完成），重跑后三平台 success；发布提交本身的 CI 无此问题。
 - Release 附件：`tme_agent-v8.1.0.zip`（458353 B，sha256 29dd2a5f…）、`manifest-v8.1.0.json`（31974 B，sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`（174 B）；`shasum -a 256 -c` 通过。
 - 发布内容校验：manifest 175 项、`source_data` 为空；ZIP 177 条目，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755；本地构建 ZIP 哈希与 GitHub 附件一致。
 - `public_update.ReleaseClient` 识别到最新正式版本 8.1.0 与三个附件。
