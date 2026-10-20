@@ -51,6 +51,12 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - Windows 根因：探测命令在独立子进程里运行 `task_guard.py`，进程内 monkeypatch 影响不到该子进程，仍报 `Private native runtime or approved input snapshot is missing`。
 - 修复：受保护子进程调用抽为 `input_inspection._run_guarded` 接缝，Windows 单元测试在父进程侧直接运行探测命令；产品路径不变，AppContainer 语义仍由 bootstrap 与原生验收覆盖。
 - 本机回归：探测相关三个测试文件 54 passed；`public_release audit` 167 项通过。
-- Windows 结果待下一次远程运行确认。
+- 第四次远程运行（d11740b，run 39392040336）：ubuntu、macOS、Windows **全部 success**，便携回归首次三平台通过。
+
+## 当前状态
+
+- 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
+- 本机完整回归 155 passed / 1 skipped；`public_release audit` 167 项通过。
+
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。
