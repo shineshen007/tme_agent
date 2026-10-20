@@ -12,6 +12,15 @@ VERSION = 'input_probe_v1'
 SUPPORTED = {'.csv', '.tsv', '.rds', '.gmt'}
 
 
+def _run_guarded(root: Path, folder: Path, argv: list[str], env: dict):
+    """Run one guarded child process.
+
+    Named seam: native AppContainer/Landlock/Seatbelt behaviour is exercised by
+    bootstrap and native acceptance, while unit tests can substitute this call.
+    """
+    return subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=120)
+
+
 def inspect_inputs(root: Path, inputs: list[dict], cfg: dict) -> dict:
     from .task_runner import _step_environment, file_hash
     from .task_guard import available
@@ -36,7 +45,7 @@ def inspect_inputs(root: Path, inputs: list[dict], cfg: dict) -> dict:
     argv = [sys.executable, str(Path(__file__).with_name('task_guard.py')), str(folder), '--',
             rscript_path(root), '--vanilla', str(script), str(request), str(output)]
     try:
-        proc = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=120)
+        proc = _run_guarded(root, folder, argv, env)
         log_path = folder / 'probe.log'
         log_path.write_text(proc.stdout + proc.stderr, encoding='utf-8')
         if proc.returncode or not output.is_file():

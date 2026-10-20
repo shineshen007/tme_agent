@@ -36,15 +36,21 @@ def substituted_probe(request, monkeypatch):
 def substituted_windows_guard(monkeypatch):
     """Windows 单元测试不经过 AppContainer。
 
-    AppContainer 需要 bootstrap 准备的私有运行时与输入快照；单元测试只用合成
-    输入且不声称原生隔离，私有运行时的行为由 Windows 原生验收覆盖。
+    AppContainer 需要 bootstrap 准备的私有运行时与输入快照，而且运行在独立子进程
+    里、无法在测试进程内替换。这里替换父进程侧的接缝，直接运行探测命令；原生
+    隔离仍由 bootstrap 与 Windows 原生验收覆盖。
     """
     if os.name != "nt":
         return
-    from multiomics_tui import windows_native
-    monkeypatch.setattr(
-        windows_native, "run_appcontainer",
-        lambda task_dir, argv, env: subprocess.call(argv, env=env, cwd=task_dir))
+    from multiomics_tui import input_inspection
+
+    def run_without_appcontainer(root, folder, argv, env):
+        # argv = [python, task_guard.py, folder, '--', rscript, ...]
+        return input_inspection.subprocess.run(
+            argv[argv.index("--") + 1:], cwd=root, env=env,
+            capture_output=True, text=True, timeout=120)
+
+    monkeypatch.setattr(input_inspection, "_run_guarded", run_without_appcontainer)
 
 
 @lru_cache(maxsize=1)
