@@ -80,14 +80,23 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 
 - 新增用户级 `multiomics` 启动器与受管 PATH：POSIX 使用 `~/.local/bin` + 带标记的 shell 配置块，Windows 使用 `%USERPROFILE%\.local\bin` + 当前用户 `Path`；启动器设置 `PYTHONPATH` 并使用 `-P` 避免从调用目录导入同名包。
 - 新增 `/cd` 工作区切换：应用代码根与数据/配置根分离；未初始化目录从安装模板生成缺失配置与示例，已有文件不覆盖；macOS/Windows 运行绑定新工作区的 doctor，失败不切换。
-- 手动验收（macOS）：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`，输出 `multiomics 8.0.2`；在临时目录执行 `/cd`，生成 `config/study_config.yaml`、`runtime.local.yaml`、`api.local.yaml`、合成示例和 `.runtime/doctor.json`。
+- 手动验收（macOS）：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`，输出 `multiomics 8.1.0`；在临时目录执行 `/cd`，生成 `config/study_config.yaml`、`runtime.local.yaml`、`api.local.yaml`、合成示例和 `.runtime/doctor.json`。
 - 本机完整回归：184 passed / 2 skipped，耗时 3m02s；`public_release audit` 175 项通过。
 - Windows 原生用户 PATH、AppContainer 与 macOS 原生沙箱仍需目标机验收；CI 便携测试不替代原生验收。
+
+## 2026-10-20 v8.1.0 发布
+
+- 版本提交 8b9c63b；主分支 CI（run 39439373796）ubuntu、macOS、Windows 均 success。
+- tag `v8.1.0` 触发发布工作流（run 39439385170）：validate 与 publish 均 success。
+- Release 附件：`tme_agent-v8.1.0.zip`（458353 B，sha256 29dd2a5f…）、`manifest-v8.1.0.json`（31974 B，sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`（174 B）；下载后 `shasum -a 256 -c` 通过。
+- 发布清单与 tag 内容一致：175 项、`source_data` 为空；ZIP 177 条目，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755；本地构建 ZIP 哈希与 GitHub 附件一致。
+- `public_update.ReleaseClient` 识别到最新正式版本 8.1.0 与三个附件。
+- Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.0
 
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
-- 本机完整回归 184 passed / 2 skipped；`public_release audit` 175 项通过；`VERSION` 仍为 8.0.2，新功能尚未发布。
+- 本机完整回归 184 passed / 2 skipped；`public_release audit` 175 项通过；v8.1.0 已发布，VERSION 为 8.1.0。
 
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。

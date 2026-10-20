@@ -1,11 +1,15 @@
-updated_at: 2026-10-20T22:40:00+08:00
+updated_at: 2026-10-20T22:42:00+08:00
 
 ## current_goal
 
-v8.1.0 已准备（全局 `multiomics` 启动器与 `/cd` 工作区切换）；发布流程待提交、打 tag 并验证 GitHub Release。
+v8.1.0 已正式发布（tag `v8.1.0`，Release 附件齐全，三平台 CI 与发布工作流均成功）；剩余工作在目标机完成原生验收。
 
 ## completed
 
+- v8.1.0 发布：提交 `8b9c63b`，tag `v8.1.0`；主分支 CI（run 39439373796）ubuntu、macOS、Windows 全部 success；发布工作流（run 39439385170）validate 与 publish 均 success。
+- Release 附件：`tme_agent-v8.1.0.zip`（458353 B，sha256 29dd2a5f…）、`manifest-v8.1.0.json`（31974 B，sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`（174 B）；`shasum -a 256 -c` 通过。
+- 发布内容校验：manifest 175 项、`source_data` 为空；ZIP 177 条目，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755；本地构建 ZIP 哈希与 GitHub 附件一致。
+- `public_update.ReleaseClient` 识别到最新正式版本 8.1.0 与三个附件。
 - 新增 `native_dist/command_link.py`：生成 POSIX `~/.local/bin/multiomics` / Windows `%USERPROFILE%\.local\bin\multiomics.cmd`，设置 `PYTHONPATH`、转发参数、原子写入、拒绝覆盖非本工具文件；提供 `install/status/uninstall`。
 - 新增受管 PATH 配置：POSIX 写入带标记的 zsh/bash/fish/profile 块，Windows 写入当前用户 `HKCU\Environment` 的 `Path`；不需要管理员权限；`setup --no-path` 跳过，`--path` 强制启用，偏好记录在 `.runtime/command_link.json`。
 - `bootstrap.setup` 在 doctor 通过后安装启动器，把结果写入 `.runtime/install_report.json`；启动器失败只告警，不把环境安装判为失败。
@@ -19,7 +23,6 @@ v8.1.0 已准备（全局 `multiomics` 启动器与 `/cd` 工作区切换）；�
 
 ## in_progress
 
-- v8.1.0 发布：更新 VERSION、CHANGELOG 与状态后提交，推送 `v8.1.0` tag，等待 release 工作流和附件校验。
 - Windows 原生 PATH/AppContainer 验收与 macOS 原生沙箱验收待执行；本机 `/cd` 真实 doctor 已在 macOS 通过。
 
 ## key_decisions
@@ -37,6 +40,8 @@ v8.1.0 已准备（全局 `multiomics` 启动器与 `/cd` 工作区切换）；�
 
 ## latest_outputs
 
+- v8.1.0 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.0
+- 附件：`tme_agent-v8.1.0.zip`（sha256 29dd2a5f…）、`manifest-v8.1.0.json`（sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`；下载后校验通过。
 - 本机完整回归：`184 passed / 2 skipped`，耗时 3m02s。
 - `python -m native_dist.public_release audit`：175 项通过，版本 8.1.0。
 - 手动验收：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`（输出 `multiomics 8.1.0`）；在临时目录执行 `/cd` 新工作区，自动初始化并生成 macOS doctor 记录。
@@ -51,4 +56,4 @@ v8.1.0 已准备（全局 `multiomics` 启动器与 `/cd` 工作区切换）；�
 
 ## next_step
 
-提交并推送 `v8.1.0`，验证 Release 附件（ZIP、manifest、SHA256SUMS）与公开更新器识别结果；随后在 Windows 与 Intel macOS 目标机执行原生验收并记入 `docs/VALIDATION.md`。
+在 Windows 与 Intel macOS 目标机执行原生验收：新终端运行 `multiomics --version`、从任意目录启动、`/cd` 新目录并完成合成任务，检查用户 PATH 与 doctor 记录；结果记入 `docs/VALIDATION.md`。
