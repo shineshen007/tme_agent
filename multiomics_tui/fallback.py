@@ -82,7 +82,8 @@ def run_repl(session: Session) -> int:
     _out(BANNER)
     while True:
         try:
-            text = input("multiomics> ").strip()
+            label = session.root.name or str(session.root)
+            text = input(f"multiomics [{label}]> ").strip()
         except (EOFError, KeyboardInterrupt):
             _out("")
             return 0

@@ -1,66 +1,54 @@
-updated_at: 2026-10-20T17:35:00+08:00
+updated_at: 2026-10-20T22:40:00+08:00
 
 ## current_goal
 
-v8.0.2 已正式发布（tag v8.0.2，Release 附件齐全）；三平台 CI 全绿，公开更新器识别到 8.0.2。
+v8.1.0 已准备（全局 `multiomics` 启动器与 `/cd` 工作区切换）；发布流程待提交、打 tag 并验证 GitHub Release。
 
 ## completed
 
-- v8.0.2 发布：commit e92448e 的 CI（run 39401541939）三平台 success；tag v8.0.2 触发发布工作流（run 39401561243），validate 与 publish 均 success。
-- Release 附件：`tme_agent-v8.0.2.zip`（441854 B）、`manifest-v8.0.2.json`（31250 B）、`SHA256SUMS-v8.0.2.txt`；`shasum -a 256 -c` 通过。
-- 发布清单与 tag 内容逐文件一致（171 项、`source_data` 为空）；ZIP 173 条目，含 3 个 `assets/*.svg` 与 `README.zh-CN.md`，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755。
-- 公开更新器 `ReleaseClient` 识别到最新正式版本 8.0.2。
-- v8.0.2 准备：新增 `assets/` 品牌资源（深浅主题 logo + lockup SVG，无 PNG）；README 改为 Paseo 风格版式并拆分为英文主版与 `README.zh-CN.md`。
-- 发行白名单扩展：`public_release.AREAS` 增加 `assets: {.svg}`，`TOP` 增加 `README.zh-CN.md`；公开发行文件 167 → 171 项。
-- v8.0.2 本机回归：`public_release audit` 171 项通过；发行分布与 v8 分布测试 57 passed；完整回归 155 passed / 1 skipped。
-- v8 ZIP 的195项内部清单通过，源码独立导入；原研究输入、参考数据、历史结果和环境均排除。
-- GPL-3.0-or-later、合成示例、本地配置、版本入口、白名单构建器、更新与回滚、CI和发布工作流完成。
-- 149项完整回归、44项更新专项通过（覆盖重叠）；Linux全新ZIP安装、doctor、CSV/RDS与GSVA合成任务、后台生命周期通过。
-- 入口脚本权限：4 个脚本索引模式 100644→100755，新增索引与 ZIP/manifest 权限测试。
-- macOS 便携回归：非 Linux `require_probe` 记录缺失、`/var` 别名、测试缺少 R 库、DeepSeek 真实密钥依赖、TUI 计时假设，均已修复；新增 `@pytest.mark.real_probe` 安全用例。
-- CI 三平台失败（run 39386993527：ubuntu 16 / macOS 15 / Windows 29）：测试会话从宿主 R 探测 `R_HOME` 与 `.libPaths()` 写入临时配置；`r_env` 用例隔离 `R_LIBS*`；`_write_new` 兼容 Windows 无 `O_NOFOLLOW`；`redact()` 仅把长度 ≥16 的环境值当密钥；探测失败附带脱敏日志末尾；CI 使用 `--basetemp` 并在失败时上传日志 artifact。
-- 本机完整回归：155 passed / 1 skipped；`public_release audit` 167 项通过。
-- 第二轮 CI 修复：工作流补装 `digest`；`_step_environment` 授权 Rscript 解析路径与 bin/lib 目录（setup-r 的 `/opt/R` 不在固定前缀内）；新增解释器授权测试。
-- 第三轮 CI 修复：受保护子进程调用抽为 `input_inspection._run_guarded` 接缝，Windows 单元测试在父进程侧直接执行探测。
-- 三平台 CI 全绿（run 39392040336，HEAD d11740b）：ubuntu、macOS、Windows 全部 success。
-- 8.0.1 发布准备：`prepare --version 8.0.1` 通过；`release.yml` 补装 `digest`；发布测试改为从 VERSION 派生版本；本机回归 155 passed / 1 skipped。
-- 8.0.1 已发布：tag 发布工作流 validate 与 publish 均 success；发布清单与 tag 内容逐文件一致（167 项、source_data 为空）；ZIP 无 data/.runtime/.venv 条目，四个脚本 0755；`SHA256SUMS` 校验通过；`public_update.ReleaseClient` 识别到最新正式版本 8.0.1。
+- 新增 `native_dist/command_link.py`：生成 POSIX `~/.local/bin/multiomics` / Windows `%USERPROFILE%\.local\bin\multiomics.cmd`，设置 `PYTHONPATH`、转发参数、原子写入、拒绝覆盖非本工具文件；提供 `install/status/uninstall`。
+- 新增受管 PATH 配置：POSIX 写入带标记的 zsh/bash/fish/profile 块，Windows 写入当前用户 `HKCU\Environment` 的 `Path`；不需要管理员权限；`setup --no-path` 跳过，`--path` 强制启用，偏好记录在 `.runtime/command_link.json`。
+- `bootstrap.setup` 在 doctor 通过后安装启动器，把结果写入 `.runtime/install_report.json`；启动器失败只告警，不把环境安装判为失败。
+- 新增 `multiomics_tui/workspace.py`：`/cd` 路径解析（`~`、相对路径、带空格路径）、自动初始化（study 配置、runtime 配置、无密钥的模型配置、合成示例）、独占创建与符号链接拒绝。
+- `Session` 增加 `app_root` / 当前工作区分离；`/cd` 支持无参数显示、切换、`-` 返回上一目录；有活动后台任务或探测失败时拒绝切换，旧任务保留在原工作区。
+- `native_dist.layout.code_root` 在工作区无代码时回退到安装目录；`doctor.runtime_fingerprint` 从代码根读取 requirements 与私有运行时，使新工作区可生成绑定自身的 `.runtime/doctor.json`。
+- Windows 任务运行时根与工作区根分离：`_step_environment` 设置 `MULTIOMICS_RUNTIME_ROOT`，`windows_native.launch_paths` 从安装目录共享私有 Python/R 运行时，不复制到每个 `/cd` 工作区。
+- TUI 接入 `/cd`：命令补全、帮助文本、切换到 Home、清空旧任务视图、更新标题/状态栏；REPL 提示符显示当前工作区。
+- 新增 `tests/test_command_link.py`、`tests/test_cd_workspace.py`；发行白名单 171 → 175 项。
+- 文档更新：`README.md`、`README.zh-CN.md`、`docs/INSTALL_UPDATE_zh.md`、`CHANGELOG.md`。
 
 ## in_progress
 
-- 无源码实施任务。Windows 原生 AppContainer 与 macOS 原生沙箱验收待执行。
+- v8.1.0 发布：更新 VERSION、CHANGELOG 与状态后提交，推送 `v8.1.0` tag，等待 release 工作流和附件校验。
+- Windows 原生 PATH/AppContainer 验收与 macOS 原生沙箱验收待执行；本机 `/cd` 真实 doctor 已在 macOS 通过。
 
 ## key_decisions
 
-- 公开源码，不含研究输入；GPL-3.0-or-later；VERSION为唯一版本来源。
-- 原v8/v7使用者首次新目录安装。使用者更新Release附件，维护者使用Git；更新保护本地配置与数据。
-- macOS 入口脚本权限以 Git 索引为唯一来源（100755），发行 ZIP 由 `public_release.build` 强制 0755。
-- 单元测试替换 `native_dist.doctor.require_probe`，真实探测语义由 `real_probe` 专项用例与 native doctor 验收覆盖；不引入生产环境旁路开关。
-- 测试环境从宿主 R 现场探测解释器与库路径，不依赖本机 bootstrap 产物；`redact()` 环境扫描以长度 ≥16 作为凭据阈值，已知/已注册密钥不受影响。
-- Linux无桌面服务验收显式使用内存凭据；不声称系统凭据库或Windows/Mac原生验收通过。
+- `multiomics` 默认进入安装目录；`multiomics --project-root <dir>` 指定其他工作区；`/cd` 仅影响当前会话，不跨会话记住。
+- `/cd` 到未初始化目录时自动生成缺失文件，已有文件绝不覆盖；数据工作区不复制代码树。
+- 应用代码根与用户工作区根分离；doctor 记录绑定工作区配置与库，不把安装目录的探测记录直接复用到新工作区。
+- PATH 只改当前用户配置，使用带标记的受管块，支持 `uninstall` 精确移除。
+- 历史固定流程 `/run`、`/data` 仍要求完整项目根；数据工作区以自然语言任务为主。
 
 ## changed_files
 
-- start_macos.command、setup_macos.command、diagnose_macos.command、scripts/00_run.sh（索引模式 100755）。
-- multiomics_tui/task_runner.py（O_NOFOLLOW 兼容）、multiomics_tui/model_config.py（redact 阈值）、multiomics_tui/input_inspection.py（错误附带日志末尾）。
-- tests/conftest.py、tests/test_v8_distribution.py、tests/test_public_distribution.py、tests/test_task_planner_portable.py、tests/test_prompt_editor_portable.py、tests/test_model_interfaces.py。
-- .github/workflows/ci.yml、.github/workflows/release.yml、.gitignore、VERSION、CHANGELOG.md、docs/VALIDATION.md、CURRENT_STATE.md、tests/test_public_distribution.py。
+- 新增：`native_dist/command_link.py`、`multiomics_tui/workspace.py`、`tests/test_command_link.py`、`tests/test_cd_workspace.py`。
+- 修改：`native_dist/bootstrap.py`、`native_dist/layout.py`、`native_dist/doctor.py`、`multiomics_tui/controller.py`、`multiomics_tui/app.py`、`multiomics_tui/fallback.py`、`multiomics_tui/task_runner.py`、`multiomics_tui/windows_native.py`、`PUBLIC_FILES.json`、`README.md`、`README.zh-CN.md`、`docs/INSTALL_UPDATE_zh.md`、`docs/VALIDATION.md`、`CHANGELOG.md`、`CURRENT_STATE.md`。
 
 ## latest_outputs
 
-- v8.0.0公开源码；Release构建输出tme_agent-v8.0.0.zip、manifest-v8.0.0.json、SHA256SUMS-v8.0.0.txt。
-- docs/VALIDATION.md 含 2026-10-20 三节修复记录（本机便携回归、CI 三平台失败、CI 第三轮），并记录三平台全绿。
-- 本机回归：155 passed / 1 skipped（跳过项为 Linux 专用 R 管线集成用例），耗时 3m25s。
-- Release v8.0.1：https://github.com/shineshen007/tme_agent/releases/tag/v8.0.1
-- 附件：`tme_agent-v8.0.1.zip`（sha256 2fcf8e40…）、`manifest-v8.0.1.json`（358e9bc8…）、`SHA256SUMS-v8.0.1.txt`。
+- 本机完整回归：`184 passed / 2 skipped`，耗时 3m02s。
+- `python -m native_dist.public_release audit`：175 项通过，版本 8.1.0。
+- 手动验收：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`（输出 `multiomics 8.1.0`）；在临时目录执行 `/cd` 新工作区，自动初始化并生成 macOS doctor 记录。
+- 新增测试覆盖：启动器内容/权限/幂等/拒绝覆盖、PATH 受管块增删、参数转发、工作区初始化、活动任务拒绝、探测失败回滚、TUI 回到 Home。
 
 ## blockers_or_warnings
 
-- 完成标记LOCAL_PUBLIC_RELEASE_VALIDATED_NATIVE_PENDING。
-- Windows 原生 AppContainer、macOS 原生沙箱、真实模型 API 仍未验收；CI 便携通过不等于原生通过。
-- Windows “请求中含密钥”误报的变量名未直接观测，但长度阈值修复后该组失败已在 CI 消失。
-- 完整回归耗时 3m22s，主要来自规划路径真实执行 R 输入探测。
+- Windows 原生 AppContainer、Windows 用户 PATH 实际生效、macOS 原生沙箱仍需目标机验收；CI 便携通过不等于原生通过。
+- PATH 修改后需要新终端；`/cd` 不改变父 shell 目录。
+- 自动初始化只写缺失文件；数据工作区不支持历史固定流程 `/run`、`/data`。
+- 真实模型 API 未验收。
 
 ## next_step
 
-在 Windows 与 Intel macOS 目标机执行原生验收（AppContainer/Seatbelt、系统凭据库、真实模型 API），结果记入 docs/VALIDATION.md。
+提交并推送 `v8.1.0`，验证 Release 附件（ZIP、manifest、SHA256SUMS）与公开更新器识别结果；随后在 Windows 与 Intel macOS 目标机执行原生验收并记入 `docs/VALIDATION.md`。

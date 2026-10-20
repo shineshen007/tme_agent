@@ -27,14 +27,18 @@ def guard_fingerprint(root):
 
 def runtime_fingerprint(root):
     """Bind a passed record to the OS, selected interpreters, config and packages."""
+    from .layout import bundled_runtime, code_root
+    root = Path(root)
+    code = code_root(root)
+    private_root = root if bundled_runtime(root) else code
     h = hashlib.sha256((platform.platform() + platform.machine() + sys.version).encode())
     from orchestrator.io import load_config
     from multiomics_tui.actions import rscript_path
     config = load_config(root).get('runtime', {})
     h.update(json.dumps(config, sort_keys=True).encode())
     paths = [Path(sys.executable).resolve(), Path(rscript_path(root)).resolve(),
-             Path(root)/'.runtime/sandbox_runtime/runtime_manifest.json']
-    private_py = Path(root)/'.runtime/sandbox_runtime/python/python.exe'
+             private_root/'.runtime/sandbox_runtime/runtime_manifest.json']
+    private_py = private_root/'.runtime/sandbox_runtime/python/python.exe'
     if private_py.is_file():
         paths.append(private_py)
     for library in config.get('r_library_paths', []):
@@ -45,7 +49,7 @@ def runtime_fingerprint(root):
             h.update(path.read_bytes())
     from .environment import requirements
     from packaging.requirements import Requirement
-    for spec in requirements(root):
+    for spec in requirements(code):
         name = Requirement(spec).name
         try:
             version = importlib.metadata.version(name)

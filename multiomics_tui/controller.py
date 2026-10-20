@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import artifacts, qa as qa_module
 from .actions import (ActionError, SPECS, build_command, display_job_label, list_modules, new_run_id)
-from .jobs import JobManager, display_warning
+from .jobs import ACTIVE, JobManager, display_warning
 from .llm import build_client, key_env_name, key_present, set_session_key
 from .task_sessions import TaskStore, redact_secrets
 from .task_planner import PlanningContextError, classify, generate_plan, render_plan
@@ -62,6 +62,7 @@ Explore and sessions
   /ask <question>    Source excerpts; add --summary for an AI summary
   /sessions          /session <task-id>   /approve [task-id]   /cancel
   /retry [task-id]    Retry planning for a draft or blocked task
+  /cd [directory]    Show or change the working directory; a new directory is initialized
 
 Keys
   Enter Submit  F1 Help / Esc Close  Ctrl+R Refresh  Ctrl+Q Quit
@@ -106,8 +107,14 @@ def _tail_lines(args: list) -> int:
 
 
 class Session:
-    def __init__(self, root, cfg=None, allow_llm: bool = True, client=None):
+    def __init__(self, root, cfg=None, allow_llm: bool = True, client=None,
+                 app_root=None, probe=None):
+        from native_dist.layout import code_root
         self.root = Path(root)
+        self.app_root = (Path(app_root).resolve() if app_root is not None
+                         else code_root(self.root))
+        self._probe = probe
+        self._previous_root = None
         if cfg is None:
             from .llm import load_tui_config
             cfg = load_tui_config(self.root)
@@ -196,7 +203,7 @@ class Session:
             return Response("text", "A credential was detected. Use /key to enter it in the masked prompt.")
         if text.startswith("/"):
             response = self.handle_command(text)
-            if self.active_task and text.split()[0].lower() not in {"/key", "/model", "/new", "/session", "/sessions", "/retry"}:
+            if self.active_task and text.split()[0].lower() not in {"/key", "/model", "/new", "/session", "/sessions", "/retry", "/cd"}:
                 self.tasks.event(self.active_task, "user", text)
                 self.tasks.event(self.active_task, "assistant", response.message or response.answer or response.kind)
             return response
@@ -414,11 +421,101 @@ class Session:
             return Response("text", "This command is not allowed while a request is running.")
         return self.process_view_command(text, read_only=True)
 
+    def switch_root(self, value: str) -> Response:
+        """Switch the data/configuration workspace without changing application code."""
+        from . import workspace as workspace_module
+        from .language import choose
+        from .llm import load_tui_config
+        language = self.reply_language()
+        text = (value or "").strip()
+        if not text:
+            return Response("text", choose(language,
+                f"Current working directory: {self.root}",
+                f"当前工作目录：{self.root}"))
+        if text == "-":
+            if self._previous_root is None:
+                return Response("text", choose(language,
+                    "No previous working directory.", "没有上一个工作目录。"))
+            target = self._previous_root
+        else:
+            try:
+                target = workspace_module.resolve_target(self.root, text)
+            except (OSError, ValueError) as exc:
+                return Response("text", choose(language,
+                    "Cannot change directory: ", "无法切换目录：") + str(exc))
+        target = Path(target).resolve()
+        if not target.is_dir():
+            return Response("text", choose(language,
+                f"Directory no longer exists: {target}",
+                f"目录已不存在：{target}"))
+        if target == Path(self.root).resolve():
+            return Response("text", choose(language,
+                f"Already in {target}", f"当前已位于 {target}"))
+        if getattr(self, "model_busy", False):
+            return Response("text", choose(language,
+                "Finish the current request before changing the working directory.",
+                "当前请求仍在处理，完成后才能切换工作目录。"))
+        try:
+            current_jobs = [item for item in self.jobs.list_jobs(limit=None)
+                            if item.get("status") in ACTIVE]
+        except (OSError, ValueError, TypeError):
+            current_jobs = []
+        if current_jobs:
+            job = current_jobs[0]
+            return Response("text", choose(language,
+                f"Job {job.get('job_id')} is active; finish or stop it before changing the working directory.",
+                f"任务 {job.get('job_id')} 仍在执行；请完成或停止后再切换工作目录。"))
+        try:
+            target_jobs = [item for item in JobManager(target).list_jobs(limit=None)
+                           if item.get("status") in ACTIVE]
+        except (OSError, ValueError, TypeError):
+            target_jobs = []
+        if target_jobs:
+            job = target_jobs[0]
+            return Response("text", choose(language,
+                f"Workspace {target} still has an active job ({job.get('job_id')}); stop it before switching.",
+                f"目标工作区 {target} 仍有活动任务（{job.get('job_id')}）；请先停止后再切换。"))
+        created = []
+        try:
+            if not workspace_module.is_workspace(target):
+                created = workspace_module.initialize(target, self.app_root)
+            if self._probe is not None:
+                self._probe(target)
+            else:
+                workspace_module.ensure_probe(target)
+            cfg = load_tui_config(target)
+            jobs = JobManager(target)
+            tasks = TaskStore(target)
+        except (OSError, ValueError, RuntimeError) as exc:
+            return Response("text", choose(language,
+                "Workspace check failed: ", "工作区检查失败：") + str(exc))
+        self.cancel()
+        previous = self.root
+        self.root = target
+        self.cfg = cfg
+        self.jobs = jobs
+        self.tasks = tasks
+        self.active_task = None
+        self._previous_root = previous
+        self._model_checked = None
+        self.refresh_client()
+        message = choose(language,
+            f"Working directory: {target}",
+            f"当前工作目录：{target}")
+        if created:
+            message += choose(language, "\nInitialized: ", "\n已初始化：") + ", ".join(created)
+        return Response("cwd", message, mode=str(target))
+
     def handle_command(self, text: str) -> Response:
-        parts = text.split()
-        command, args = parts[0].lower(), parts[1:]
+        raw = text.strip()
+        head = raw.split(maxsplit=1)
+        command = head[0].lower()
+        args = head[1].split() if len(head) > 1 else []
+        remainder = head[1] if len(head) > 1 else ""
         if command in READONLY_COMMANDS:
             return self.process_view_command(text)
+        if command == "/cd":
+            return self.switch_root(remainder)
         if command == "/new":
             state = self.tasks.create()
             self.active_task = state["task_id"]

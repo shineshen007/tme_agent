@@ -46,6 +46,7 @@ tme_agent 把你提供的数据和感兴趣的科研方向，转化为经审核�
 - **结构上可复现：** 每次运行都保留任务日志、完整结果表和溯源记录；已完成的运行目录不会被覆盖。
 - **护栏写在代码里：** 输入绑定、沙箱执行和拒绝队列标识符由运行器强制执行，而不是只写在提示词中。
 - **自带模型：** 用 `/model` 设置服务，用 `/key` 输入密钥；密钥存入系统凭据库，绝不写入配置、日志或 Git。
+- **按需工作区：** 安装后可在任意目录用 `multiomics` 启动；`/cd` 切换或初始化工作区，不复制代码树，也不覆盖已有文件。
 
 ## 架构
 
@@ -117,12 +118,34 @@ python -m native_dist.bootstrap check
 python -m native_dist.bootstrap setup
 ```
 
-安装后激活 `.venv`（Mac/Linux：`source .venv/bin/activate`；Windows PowerShell：
+安装成功后，安装器还会创建用户级 `multiomics` 命令（macOS/Linux 为
+`~/.local/bin/multiomics`，Windows 为 `%USERPROFILE%\.local\bin\multiomics.cmd`），并把该目录
+加入当前用户 PATH。打开新的终端后，可在任意目录运行：
+
+```bash
+multiomics
+multiomics --project-root /path/to/workspace
+multiomics update --check
+```
+
+`multiomics` 默认进入安装目录对应的工作区。界面内 `/cd <目录>` 切换当前会话的工作区；`/cd`
+显示当前路径。没有配置的目录会从安装模板生成缺失的配置和示例，已有文件不会被覆盖。`/cd`
+不改变父 shell 的目录，也不会跨会话记住。
+
+启动器直接使用项目 `.venv`，无需手动激活。需要手动启动，或安装时使用了 `setup --no-path`
+跳过 PATH 配置时，激活 `.venv`（Mac/Linux：`source .venv/bin/activate`；Windows PowerShell：
 `.venv\Scripts\Activate.ps1`，或直接使用 `.venv\Scripts\python.exe`）。下文 `python` 均指安装
 目录的 `.venv` Python。
 
 ```bash
 python -m multiomics_tui
+```
+
+查看或移除启动器及其受管 PATH 条目：
+
+```bash
+python -m native_dist.command_link status
+python -m native_dist.command_link uninstall
 ```
 
 首次安装生成本地配置和 4 × 4 合成表达示例。真实数据自行放入本地 `data/raw/`、
@@ -136,16 +159,17 @@ python -m multiomics_tui
 
 ## 更新与回滚
 
-关闭界面、完成或停止后台任务，在安装目录运行：
+关闭界面、完成或停止后台任务，在任意目录运行：
 
 ```bash
-python -m multiomics_tui update --check
-python -m multiomics_tui update
-python -m multiomics_tui update --version vX.Y.Z
-python -m multiomics_tui update --rollback
+multiomics update --check
+multiomics update
+multiomics update --version vX.Y.Z
+multiomics update --rollback
 ```
 
-默认更新到最新正式 Release。更新验证下载、文件清单和任务锁；源码有本地改动时拒绝覆盖。
+在安装目录也可继续使用 `python -m multiomics_tui update ...`。默认更新到最新正式 Release。
+更新验证下载、文件清单和任务锁；源码有本地改动时拒绝覆盖。
 数据、结果、个人配置和已有环境不被发行包替换。代码应用或环境准备失败时恢复发行源码；
 新增依赖不自动卸载。只有代码、环境和诊断均通过才报告成功。完成后重新启动界面。
 

@@ -13,7 +13,13 @@ def code_root(workspace):
         if not (path / 'multiomics_tui/task_guard.py').is_file():
             raise RuntimeError('内置应用源码目录不完整。')
         return path
-    return Path(workspace).resolve()
+    workspace = Path(workspace).resolve()
+    if (workspace / 'multiomics_tui/task_guard.py').is_file():
+        return workspace
+    # A /cd workspace owns data, configuration and results, not the application
+    # source. Fall back to the installed package so schemas, probes and guards
+    # remain available without copying the code tree into every workspace.
+    return Path(__file__).resolve().parents[1]
 
 
 def resource(workspace, relative):

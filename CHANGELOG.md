@@ -1,5 +1,16 @@
 # Changelog
 
+## v8.1.0
+
+- 新增用户级 `multiomics` 启动器：安装成功后可在任意目录启动，自动设置 `PYTHONPATH` 并转发参数；默认使用安装目录，`--project-root` 可指定其他工作区。
+- 新增受管 PATH 配置：POSIX 写入带标记的 zsh/bash/fish/profile 配置块，Windows 写入当前用户 `Path`；只修改用户级设置，无需管理员权限。`setup --no-path` 可跳过，`--path` 可重新启用。
+- 新增 `python -m native_dist.command_link status|install|uninstall`，用于检查、修复或移除启动器和 PATH 条目。
+- 新增 `/cd` 命令：显示或切换当前会话的工作区；支持 `~`、相对路径和带空格的路径，未初始化目录会从安装模板生成缺失配置与示例，已有文件不覆盖。
+- 将应用代码根与工作区根分离：`native_dist.layout.code_root` 在工作区无代码时回退到安装目录；doctor 指纹从代码根读取 requirements 与私有运行时，使新工作区可独立完成本机探测。
+- `/cd` 在 macOS/Windows 上为新工作区运行 doctor；检查失败不切换。有活动后台任务时拒绝切换，旧任务保留在原工作区。
+- 新增启动器、PATH、工作区切换和 TUI 重置回归测试；发行白名单由 171 项增至 175 项。
+- Windows 共享运行时：任务环境新增 `MULTIOMICS_RUNTIME_ROOT`，`windows_native.launch_paths` 从安装目录读取私有 Python/R 运行时，避免为每个 `/cd` 工作区复制运行时。
+
 ## v8.0.2
 
 - 新增品牌资源 `assets/`：`logo-on-dark.svg`、`logo-on-light.svg`（GitHub 深浅主题自适应）与 `logo-lockup.svg`（社交预览/OG 图），均为单色矢量，无 PNG。

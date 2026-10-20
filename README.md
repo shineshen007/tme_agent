@@ -53,6 +53,8 @@ provenance needed to trace each number back to the file it came from.
   cohort identifiers are enforced by the runner, not left to the prompt.
 - **Bring your own model:** Configure the service with `/model` and the key with `/key`; the key
   is stored in the system credential vault and never written to config, logs, or Git.
+- **Workspaces on demand:** launch from any directory with the installed `multiomics` command;
+  `/cd` switches or initializes a workspace without copying the code tree or overwriting files.
 
 ## Architecture
 
@@ -129,12 +131,36 @@ python -m native_dist.bootstrap check
 python -m native_dist.bootstrap setup
 ```
 
-After install, activate `.venv` (macOS/Linux: `source .venv/bin/activate`; Windows PowerShell:
-`.venv\Scripts\Activate.ps1`, or use `.venv\Scripts\python.exe` directly). Below, `python` means
-the `.venv` Python in the install directory.
+After setup, the installer also creates a user-level `multiomics` command
+(`~/.local/bin/multiomics`, or `%USERPROFILE%\.local\bin\multiomics.cmd` on Windows) and adds
+that directory to your user PATH. Open a new terminal, then run from any directory:
+
+```bash
+multiomics
+multiomics --project-root /path/to/workspace
+multiomics update --check
+```
+
+`multiomics` starts in the install workspace. Inside the interface, `/cd <directory>` switches
+the working workspace for the current session; `/cd` shows the current path. A directory without
+configuration is initialized from the installed template without overwriting existing files.
+`/cd` does not change the parent shell directory and is not remembered across restarts.
+
+The launcher uses the project `.venv`; you do not need to activate it. For a manual start, or if
+PATH activation was skipped (`setup --no-path`), activate `.venv` (macOS/Linux:
+`source .venv/bin/activate`; Windows PowerShell: `.venv\Scripts\Activate.ps1`, or use
+`.venv\Scripts\python.exe` directly). Below, `python` means the `.venv` Python in the install
+directory.
 
 ```bash
 python -m multiomics_tui
+```
+
+To inspect or remove the launcher and its managed PATH entry:
+
+```bash
+python -m native_dist.command_link status
+python -m native_dist.command_link uninstall
 ```
 
 The first install generates local configuration and a 4 × 4 synthetic expression example. Put
@@ -152,15 +178,16 @@ grouping, and study design before you rely on a result.
 
 ## Update and Rollback
 
-Close the interface and finish or stop background tasks, then run from the install directory:
+Close the interface and finish or stop background tasks, then run from any directory:
 
 ```bash
-python -m multiomics_tui update --check
-python -m multiomics_tui update
-python -m multiomics_tui update --version vX.Y.Z
-python -m multiomics_tui update --rollback
+multiomics update --check
+multiomics update
+multiomics update --version vX.Y.Z
+multiomics update --rollback
 ```
 
+The same commands work as `python -m multiomics_tui update ...` from the install directory.
 Updates default to the latest stable Release. The updater verifies the download, file manifest,
 and task locks; it refuses to overwrite locally modified source. Data, results, personal config,
 and the existing environment are never replaced by the release package. If applying code or

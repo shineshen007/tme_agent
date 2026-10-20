@@ -68,7 +68,7 @@ BANNER = _home_banner(_GLYPHS)
 COMPACT_BANNER = _home_banner(_COMPACT_GLYPHS)
 
 # Slash-command completion list: read-only commands first, then the rest.
-COMMAND_LIST = list(READONLY_COMMANDS) + ["/key", "/model", "/ask", "/new", "/session", "/sessions",
+COMMAND_LIST = list(READONLY_COMMANDS) + ["/key", "/model", "/ask", "/new", "/cd", "/session", "/sessions",
                                           "/approve", "/retry", "/cancel", "/quit", "/run", "/data",
                                           "/resume", "/verify", "/dossiers",
                                           "/verify-dossiers", "/module", "/kill"]
@@ -147,6 +147,7 @@ class MultiomicsApp(App):
         self._last_terminal: tuple[str, str] | None = None
         self._home_visible = True
         self._banner_height = 0
+        self.sub_title = f"Multiomics workspace · {session.root.name or session.root}"
 
     def compose(self) -> ComposeResult:
         with Vertical(id="home-hero"):
@@ -475,7 +476,8 @@ class MultiomicsApp(App):
         if self._busy:
             context = f"Working… {self._format_elapsed()} · read-only / commands only"
         elif self._home_visible:
-            context = "Enter a request in English or Chinese"
+            workspace = self.session.root.name or str(self.session.root)
+            context = f"Workspace {workspace} · Enter a request in English or Chinese"
         else:
             context = self._stage_label or "Task session"
         if self.size.width < 68:
@@ -848,6 +850,31 @@ class MultiomicsApp(App):
             self._set_busy(False)
             await self._render(self.session.handle_tui(value))
             return
+        head = value.strip().split(maxsplit=1)
+        if head and head[0].lower() == '/cd':
+            self._busy_action = "Checking workspace"
+            self._set_busy(True)
+            # /cd is the foreground operation; do not let its own busy flag look
+            # like a concurrent model request while it runs in a worker thread.
+            self.session.model_busy = False
+            try:
+                response = await asyncio.to_thread(self.session.handle_tui, value)
+                await self._render(response)
+                if response.kind != "cwd" and response.message:
+                    try:
+                        self.notify(escape(response.message), title="Working directory", timeout=8)
+                    except Exception:  # noqa: BLE001 - notification support is optional
+                        pass
+            except Exception as exc:  # noqa: BLE001 - keep the interface usable
+                self._message(self._say("Command failed: ", "命令执行失败：") + f"{type(exc).__name__}: {exc}")
+            finally:
+                self._set_busy(False)
+                self._refresh_task_view()
+                self._refresh_status()
+                chat_input = self._get("#chat-input", PromptEditor)
+                if chat_input is not None and chat_input.is_attached:
+                    chat_input.focus()
+            return
         self._busy_action = "Planning" if not value.startswith("/") else "Running command"
         self._set_busy(True)
         self._enter_workspace()
@@ -938,6 +965,39 @@ class MultiomicsApp(App):
         if message:
             self._write_chat(escape(message))
 
+    def _apply_workspace_switch(self, response: Response) -> None:
+        """Reset task-specific UI state after /cd changes the workspace root."""
+        self._view_task = None
+        self._shown_task = None
+        self._shown_hash = None
+        self._editing_task = None
+        self._editing_hash = None
+        self._selected_job = None
+        self._log_offset = 0
+        self._pending_response = None
+        self._hide_action()
+        self._hide_key()
+        self._request("")
+        for selector in ("#job-log", "#chat-log"):
+            log = self._get(selector, RichLog)
+            if log is not None:
+                log.clear()
+        self._home_visible = True
+        self._update("#reply-message", "")
+        self._show("#reply-message", False)
+        self._refresh_workspace()
+        self.sub_title = f"Multiomics workspace · {self.session.root.name or self.session.root}"
+        self._refresh_status()
+        self._refresh_task_view()
+        self._write_chat(f"[b cyan]Workspace:[/b cyan] {escape(str(self.session.root))}")
+        self._write_chat(escape(response.message))
+        self._update("#reply-message", response.message)
+        self._show("#reply-message", True)
+        try:
+            self.notify(escape(response.message), title="Workspace", timeout=8)
+        except Exception:  # noqa: BLE001 - notification support is optional
+            pass
+
     def _toggle_help(self, show: bool) -> None:
         if not self.is_running:
             return
@@ -966,6 +1026,9 @@ class MultiomicsApp(App):
         if not self.is_running:
             return
         kind = response.kind
+        if kind == "cwd":
+            self._apply_workspace_switch(response)
+            return
         if kind == 'model_settings':
             from .model_panel import ModelPanel
             def saved(message):

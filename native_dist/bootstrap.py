@@ -77,7 +77,7 @@ def dependency_report(py,root):
     return json.loads(result.stdout)
 
 
-def setup(root: Path, offline=False, preserve_local_config=False):
+def setup(root: Path, offline=False, preserve_local_config=False, no_path=False, force_path=False):
     if not (3, 12) <= sys.version_info[:2] < (3, 15):
         raise RuntimeError("请安装 Python 3.13（支持 3.12–3.14），再重试。")
     root = root.resolve()
@@ -211,9 +211,43 @@ def setup(root: Path, offline=False, preserve_local_config=False):
             api_local.write_text("# 使用界面 /model 设置服务和模型；密钥通过 /key 输入，不能写入本文件。\nllm: {}\n", encoding="utf-8")
         checkpoint(report, report_path, "behavioral_selfcheck")
         run([py, "-m", "native_dist.doctor", "--project-root", root], cwd=root)
+        checkpoint(report, report_path, "global_command")
+        command_ready = False
+        command_on_path = False
+        launcher_dir = None
+        add_path = True
+        if no_path:
+            add_path = False
+        elif not force_path:
+            from native_dist.command_link import previous_path_preference
+            if previous_path_preference(root) is False:
+                add_path = False
+        try:
+            from native_dist.command_link import install as install_command
+            linked = install_command(root, venv_python=py, add_path=add_path)
+            report['operations'].append({'action': 'install_global_command', **linked})
+            LOG.info("已创建 multiomics 命令：%s", linked['launcher'])
+            command_ready = True
+            command_on_path = bool(linked.get('path_configured'))
+            launcher_dir = linked.get('bin_dir')
+            if linked.get('restart_required'):
+                LOG.info("PATH 已更新；请打开新的终端后再运行 multiomics。")
+            if linked.get('warning'):
+                LOG.warning("multiomics 命令已创建，但 PATH 尚未生效：%s", linked['warning'])
+        except Exception as exc:
+            from multiomics_tui.model_config import redact
+            message = redact(f'{type(exc).__name__}: {exc}')
+            report['operations'].append({'action': 'install_global_command',
+                                         'status': 'warning', 'error': message})
+            LOG.warning("未创建全局 multiomics 命令：%s；仍可使用 start 脚本。", message)
         report.update(status='passed', python_after=after, r_after=inspect_r(rscript,root))
         checkpoint(report, report_path, "complete")
-        LOG.info("配置完成。请双击 start_windows.cmd 或 start_macos.command 启动。")
+        if command_ready and command_on_path:
+            LOG.info("配置完成。可在任意目录运行 multiomics，或双击 start_windows.cmd / start_macos.command 启动。")
+        elif command_ready:
+            LOG.info("配置完成。multiomics 启动器已创建，但 PATH 未配置；请将 %s 加入 PATH 后使用，或运行 start 脚本。", launcher_dir)
+        else:
+            LOG.info("配置完成。请双击 start_windows.cmd / start_macos.command 启动；全局 multiomics 命令未创建。")
     except Exception as exc:
         from multiomics_tui.model_config import redact
         report.update(status='failed', error=redact(f'{type(exc).__name__}: {exc}'))
@@ -245,6 +279,10 @@ def main():
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--preserve-local-config", action="store_true",
                         help="Keep existing runtime.local.yaml byte-for-byte during a release update")
+    parser.add_argument("--no-path", action="store_true",
+                        help="Install the multiomics launcher without changing PATH")
+    parser.add_argument("--path", action="store_true",
+                        help="Add the launcher directory to PATH even if a previous setup used --no-path")
     args = parser.parse_args()
     if args.mode == 'check':
         report = inventory(args.project_root)
@@ -257,7 +295,10 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s",
                         handlers=[logging.StreamHandler(), logging.FileHandler(log_dir / "install.log", encoding="utf-8")])
     try:
-        return launch(args.project_root.resolve()) if args.mode == "start" else (setup(args.project_root, args.offline, args.preserve_local_config) or 0)
+        if args.mode == "start":
+            return launch(args.project_root.resolve())
+        return setup(args.project_root.resolve(), args.offline, args.preserve_local_config,
+                     no_path=args.no_path, force_path=args.path) or 0
     except Exception as exc:
         from multiomics_tui.model_config import redact
         LOG.error("操作未完成：%s", redact(exc))

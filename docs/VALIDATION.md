@@ -1,6 +1,6 @@
 # v8.0.0 本地验收
 
-完成标记：`LOCAL_PUBLIC_RELEASE_VALIDATED_NATIVE_PENDING`。尚未推送 GitHub，尚未发布远程 Release。
+完成标记：`LOCAL_PUBLIC_RELEASE_VALIDATED_NATIVE_PENDING`。当前发布状态见 `CURRENT_STATE.md`；本文件保留历次本地验收记录。
 
 - 原 v8 ZIP 的 195 项内部清单校验通过；原包 SHA256 见 V8_SOURCE.json。
 - 完整便携回归：149 passed，0 failed，0 skipped。配置保护修复后的更新专项：44 passed；两者覆盖重叠，不累计。
@@ -76,10 +76,18 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - 公开更新器 `ReleaseClient` 识别到最新正式版本 8.0.1 与三个附件；解包后 `installed()` 报告 8.0.1、无 `data/raw/`。
 - 本机完整回归：155 passed / 1 skipped。
 
+## 2026-10-20 全局 multiomics 与 /cd
+
+- 新增用户级 `multiomics` 启动器与受管 PATH：POSIX 使用 `~/.local/bin` + 带标记的 shell 配置块，Windows 使用 `%USERPROFILE%\.local\bin` + 当前用户 `Path`；启动器设置 `PYTHONPATH` 并使用 `-P` 避免从调用目录导入同名包。
+- 新增 `/cd` 工作区切换：应用代码根与数据/配置根分离；未初始化目录从安装模板生成缺失配置与示例，已有文件不覆盖；macOS/Windows 运行绑定新工作区的 doctor，失败不切换。
+- 手动验收（macOS）：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`，输出 `multiomics 8.0.2`；在临时目录执行 `/cd`，生成 `config/study_config.yaml`、`runtime.local.yaml`、`api.local.yaml`、合成示例和 `.runtime/doctor.json`。
+- 本机完整回归：184 passed / 2 skipped，耗时 3m02s；`public_release audit` 175 项通过。
+- Windows 原生用户 PATH、AppContainer 与 macOS 原生沙箱仍需目标机验收；CI 便携测试不替代原生验收。
+
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
-- 本机完整回归 155 passed / 1 skipped；`public_release audit` 167 项通过。
+- 本机完整回归 184 passed / 2 skipped；`public_release audit` 175 项通过；`VERSION` 仍为 8.0.2，新功能尚未发布。
 
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。

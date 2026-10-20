@@ -228,13 +228,16 @@ def launch_paths(task_dir, env):
     relative = task.relative_to(root)
     if relative.parts[0] not in {'analysis', '.runtime'}:
         raise ValueError('Unexpected task directory')
-    runtime = root / '.runtime/sandbox_runtime'
+    # A /cd workspace owns data and results; the expensive private Python/R
+    # runtime stays read-only in the installation and is shared by workspaces.
+    runtime_root = Path(env.get('MULTIOMICS_RUNTIME_ROOT', raw)).resolve(strict=True)
+    runtime = runtime_root / '.runtime/sandbox_runtime'
     inputs_base = root / '.runtime/inputs'
     view = Path(env.get('PROJECT_ROOT', '')).resolve(strict=True)
     expected = inputs_base / task.name
-    for value in (runtime, expected, task):
+    for value, boundary in ((runtime, runtime_root), (expected, root), (task, root)):
         for part in (value, *value.parents):
-            if part == root.parent:
+            if part == boundary.parent:
                 break
             if part.is_symlink() or getattr(part, 'is_junction', lambda: False)():
                 raise ValueError('Linked native workspace path is not permitted')

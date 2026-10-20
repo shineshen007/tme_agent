@@ -118,10 +118,13 @@ def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:
     # LOCALAPPDATA is consumed only by the trusted Windows guard to restrict its
     # new profile. run_appcontainer filters it out of the generated script env.
     env = {k: v for k, v in os.environ.items() if k in {"PATH", "LANG", "LC_ALL", "TZ", "SYSTEMROOT", "WINDIR", "LOCALAPPDATA"}}
+    from native_dist.layout import bundled_runtime, code_root
     from .temp_paths import task_tmp
+    runtime_root = Path(root) if bundled_runtime(root) else code_root(root)
     env.update(PROJECT_ROOT=str(root), TASK_DIR=str(task_dir), TMPDIR=str(task_tmp(root, task_dir)),
                HOME=str(task_dir), PYTHONDONTWRITEBYTECODE="1", OMP_NUM_THREADS="2",
-               OPENBLAS_NUM_THREADS="2", MKL_NUM_THREADS="2")
+               OPENBLAS_NUM_THREADS="2", MKL_NUM_THREADS="2",
+               MULTIOMICS_RUNTIME_ROOT=str(Path(runtime_root).resolve()))
     font_cache = task_dir / "tmp" / ".cache"
     font_cache.mkdir(parents=True, exist_ok=True)
     env["XDG_CACHE_HOME"] = str(font_cache)
