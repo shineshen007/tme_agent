@@ -30,19 +30,16 @@
   </a>
 </p>
 
-<p align="center">A natural-language terminal workspace for reproducible multi-omics analysis.</p>
+<p align="center">A natural-language multi-omics analysis expert in your terminal.</p>
 
 <p align="center">
   <img src="assets/logo-lockup.svg" alt="tme_agent" width="100%">
 </p>
 
-tme_agent turns a stated analysis goal into a reviewed, executable plan. You describe what you
-want, the agent binds it to concrete inputs, proposes a method and code, and waits for your
-approval before anything runs. Every task keeps its own log, its complete results, and the
+tme_agent turns the data you provide and the research direction you care about into a reviewed,
+executable plan. It binds the goal to concrete inputs, proposes a method and code, and waits for
+your approval before anything runs. Every task keeps its own log, its complete results, and the
 provenance needed to trace each number back to the file it came from.
-
-The public release is **GPL-3.0-or-later** and ships **no patient data and no original study
-results** — only source, templates, and a synthetic example.
 
 - **Plan before run:** Every task is bound to declared inputs, a chosen method, and generated
   code that you review and confirm before execution.
@@ -56,7 +53,6 @@ results** — only source, templates, and a synthetic example.
   cohort identifiers are enforced by the runner, not left to the prompt.
 - **Bring your own model:** Configure the service with `/model` and the key with `/key`; the key
   is stored in the system credential vault and never written to config, logs, or Git.
-- **Offline by default:** With no model key, diagnostics and the synthetic example still run.
 
 ## Architecture
 
@@ -171,52 +167,6 @@ and the existing environment are never replaced by the release package. If apply
 preparing the environment fails, the release source is restored; new dependencies are not
 automatically uninstalled. Success is reported only when code, environment, and diagnostics all
 pass. Restart the interface when done.
-
-## Development
-
-This directory keeps the existing `main` history; the first upload is reviewed here.
-
-```bash
-git status --short
-python -m native_dist.public_release audit
-python -m pytest -q
-```
-
-Stage only the allowlisted files, so local data never enters Git:
-
-```bash
-python -c "import json,subprocess; subprocess.run(['git','add','--',*json.load(open('PUBLIC_FILES.json',encoding='utf-8'))['files']],check=True)"
-git diff --cached --stat
-git commit -m "Release public vX.Y.Z"
-git push origin main
-git tag -a vX.Y.Z -m "Public vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-The tag triggers Actions validation and Release generation. Public source, install packages, and
-manifests carry no study data. Confirm GitHub Actions is enabled and you have push rights before
-publishing; Git uses your own secure authentication — never write a token into config or a
-command.
-
-When you add files, maintain the explicit allowlist in `PUBLIC_FILES.json` and update
-`CHANGELOG.md`, then run (example: `vX.Y.Z`):
-
-```bash
-git pull --ff-only origin main
-python -m native_dist.public_release prepare --version X.Y.Z
-python -m pytest -q
-python -m native_dist.public_release build --output dist
-python -c "import json,subprocess; subprocess.run(['git','add','--',*json.load(open('PUBLIC_FILES.json',encoding='utf-8'))['files']],check=True)"
-git diff --cached --stat
-git commit -m "Release vX.Y.Z"
-git push origin main
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-When deleting files, remove them from the allowlist first, then `git rm -- <path>` explicitly.
-Never replace published content under the same version number. Maintainers update the local
-runtime with `python -m native_dist.bootstrap setup`.
 
 ## Docs and Status
 

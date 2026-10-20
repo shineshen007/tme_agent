@@ -30,17 +30,15 @@
   </a>
 </p>
 
-<p align="center">基于自然语言的多组学终端工作台，面向可复现分析。</p>
+<p align="center">基于自然语言的终端多组学分析专家。</p>
 
 <p align="center">
   <img src="assets/logo-lockup.svg" alt="tme_agent" width="100%">
 </p>
 
-tme_agent 把陈述的分析目标变成经审核、可执行的计划。你描述想要什么，agent 将目标绑定到
+tme_agent 把你提供的数据和感兴趣的科研方向，转化为经审核、可执行的计划。它将目标绑定到
 具体输入，给出方法与代码，并在任何执行前等待你确认。每个任务都保留自己的日志、完整结果，
 以及把每个数字回溯到来源文件所需的溯源信息。
-
-公开版采用 **GPL-3.0-or-later**，不包含任何患者数据和原研究结果——只有源码、模板和一份合成示例。
 
 - **先计划再执行：** 每个任务都绑定到声明的输入、选定的方法和生成的代码，经你审核确认后才运行。
 - **Hub–spoke 编排：** 规划器把工作分派到各 omics spoke 并整合其证据；模型负责解释，但从不编写统计量。
@@ -48,7 +46,6 @@ tme_agent 把陈述的分析目标变成经审核、可执行的计划。你描�
 - **结构上可复现：** 每次运行都保留任务日志、完整结果表和溯源记录；已完成的运行目录不会被覆盖。
 - **护栏写在代码里：** 输入绑定、沙箱执行和拒绝队列标识符由运行器强制执行，而不是只写在提示词中。
 - **自带模型：** 用 `/model` 设置服务，用 `/key` 输入密钥；密钥存入系统凭据库，绝不写入配置、日志或 Git。
-- **默认离线可用：** 没有模型密钥也能运行诊断和合成示例。
 
 ## 架构
 
@@ -151,49 +148,6 @@ python -m multiomics_tui update --rollback
 默认更新到最新正式 Release。更新验证下载、文件清单和任务锁；源码有本地改动时拒绝覆盖。
 数据、结果、个人配置和已有环境不被发行包替换。代码应用或环境准备失败时恢复发行源码；
 新增依赖不自动卸载。只有代码、环境和诊断均通过才报告成功。完成后重新启动界面。
-
-## 维护者发布
-
-本目录保留既有 `main` 历史；首次上传在本目录完成审核：
-
-```bash
-git status --short
-python -m native_dist.public_release audit
-python -m pytest -q
-```
-
-使用以下白名单命令暂存，避免把本地数据加入 Git：
-
-```bash
-python -c "import json,subprocess; subprocess.run(['git','add','--',*json.load(open('PUBLIC_FILES.json',encoding='utf-8'))['files']],check=True)"
-git diff --cached --stat
-git commit -m "Release public vX.Y.Z"
-git push origin main
-git tag -a vX.Y.Z -m "Public vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-标签触发 Actions 验证和生成 Release。公开源码、安装包和清单均不带研究数据。发布前确认
-GitHub Actions 已启用、维护者有推送权限；Git 使用自己的安全认证，不把 token 写入配置或命令。
-
-以后修改程序，新增文件时同时维护 `PUBLIC_FILES.json` 的显式白名单，更新 CHANGELOG，再执行
-（以 `vX.Y.Z` 为例）：
-
-```bash
-git pull --ff-only origin main
-python -m native_dist.public_release prepare --version X.Y.Z
-python -m pytest -q
-python -m native_dist.public_release build --output dist
-python -c "import json,subprocess; subprocess.run(['git','add','--',*json.load(open('PUBLIC_FILES.json',encoding='utf-8'))['files']],check=True)"
-git diff --cached --stat
-git commit -m "Release vX.Y.Z"
-git push origin main
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-删除文件时先从白名单移除，再显式 `git rm -- <路径>`。同一版本号禁止替换已发布内容。维护者
-更新本地运行环境使用 `python -m native_dist.bootstrap setup`。
 
 ## 文档与状态
 
