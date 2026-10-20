@@ -1,8 +1,8 @@
-updated_at: 2026-10-20T16:34:00+08:00
+updated_at: 2026-10-20T16:45:23+08:00
 
 ## current_goal
 
-v8.0.0 公开源码及终端升级交付已完成本地验收；入口权限、macOS 便携回归、CI 三平台失败三批修复已完成，**三平台 CI 全绿**，等待发布决策。
+v8.0.1 发布准备完成：三批修复已合并、三平台 CI 全绿；VERSION 与 CHANGELOG 已更新，等待推送、三平台 CI 复核与 tag 发布。
 
 ## completed
 
@@ -16,10 +16,11 @@ v8.0.0 公开源码及终端升级交付已完成本地验收；入口权限、m
 - 第二轮 CI 修复：工作流补装 `digest`；`_step_environment` 授权 Rscript 解析路径与 bin/lib 目录（setup-r 的 `/opt/R` 不在固定前缀内）；新增解释器授权测试。
 - 第三轮 CI 修复：受保护子进程调用抽为 `input_inspection._run_guarded` 接缝，Windows 单元测试在父进程侧直接执行探测。
 - 三平台 CI 全绿（run 39392040336，HEAD d11740b）：ubuntu、macOS、Windows 全部 success。
+- 8.0.1 发布准备：`prepare --version 8.0.1` 通过；`release.yml` 补装 `digest`；发布测试改为从 VERSION 派生版本；本地构建 167 文件、source_data 为空、四个脚本 0755；本机回归 155 passed / 1 skipped。
 
 ## in_progress
 
-- 无源码实施任务。发布决策待定：是否以 8.0.1 打 tag 并发布 Release。
+- 8.0.1 版本提交待推送；推送后等待 CI 复核，再推 tag 触发 Release 工作流。
 
 ## key_decisions
 
@@ -35,13 +36,14 @@ v8.0.0 公开源码及终端升级交付已完成本地验收；入口权限、m
 - start_macos.command、setup_macos.command、diagnose_macos.command、scripts/00_run.sh（索引模式 100755）。
 - multiomics_tui/task_runner.py（O_NOFOLLOW 兼容）、multiomics_tui/model_config.py（redact 阈值）、multiomics_tui/input_inspection.py（错误附带日志末尾）。
 - tests/conftest.py、tests/test_v8_distribution.py、tests/test_public_distribution.py、tests/test_task_planner_portable.py、tests/test_prompt_editor_portable.py、tests/test_model_interfaces.py。
-- .github/workflows/ci.yml、.gitignore、CHANGELOG.md、docs/VALIDATION.md、CURRENT_STATE.md。
+- .github/workflows/ci.yml、.github/workflows/release.yml、.gitignore、VERSION、CHANGELOG.md、docs/VALIDATION.md、CURRENT_STATE.md、tests/test_public_distribution.py。
 
 ## latest_outputs
 
 - v8.0.0公开源码；Release构建输出tme_agent-v8.0.0.zip、manifest-v8.0.0.json、SHA256SUMS-v8.0.0.txt。
 - docs/VALIDATION.md 含 2026-10-20 三节修复记录（本机便携回归、CI 三平台失败、CI 第三轮），并记录三平台全绿。
-- 本机回归：155 passed / 1 skipped（跳过项为 Linux 专用 R 管线集成用例），耗时 3m22s。
+- 本机回归：155 passed / 1 skipped（跳过项为 Linux 专用 R 管线集成用例），耗时 3m25s。
+- `dist/tme_agent-v8.0.1.zip`（421K，sha256 290cb18d…）、`manifest-v8.0.1.json`、`SHA256SUMS-v8.0.1.txt`。
 
 ## blockers_or_warnings
 
@@ -52,4 +54,4 @@ v8.0.0 公开源码及终端升级交付已完成本地验收；入口权限、m
 
 ## next_step
 
-把 CHANGELOG 的 Unreleased 改为 v8.0.1，运行 `native_dist.public_release prepare --version 8.0.1`、`build`，提交并推送 tag 触发发布；或先做 Windows/macOS 原生验收再发布。
+提交 8.0.1 版本变更并推送 main；CI 全绿后 `git tag -a v8.0.1` 并推送 tag，确认 Release 附件（ZIP/manifest/SHA256SUMS）与 `update --check`。

@@ -19,6 +19,12 @@ from native_dist.public_config import initialize
 
 SOURCE = Path(__file__).resolve().parents[1]
 
+# 版本从 VERSION 派生：夹具模拟"当前版本 → 下一个补丁版本"的升级，
+# 避免每次发版都要改测试里的字面量。
+BASE_VERSION = (SOURCE / 'VERSION').read_text(encoding='utf-8').strip()
+_MAJOR, _MINOR, _PATCH = (int(part) for part in BASE_VERSION.split('.'))
+NEXT_VERSION = f'{_MAJOR}.{_MINOR}.{_PATCH + 1}'
+
 
 @pytest.fixture
 def releases(tmp_path):
@@ -29,7 +35,7 @@ def releases(tmp_path):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     first = release.build(source, tmp_path / 'releases-v0')
-    (source / 'VERSION').write_text('8.0.1\n')
+    (source / 'VERSION').write_text(NEXT_VERSION + '\n')
     (source / 'README.md').write_text((source / 'README.md').read_text(encoding='utf-8') + '\nPatch fixture.\n', encoding='utf-8')
     names = json.loads((source / 'PUBLIC_FILES.json').read_text())['files']
     removed = 'examples/synthetic_samples.csv'
@@ -108,7 +114,7 @@ def environment(_):
 def test_public_archive_contains_only_declared_source_and_license(releases):
     root, first, _, _ = releases
     manifest = updater.installed(root)
-    assert manifest['version'] == '8.0.0'
+    assert manifest['version'] == BASE_VERSION
     assert manifest['source_data'] == []
     assert manifest['license'] == 'GPL-3.0-or-later'
     with ZipFile(first['archive']) as z:
@@ -143,16 +149,16 @@ def test_check_is_read_only_and_upgrade_repeat_rollback(releases):
     with server(second) as client:
         assert updater.update(root, check=True, client=client)['status'] == 'update_available'
         assert snapshot == {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
-        result = updater.update(root, tag='v8.0.1', client=client, environment=environment)
+        result = updater.update(root, tag='v' + NEXT_VERSION, client=client, environment=environment)
         assert result['status'] == 'updated'
         assert result['phases'] == {'code': 'passed', 'environment': 'passed', 'diagnostic': 'passed'}
-        assert updater.installed(root)['version'] == '8.0.1'
+        assert updater.installed(root)['version'] == NEXT_VERSION
         assert not (root / 'examples/synthetic_samples.csv').exists()
         assert (root / 'docs/new_release_fixture.md').exists()
         assert updater.update(root, client=client, environment=environment)['status'] == 'already_updated'
     assert_protected(root, protected)
     assert updater.rollback(root)['status'] == 'rolled_back'
-    assert updater.installed(root)['version'] == '8.0.0'
+    assert updater.installed(root)['version'] == BASE_VERSION
     assert (root / 'examples/synthetic_samples.csv').exists()
     assert not (root / 'docs/new_release_fixture.md').exists()
     assert_protected(root, protected)
@@ -179,7 +185,7 @@ def test_active_job_refused(releases, status):
     (jobs / 'active.json').write_text(json.dumps({'status': status}))
     with server(second) as client, pytest.raises(RuntimeError, match='活动任务'):
         updater.update(root, client=client, environment=environment)
-    assert updater.installed(root)['version'] == '8.0.0'
+    assert updater.installed(root)['version'] == BASE_VERSION
     assert_protected(root, protected)
 
 
@@ -206,7 +212,7 @@ def test_network_failure(releases, monkeypatch):
     monkeypatch.setattr(client, 'read', lambda *_: (_ for _ in ()).throw(OSError('network unavailable')))
     with pytest.raises(OSError):
         updater.update(root, client=client, environment=environment)
-    assert updater.installed(root)['version'] == '8.0.0'
+    assert updater.installed(root)['version'] == BASE_VERSION
     assert_protected(root, protected)
 
 
@@ -216,7 +222,7 @@ def test_environment_failure_restores_source(releases):
         raise RuntimeError('synthetic dependency failure')
     with server(second) as client, pytest.raises(RuntimeError, match='源码已恢复'):
         updater.update(root, client=client, environment=failure)
-    assert updater.installed(root)['version'] == '8.0.0'
+    assert updater.installed(root)['version'] == BASE_VERSION
     journal = updater.journals(root)[0][2]
     assert journal['status'] == 'rolled_back'
     assert journal['phases']['code'] == 'passed'
@@ -238,7 +244,7 @@ def test_copy_failure_restores_source(releases, monkeypatch):
     with server(second) as client, pytest.raises(RuntimeError, match='源码已恢复'):
         updater.update(root, client=client, environment=environment)
     assert failed
-    assert updater.installed(root)['version'] == '8.0.0'
+    assert updater.installed(root)['version'] == BASE_VERSION
     assert_protected(root, protected)
 
 
@@ -274,7 +280,7 @@ def test_downgrade_refused(releases):
     with server(second) as client:
         updater.update(root, client=client, environment=environment)
     with server(first) as client, pytest.raises(ValueError, match='降级'):
-        updater.update(root, tag='v8.0.0', client=client, environment=environment)
+        updater.update(root, tag='v' + BASE_VERSION, client=client, environment=environment)
 
 
 @pytest.mark.parametrize('name', ['../escape.py', '/tmp/escape', 'data/raw/steal.csv',
@@ -351,10 +357,10 @@ def test_interrupted_update_requires_recovery(releases):
         raise KeyboardInterrupt('synthetic interruption')
     with server(second) as client, pytest.raises(KeyboardInterrupt):
         updater.update(root, client=client, environment=interruption)
-    assert updater.installed(root)['version'] == '8.0.1'
+    assert updater.installed(root)['version'] == NEXT_VERSION
     with server(second) as client, pytest.raises(ValueError, match='上次更新中断'):
         updater.update(root, client=client, environment=environment)
-    assert updater.rollback(root)['version'] == '8.0.0'
+    assert updater.rollback(root)['version'] == BASE_VERSION
     assert_protected(root, protected)
 
 
