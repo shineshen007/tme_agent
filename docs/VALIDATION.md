@@ -36,4 +36,13 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - 可观测性：探测失败信息附带脱敏限长的 `probe.log` 末尾；CI 使用 `--basetemp=.pytest-tmp`，失败时上传 probe/step 日志 artifact。
 - 三平台结果待下一次远程运行确认。
 
+## 2026-10-20 CI 第二轮修复
+
+- 第二次远程运行（89d9d2f，run 39389423229）仍失败：macOS 13 项、ubuntu 14 项、Windows 13 项，全部收敛到输入探测与执行环境；Windows 的密钥误报与 `O_NOFOLLOW` 已消失，`r_env` 两项已修复。
+- macOS：`input_probe.R` 同时依赖 `jsonlite` 与 `digest`，CI 只装了前者 → 工作流补齐 `digest`。
+- ubuntu：`PermissionError: [Errno 13] Permission denied: '/usr/local/bin/Rscript'`。setup-r 把 R 装在 `/opt/R`，不在 `task_guard` 的固定系统前缀内；`_step_environment` 现显式授权解析后的 Rscript、其 `bin/` 与 `lib/` 目录（Landlock 需要执行权限）。
+- Windows：`Private native runtime or approved input snapshot is missing`。AppContainer 依赖 bootstrap 准备的私有运行时；单元测试改为替换 `windows_native.run_appcontainer`，原生隔离仍由 bootstrap/原生验收覆盖。
+- 本机完整回归：155 passed / 1 skipped；`public_release audit` 167 项通过。
+- 三平台结果待下一次远程运行确认。
+
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。

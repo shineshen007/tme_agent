@@ -140,6 +140,16 @@ def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:
         # Unix Rscript selects its executable using RHOME (without underscore).
         env['RHOME'] = env['R_HOME']
         read_paths.append(env['R_HOME'])
+        # Landlock needs an explicit execute grant for the interpreter and a read
+        # grant for its sibling directory holding libR.so. setup-r installs R under
+        # /opt, which is outside the fixed system prefixes allowed by task_guard.
+        interpreter = Path(rscript_path(root))
+        for candidate in (interpreter, interpreter.parent,
+                          Path(env['R_HOME']).parent):
+            try:
+                read_paths.append(str(candidate.resolve(strict=True)))
+            except OSError:
+                pass
     for key in ("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE"):
         if key in os.environ:
             env[key] = os.environ[key]

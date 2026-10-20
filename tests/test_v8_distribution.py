@@ -66,6 +66,21 @@ def test_probe_record_is_required_and_fingerprint_bound(project_root, monkeypatc
         doctor.require_probe(project_root)
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='Windows 使用 AppContainer 与输入快照授权')
+def test_step_environment_grants_r_interpreter(project_root, stub_cfg):
+    """R 安装在固定前缀之外时（例如 setup-r 的 /opt/R），必须显式授权执行。"""
+    from multiomics_tui.task_runner import _step_environment, file_hash
+    source = project_root / 'data/raw/input.csv'
+    source.parent.mkdir(parents=True)
+    source.write_text('sample,value\na,1\n', encoding='utf-8')
+    task = project_root / 'analysis' / 'task_fixture'
+    task.mkdir(parents=True)
+    env = _step_environment(project_root, task, stub_cfg,
+                            [{'path': 'data/raw/input.csv', 'sha256': file_hash(source)}])
+    allowed = json.loads(env['TASK_ALLOWED_READS'])
+    assert str(Path(stub_cfg['runtime']['rscript']).resolve()) in allowed
+
+
 def test_write_new_never_overwrites_without_o_nofollow(tmp_path, monkeypatch):
     """Windows 没有 os.O_NOFOLLOW；O_EXCL 仍必须保证不覆盖已有文件。"""
     from multiomics_tui import task_runner

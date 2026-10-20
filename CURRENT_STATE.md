@@ -1,4 +1,4 @@
-updated_at: 2026-10-20T15:52:11+08:00
+updated_at: 2026-10-20T16:05:00+08:00
 
 ## current_goal
 
@@ -12,7 +12,8 @@ v8.0.0 公开源码及终端升级交付已完成本地验收；入口权限、m
 - 入口脚本权限：4 个脚本索引模式 100644→100755，新增索引与 ZIP/manifest 权限测试。
 - macOS 便携回归：非 Linux `require_probe` 记录缺失、`/var` 别名、测试缺少 R 库、DeepSeek 真实密钥依赖、TUI 计时假设，均已修复；新增 `@pytest.mark.real_probe` 安全用例。
 - CI 三平台失败（run 39386993527：ubuntu 16 / macOS 15 / Windows 29）：测试会话从宿主 R 探测 `R_HOME` 与 `.libPaths()` 写入临时配置；`r_env` 用例隔离 `R_LIBS*`；`_write_new` 兼容 Windows 无 `O_NOFOLLOW`；`redact()` 仅把长度 ≥16 的环境值当密钥；探测失败附带脱敏日志末尾；CI 使用 `--basetemp` 并在失败时上传日志 artifact。
-- 本机完整回归：154 passed / 1 skipped；`public_release audit` 167 项通过。
+- 本机完整回归：155 passed / 1 skipped；`public_release audit` 167 项通过。
+- 第二轮 CI 修复：工作流补装 `digest`；`_step_environment` 授权 Rscript 解析路径与 bin/lib 目录（setup-r 的 `/opt/R` 不在固定前缀内）；Windows 单元测试替换 AppContainer 启动；新增解释器授权测试。
 
 ## in_progress
 
@@ -38,13 +39,14 @@ v8.0.0 公开源码及终端升级交付已完成本地验收；入口权限、m
 
 - v8.0.0公开源码；Release构建输出tme_agent-v8.0.0.zip、manifest-v8.0.0.json、SHA256SUMS-v8.0.0.txt。
 - docs/VALIDATION.md 含 2026-10-20 两节修复记录（本机便携回归、CI 三平台失败）。
-- 本机回归：154 passed / 1 skipped（跳过项为 Linux 专用 R 管线集成用例），耗时 3m06s。
+- 本机回归：155 passed / 1 skipped（跳过项为 Linux 专用 R 管线集成用例），耗时 3m22s。
 
 ## blockers_or_warnings
 
 - 完成标记LOCAL_PUBLIC_RELEASE_VALIDATED_NATIVE_PENDING。
-- 三平台 CI 尚未在修复后运行；Windows 从未真正跑完，可能仍有平台差异。
-- Windows “请求中含密钥”误报的变量名未直接观测，修复采用长度阈值；若 CI 仍失败，需加变量名诊断（只打印名字）。
+- 三平台 CI 尚未在第二轮修复后运行；Windows 原生隔离仍待真实验收。
+- Windows “请求中含密钥”误报的变量名未直接观测，但长度阈值修复已使该组失败在 CI 消失。
+- 第二轮 CI 后剩余失败全部来自探测/执行环境，已修复；Windows 私有运行时只影响单元测试，原生隔离仍待真实验收。
 - 完整回归耗时 3m06s，主要来自规划路径真实执行 R 输入探测。
 - macOS/Windows 原生沙箱与真实模型API未测试。
 

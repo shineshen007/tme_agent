@@ -1,6 +1,7 @@
 """Shared fixtures for the multiomics TUI tests (offline, no network, no API key)."""
 from functools import lru_cache
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -29,6 +30,21 @@ def substituted_probe(request, monkeypatch):
     from native_dist import doctor
     # Both call sites import the function lazily, so patching the module attribute works.
     monkeypatch.setattr(doctor, "require_probe", lambda root: None)
+
+
+@pytest.fixture(autouse=True)
+def substituted_windows_guard(monkeypatch):
+    """Windows 单元测试不经过 AppContainer。
+
+    AppContainer 需要 bootstrap 准备的私有运行时与输入快照；单元测试只用合成
+    输入且不声称原生隔离，私有运行时的行为由 Windows 原生验收覆盖。
+    """
+    if os.name != "nt":
+        return
+    from multiomics_tui import windows_native
+    monkeypatch.setattr(
+        windows_native, "run_appcontainer",
+        lambda task_dir, argv, env: subprocess.call(argv, env=env, cwd=task_dir))
 
 
 @lru_cache(maxsize=1)
