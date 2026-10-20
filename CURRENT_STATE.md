@@ -1,8 +1,8 @@
-updated_at: 2026-10-20T16:45:23+08:00
+updated_at: 2026-10-20T16:55:11+08:00
 
 ## current_goal
 
-v8.0.1 发布准备完成：三批修复已合并、三平台 CI 全绿；VERSION 与 CHANGELOG 已更新，等待推送、三平台 CI 复核与 tag 发布。
+v8.0.1 已正式发布（tag v8.0.1，Release 附件齐全）；三平台 CI 全绿，公开更新器识别到 8.0.1。
 
 ## completed
 
@@ -16,11 +16,12 @@ v8.0.1 发布准备完成：三批修复已合并、三平台 CI 全绿；VERSIO
 - 第二轮 CI 修复：工作流补装 `digest`；`_step_environment` 授权 Rscript 解析路径与 bin/lib 目录（setup-r 的 `/opt/R` 不在固定前缀内）；新增解释器授权测试。
 - 第三轮 CI 修复：受保护子进程调用抽为 `input_inspection._run_guarded` 接缝，Windows 单元测试在父进程侧直接执行探测。
 - 三平台 CI 全绿（run 39392040336，HEAD d11740b）：ubuntu、macOS、Windows 全部 success。
-- 8.0.1 发布准备：`prepare --version 8.0.1` 通过；`release.yml` 补装 `digest`；发布测试改为从 VERSION 派生版本；本地构建 167 文件、source_data 为空、四个脚本 0755；本机回归 155 passed / 1 skipped。
+- 8.0.1 发布准备：`prepare --version 8.0.1` 通过；`release.yml` 补装 `digest`；发布测试改为从 VERSION 派生版本；本机回归 155 passed / 1 skipped。
+- 8.0.1 已发布：tag 发布工作流 validate 与 publish 均 success；发布清单与 tag 内容逐文件一致（167 项、source_data 为空）；ZIP 无 data/.runtime/.venv 条目，四个脚本 0755；`SHA256SUMS` 校验通过；`public_update.ReleaseClient` 识别到最新正式版本 8.0.1。
 
 ## in_progress
 
-- 8.0.1 版本提交待推送；推送后等待 CI 复核，再推 tag 触发 Release 工作流。
+- 无源码实施任务。Windows 原生 AppContainer 与 macOS 原生沙箱验收待执行。
 
 ## key_decisions
 
@@ -43,7 +44,8 @@ v8.0.1 发布准备完成：三批修复已合并、三平台 CI 全绿；VERSIO
 - v8.0.0公开源码；Release构建输出tme_agent-v8.0.0.zip、manifest-v8.0.0.json、SHA256SUMS-v8.0.0.txt。
 - docs/VALIDATION.md 含 2026-10-20 三节修复记录（本机便携回归、CI 三平台失败、CI 第三轮），并记录三平台全绿。
 - 本机回归：155 passed / 1 skipped（跳过项为 Linux 专用 R 管线集成用例），耗时 3m25s。
-- `dist/tme_agent-v8.0.1.zip`（421K，sha256 290cb18d…）、`manifest-v8.0.1.json`、`SHA256SUMS-v8.0.1.txt`。
+- Release v8.0.1：https://github.com/shineshen007/tme_agent/releases/tag/v8.0.1
+- 附件：`tme_agent-v8.0.1.zip`（sha256 2fcf8e40…）、`manifest-v8.0.1.json`（358e9bc8…）、`SHA256SUMS-v8.0.1.txt`。
 
 ## blockers_or_warnings
 
@@ -54,4 +56,4 @@ v8.0.1 发布准备完成：三批修复已合并、三平台 CI 全绿；VERSIO
 
 ## next_step
 
-提交 8.0.1 版本变更并推送 main；CI 全绿后 `git tag -a v8.0.1` 并推送 tag，确认 Release 附件（ZIP/manifest/SHA256SUMS）与 `update --check`。
+在 Windows 与 Intel macOS 目标机执行原生验收（AppContainer/Seatbelt、系统凭据库、真实模型 API），结果记入 docs/VALIDATION.md。

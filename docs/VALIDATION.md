@@ -53,6 +53,14 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - 本机回归：探测相关三个测试文件 54 passed；`public_release audit` 167 项通过。
 - 第四次远程运行（d11740b，run 39392040336）：ubuntu、macOS、Windows **全部 success**，便携回归首次三平台通过。
 
+## 2026-10-20 v8.0.1 发布
+
+- 版本提交 24a0d67 的 CI（run 39395711720）三平台 success；tag v8.0.1 触发发布工作流（run 39396418309），validate 与 publish 均 success。
+- Release 附件：`tme_agent-v8.0.1.zip`（sha256 2fcf8e40…，431337 B）、`manifest-v8.0.1.json`、`SHA256SUMS-v8.0.1.txt`；`shasum -a 256 -c` 通过。
+- 发布清单与 tag 内容逐文件一致（167 项、`source_data` 为空）；ZIP 169 条目，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755。
+- 公开更新器 `ReleaseClient` 识别到最新正式版本 8.0.1 与三个附件；解包后 `installed()` 报告 8.0.1、无 `data/raw/`。
+- 本机完整回归：155 passed / 1 skipped。
+
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
