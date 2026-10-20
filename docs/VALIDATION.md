@@ -53,6 +53,14 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - 本机回归：探测相关三个测试文件 54 passed；`public_release audit` 167 项通过。
 - 第四次远程运行（d11740b，run 39392040336）：ubuntu、macOS、Windows **全部 success**，便携回归首次三平台通过。
 
+## 2026-10-20 v8.0.2 品牌与 README
+
+- 新增 `assets/`：`logo-on-dark.svg`、`logo-on-light.svg`（GitHub 深浅主题经 `<picture>` 自适应）、`logo-lockup.svg`（社交预览）；全部为手绘单色矢量，未生成 PNG（符合项目图件规范）。
+- README 改为 Paseo 风格版式：居中 logo、标题、语言行、徽章行、一句话简介、特性列表、Mermaid hub–spoke 架构图、Agents 表、快速开始、更新/回滚、维护者发布、许可。英文主版为 `README.md`，简体中文对照为 `README.zh-CN.md`。
+- 发行白名单扩展：`native_dist/public_release.py` 的 `AREAS` 增加 `assets: {.svg}`，`TOP` 增加 `README.zh-CN.md`；`PUBLIC_FILES.json` 相应新增 4 个路径。
+- `public_release prepare --version 8.0.2` 通过；`audit` 171 项通过；`build` 产出 `tme_agent-v8.0.2.zip`（173 条目、含 3 个 SVG 与 `README.zh-CN.md`、`source_data` 为空）。
+- 本机回归：发行分布与 v8 分布两个测试文件 57 passed；完整回归 155 passed / 1 skipped。
+
 ## 2026-10-20 v8.0.1 发布
 
 - 版本提交 24a0d67 的 CI（run 39395711720）三平台 success；tag v8.0.1 触发发布工作流（run 39396418309），validate 与 publish 均 success。

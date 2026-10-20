@@ -1,0 +1,19 @@
+<svg width="64" height="64" viewBox="0 0 700 700" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="tme_agent logo">
+  <title>tme_agent</title>
+  <!-- Four omics spokes (transcriptomics, proteomics, metabolomics, scRNA) on a pinwheel,
+       converging on one agent hub. Monochrome; this variant is for light backgrounds. -->
+  <g stroke="#1f2328" stroke-width="30" stroke-linecap="round">
+    <path d="M350 260 Q390 197 350 134"/>
+    <path d="M440 350 Q503 390 566 350"/>
+    <path d="M350 440 Q310 503 350 566"/>
+    <path d="M260 350 Q197 310 134 350"/>
+  </g>
+  <circle cx="350" cy="350" r="90" stroke="#1f2328" stroke-width="36" fill="none"/>
+  <circle cx="350" cy="350" r="22" fill="#1f2328"/>
+  <g fill="#1f2328">
+    <circle cx="350" cy="100" r="34"/>
+    <circle cx="600" cy="350" r="34"/>
+    <circle cx="350" cy="600" r="34"/>
+    <circle cx="100" cy="350" r="34"/>
+  </g>
+</svg>

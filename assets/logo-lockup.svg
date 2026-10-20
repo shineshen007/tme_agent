@@ -1,0 +1,25 @@
+<svg width="1200" height="472" viewBox="0 0 1780 700" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="tme_agent">
+  <title>tme_agent</title>
+  <!-- Mark + wordmark lockup for social preview / OG images. Dark panel so the
+       light-on-dark artwork stays readable when rendered on any background. -->
+  <rect width="1780" height="700" rx="48" fill="#0d1117"/>
+  <g transform="translate(20, 0)">
+    <g stroke="#ffffff" stroke-width="30" stroke-linecap="round">
+      <path d="M350 260 Q390 197 350 134"/>
+      <path d="M440 350 Q503 390 566 350"/>
+      <path d="M350 440 Q310 503 350 566"/>
+      <path d="M260 350 Q197 310 134 350"/>
+    </g>
+    <circle cx="350" cy="350" r="90" stroke="#ffffff" stroke-width="36" fill="none"/>
+    <circle cx="350" cy="350" r="22" fill="#ffffff"/>
+    <g fill="#ffffff">
+      <circle cx="350" cy="100" r="34"/>
+      <circle cx="600" cy="350" r="34"/>
+      <circle cx="350" cy="600" r="34"/>
+      <circle cx="100" cy="350" r="34"/>
+    </g>
+  </g>
+  <text x="790" y="350" dominant-baseline="middle" fill="#ffffff"
+        font-family="Inter, 'Helvetica Neue', Arial, sans-serif"
+        font-size="190" font-weight="600" letter-spacing="-6">tme_agent</text>
+</svg>

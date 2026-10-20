@@ -1,48 +1,180 @@
-# tme_agent
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-on-dark.svg">
+    <img src="assets/logo-on-light.svg" width="72" height="72" alt="tme_agent logo">
+  </picture>
+</p>
 
-基于 v8 的多组学自然语言终端工具。输入分析目标，审核输入绑定、方法和代码后执行；保留任务日志、完整结果及来源。公开版采用 **GPL-3.0-or-later**，不包含患者数据或原研究结果。
+<h1 align="center">tme_agent</h1>
 
-仓库：<https://github.com/shineshen007/tme_agent>。
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-## 使用者安装
+<p align="center">
+  <a href="https://github.com/shineshen007/tme_agent/stargazers">
+    <img src="https://img.shields.io/github/stars/shineshen007/tme_agent?style=flat&logo=github" alt="GitHub stars">
+  </a>
+  <a href="https://github.com/shineshen007/tme_agent/releases">
+    <img src="https://img.shields.io/github/v/release/shineshen007/tme_agent?style=flat&logo=github" alt="GitHub release">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-555?style=flat" alt="License">
+  </a>
+  <a href="https://www.python.org/">
+    <img src="https://img.shields.io/badge/python-3.12%E2%80%933.14-555?style=flat&logo=python&logoColor=white" alt="Python">
+  </a>
+  <a href="https://www.r-project.org/">
+    <img src="https://img.shields.io/badge/R-4.4%2B-555?style=flat&logo=r&logoColor=white" alt="R">
+  </a>
+</p>
 
-在 [Releases](https://github.com/shineshen007/tme_agent/releases) 下载 `tme_agent-vX.Y.Z.zip` 和同版本校验清单，核对 SHA256 后完整解压到新的、可写目录。使用 Release 附件 ZIP；GitHub 自动生成的 “Source code” ZIP 是维护源码，不含安装清单，不能直接用于发行更新。
+<p align="center">A natural-language terminal workspace for reproducible multi-omics analysis.</p>
 
-需要 Python 3.12–3.14、R 4.4+。已有软件直接复用，依赖只补齐到项目环境。Mac/Windows 可使用 `setup_macos.command` / `setup_windows.cmd`；也可在项目目录运行：
+<p align="center">
+  <img src="assets/logo-lockup.svg" alt="tme_agent" width="100%">
+</p>
+
+tme_agent turns a stated analysis goal into a reviewed, executable plan. You describe what you
+want, the agent binds it to concrete inputs, proposes a method and code, and waits for your
+approval before anything runs. Every task keeps its own log, its complete results, and the
+provenance needed to trace each number back to the file it came from.
+
+The public release is **GPL-3.0-or-later** and ships **no patient data and no original study
+results** — only source, templates, and a synthetic example.
+
+- **Plan before run:** Every task is bound to declared inputs, a chosen method, and generated
+  code that you review and confirm before execution.
+- **Hub-and-spoke orchestration:** A planner fans work out to per-omics spokes and integrates
+  their evidence; the model interprets, but never authors a statistic.
+- **Numbers are injected, not generated:** Every figure and number in a report is read from the
+  deterministic evidence registry, not written by a language model.
+- **Reproducible by construction:** Task logs, complete result tables, and provenance records are
+  kept for every run; nothing is overwritten in a completed run directory.
+- **Guardrails in code, not only prompts:** Input binding, sandboxed execution, and refusal of
+  cohort identifiers are enforced by the runner, not left to the prompt.
+- **Bring your own model:** Configure the service with `/model` and the key with `/key`; the key
+  is stored in the system credential vault and never written to config, logs, or Git.
+- **Offline by default:** With no model key, diagnostics and the synthetic example still run.
+
+## Architecture
+
+The public entry point is a natural-language task. A hub planner produces a plan, per-omics
+spokes run under the guarded runner, an integrator freezes the evidence, and the agent layer
+interprets it — with all statistics injected from the registry.
+
+```mermaid
+flowchart TD
+    accTitle: tme_agent hub and spoke orchestration
+    accDescr: A natural-language goal becomes a reviewed plan. The hub planner fans work out to per-omics spokes; a guarded runner executes each step; the integrator freezes evidence; the agent layer interprets without authoring numbers.
+
+    goal["🧑 Natural-language goal"] --> planner["Hub planner<br/>reviewed plan"]
+    planner --> rna["Spoke · transcriptomics"]
+    planner --> prot["Spoke · proteomics"]
+    planner --> metab["Spoke · metabolomics"]
+    planner --> scrna["Spoke · scRNA"]
+    rna --> runner["Guarded runner<br/>sandboxed execution"]
+    prot --> runner
+    metab --> runner
+    scrna --> runner
+    runner --> registry["Evidence registry<br/>deterministic numbers"]
+    registry --> integrator["Hub integrator<br/>frozen evidence"]
+    integrator --> agents["Agent layer<br/>interpretation only"]
+    agents --> report["📄 Report · tables · provenance"]
+
+    classDef hub fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a5f
+    classDef spoke fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef guard fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#713f12
+    classDef out fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#4c1d95
+
+    class planner,integrator hub
+    class rna,prot,metab,scrna spoke
+    class runner,registry guard
+    class agents,report out
+```
+
+## Agents
+
+Each agent has one job, and the hard rules are enforced in code rather than only in the prompt.
+
+| Agent | Role |
+| --- | --- |
+| **Hub planner** | Turns a goal into a reviewed plan bound to declared inputs and methods. |
+| **Spoke agents** | Per-omics analysis for transcriptomics, proteomics, metabolomics, and scRNA. |
+| **Evidence integrator** | Freezes the evidence registry; the only source of numbers. |
+| **Analyst** | Reads frozen evidence and produces structured, schema-validated interpretation. |
+| **Hypothesis reasoner** | Proposes testable hypotheses with counter-evidence and explicit unknowns. |
+| **Critic** | Reviews agent output for overreach, unsupported claims, and schema drift. |
+| **Librarian** | Retrieves literature, keeping machine stance separate and review pending. |
+| **Reanalysis proposer** | Suggests follow-up analysis without changing frozen thresholds. |
+| **Synthesizer** | Renders the final report; every number is injected, never authored. |
+
+## Getting Started
+
+### Prerequisites
+
+- **Python 3.12–3.14** and **R 4.4+**. Existing software is reused; dependencies are only
+  filled in up to the project environment.
+
+### Install
+
+Download `tme_agent-vX.Y.Z.zip` and its matching checksum list from
+[Releases](https://github.com/shineshen007/tme_agent/releases), verify the SHA256, and extract
+into a new, writable directory. Use the **Release asset ZIP** — the GitHub-generated
+“Source code” ZIP is maintainer source, has no install manifest, and cannot be used for release
+updates.
+
+On macOS/Windows you can use `setup_macos.command` / `setup_windows.cmd`, or run from the project
+directory:
 
 ```bash
 python -m native_dist.bootstrap check
 python -m native_dist.bootstrap setup
 ```
 
-安装后，Mac/Linux 激活 `source .venv/bin/activate`；Windows PowerShell 激活 `.venv\Scripts\Activate.ps1`，或直接使用 `.venv\Scripts\python.exe`。下文 `python` 均指安装目录的 `.venv` Python。
+After install, activate `.venv` (macOS/Linux: `source .venv/bin/activate`; Windows PowerShell:
+`.venv\Scripts\Activate.ps1`, or use `.venv\Scripts\python.exe` directly). Below, `python` means
+the `.venv` Python in the install directory.
 
 ```bash
 python -m multiomics_tui
 ```
 
-首次安装生成本地配置和 4 × 4 合成表达示例。真实数据自行放入本地 `data/raw/`、`data/metadata/`、`data/signature/`；不要上传这些目录。界面 `/model` 设置服务，`/key` 在掩码框输入密钥并使用系统凭据库。Linux 无桌面凭据服务时，可显式将本地配置 `distribution.credential_storage` 改为 `memory`，密钥仅本次进程有效，不写磁盘。无模型密钥也能运行离线诊断。
+The first install generates local configuration and a 4 × 4 synthetic expression example. Put
+your real data under local `data/raw/`, `data/metadata/`, and `data/signature/` — do not upload
+these directories. Set the service with `/model` and enter the key in the masked field with
+`/key`; the key uses the system credential vault. On Linux without a desktop credential service,
+you may explicitly set local config `distribution.credential_storage` to `memory`, where the key
+lives only for the current process and is never written to disk. **Diagnostics run offline even
+without a model key.**
 
-自然语言新任务是公开版入口；原固定研究流程需要独立的队列配置，不可用公开模板恢复。模型生成的解释和代码不代表独立验证，分析前仍需确认统计单位、分组和研究设计。
+Natural-language tasks are the public entry point. Historical fixed study pipelines need a
+separate cohort configuration and cannot be restored from the public template. Model-generated
+explanations and code are **not** independent validation — confirm the statistical unit,
+grouping, and study design before you rely on a result.
 
-## 使用者更新
+## Update and Rollback
 
-关闭界面、完成或停止后台任务，在安装目录运行：
+Close the interface and finish or stop background tasks, then run from the install directory:
 
 ```bash
 python -m multiomics_tui update --check
 python -m multiomics_tui update
-python -m multiomics_tui update --version v8.0.0
+python -m multiomics_tui update --version vX.Y.Z
 python -m multiomics_tui update --rollback
 ```
 
-默认更新到最新正式 Release。更新验证下载、文件清单和任务锁；源码有本地改动时拒绝覆盖。数据、结果、个人配置和已有环境不被发行包替换。代码应用或环境准备失败时恢复发行源码；新增依赖不自动卸载。只有代码、环境和诊断均通过才报告成功。完成后重新启动界面。
+Updates default to the latest stable Release. The updater verifies the download, file manifest,
+and task locks; it refuses to overwrite locally modified source. Data, results, personal config,
+and the existing environment are never replaced by the release package. If applying code or
+preparing the environment fails, the release source is restored; new dependencies are not
+automatically uninstalled. Success is reported only when code, environment, and diagnostics all
+pass. Restart the interface when done.
 
-原 v8/v7 ZIP 安装先在新目录安装一次公开版，自行放置本地数据；不合并覆盖旧目录。Git clone 工作副本采用下面的维护方式，不能使用发行更新器。
+## Development
 
-## 维护者发布
-
-本目录保留既有 `main` 历史；首次上传在本目录完成审核：
+This directory keeps the existing `main` history; the first upload is reviewed here.
 
 ```bash
 git status --short
@@ -50,44 +182,56 @@ python -m native_dist.public_release audit
 python -m pytest -q
 ```
 
-使用以下白名单命令暂存，避免把本地数据加入 Git：
+Stage only the allowlisted files, so local data never enters Git:
 
 ```bash
 python -c "import json,subprocess; subprocess.run(['git','add','--',*json.load(open('PUBLIC_FILES.json',encoding='utf-8'))['files']],check=True)"
 git diff --cached --stat
-git commit -m "Release public v8.0.0"
+git commit -m "Release public vX.Y.Z"
 git push origin main
-git tag -a v8.0.0 -m "Public v8.0.0"
-git push origin v8.0.0
+git tag -a vX.Y.Z -m "Public vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
-标签触发 Actions 验证和生成 Release。公开源码、安装包和清单均不带研究数据。发布前确认 GitHub Actions 已启用，维护者有推送权限；Git 使用自己的安全认证，不把 token 写入配置或命令。
+The tag triggers Actions validation and Release generation. Public source, install packages, and
+manifests carry no study data. Confirm GitHub Actions is enabled and you have push rights before
+publishing; Git uses your own secure authentication — never write a token into config or a
+command.
 
-以后修改程序，新增文件时同时维护 `PUBLIC_FILES.json` 的显式白名单，更新 CHANGELOG，再执行（以 v8.0.1 为例）：
+When you add files, maintain the explicit allowlist in `PUBLIC_FILES.json` and update
+`CHANGELOG.md`, then run (example: `vX.Y.Z`):
 
 ```bash
 git pull --ff-only origin main
-python -m native_dist.public_release prepare --version 8.0.1
+python -m native_dist.public_release prepare --version X.Y.Z
 python -m pytest -q
 python -m native_dist.public_release build --output dist
 python -c "import json,subprocess; subprocess.run(['git','add','--',*json.load(open('PUBLIC_FILES.json',encoding='utf-8'))['files']],check=True)"
 git diff --cached --stat
-git commit -m "Release v8.0.1"
+git commit -m "Release vX.Y.Z"
 git push origin main
-git tag -a v8.0.1 -m "Release v8.0.1"
-git push origin v8.0.1
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
-删除文件时先从白名单移除，再显式 `git rm -- <路径>`。同一版本号禁止替换已发布内容。维护者更新本地运行环境使用 `python -m native_dist.bootstrap setup`。
+When deleting files, remove them from the allowlist first, then `git rm -- <path>` explicitly.
+Never replace published content under the same version number. Maintainers update the local
+runtime with `python -m native_dist.bootstrap setup`.
 
-## 文档与状态
+## Docs and Status
 
-- [安装、更新和回滚](docs/INSTALL_UPDATE_zh.md)
-- [第三方资源与本地数据](docs/THIRD_PARTY_RESOURCES.md)
-- [源码来源与基线](docs/V8_SOURCE.json)
-- [本地验证结果](docs/VALIDATION.md)
-- [当前交付状态](CURRENT_STATE.md)
-- [版本记录](CHANGELOG.md)
-- [许可声明](docs/LICENSE_NOTICE.md)
+- [Install, update, and rollback](docs/INSTALL_UPDATE_zh.md)
+- [Third-party resources and local data](docs/THIRD_PARTY_RESOURCES.md)
+- [Source provenance and baseline](docs/V8_SOURCE.json)
+- [Local validation results](docs/VALIDATION.md)
+- [Current delivery status](CURRENT_STATE.md)
+- [Changelog](CHANGELOG.md)
+- [License notice](docs/LICENSE_NOTICE.md)
 
-Windows、Intel Mac 和 Apple Silicon 的原生隔离仍需目标机器实测。CI 的便携测试不代替原生隔离验收。`python -m native_dist.diagnostics --project-root .` 只运行本地检查与合成任务，不调用真实模型 API。
+Windows, Intel Mac, and Apple Silicon native isolation still require on-device testing; portable
+CI does not substitute for native acceptance. `python -m native_dist.diagnostics --project-root .`
+runs only local checks and synthetic tasks, and does not call a real model API.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

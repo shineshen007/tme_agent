@@ -14,7 +14,7 @@ REPOSITORY = 'shineshen007/tme_agent'
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = 'package_manifest.json'
 SUMS = 'PACKAGE_SHA256SUMS.txt'
-TOP = {'LICENSE', 'README.md', 'VERSION', 'PUBLIC_FILES.json', '.gitignore',
+TOP = {'LICENSE', 'README.md', 'README.zh-CN.md', 'VERSION', 'PUBLIC_FILES.json', '.gitignore',
        'CURRENT_STATE.md', 'CHANGELOG.md', 'PROJECT_CONTEXT.md', 'requirements.txt',
        'setup_windows.cmd', 'setup_macos.command', 'start_windows.cmd',
        'start_macos.command', 'diagnose_windows.cmd', 'diagnose_macos.command'}
@@ -22,7 +22,7 @@ AREAS = {'multiomics_tui': {'.py', '.tcss', '.md', '.R'}, 'orchestrator': {'.py'
          'native_dist': {'.py', '.txt', '.json', '.c', '.m', '.ps1', '.iss'},
          'scripts': {'.py', '.R', '.sh'}, 'schemas': {'.json'}, 'prompts': {'.md'},
          'tests': {'.py'}, 'docs': {'.md', '.json'}, 'examples': {'.csv', '.md'},
-         '.github': {'.yml', '.yaml'}}
+         'assets': {'.svg'}, '.github': {'.yml', '.yaml'}}
 GENERATED = {MANIFEST, SUMS}
 MAX_BYTES = 100 * 1024 * 1024
 # These are credentials, not generic test strings such as TEST_API_KEY.
