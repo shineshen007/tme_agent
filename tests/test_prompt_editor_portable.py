@@ -1,6 +1,7 @@
 """Request input integrity: synthetic text, no external model or scientific run."""
 import asyncio
 import json
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -14,6 +15,22 @@ from multiomics_tui.model_client import CompatibleClient
 from multiomics_tui.model_config import normalize
 from multiomics_tui.prompt_editor import PromptEditor
 from multiomics_tui.task_planner import generate_plan
+
+
+async def settle(pilot, session, app, *, condition=None, timeout=60.0):
+    """等待后台规划线程完成。
+
+    规划在 asyncio.to_thread 中执行，并会真实启动 R 输入探测，耗时随机器变化；
+    按 pause() 次数计时会误判，因此按墙钟时间轮询。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        await pilot.pause()
+        await asyncio.sleep(0.02)
+        if not app._busy and session.active_task is not None and (
+                condition is None or condition()):
+            return
+    raise AssertionError("后台规划未在超时前完成")
 
 
 TAIL = "末尾要求：使用配对检验，保留阴性结果"
@@ -89,10 +106,7 @@ def test_full_long_prompt_reaches_session_and_model_once(project_root, stub_cfg,
                 await pilot.press("enter", "enter")
             else:
                 app.query_one("#send-prompt", Button).press()
-            for _ in range(300):
-                await pilot.pause()
-                if session.active_task and not app._busy:
-                    break
+            await settle(pilot, session, app)
             assert len(client.requests) == 2
             system, user, schema = client.requests[-1]
             assert user == LONG and LONG in system and schema == "tui_task_plan_v5"
@@ -158,10 +172,7 @@ def test_enter_freezes_request_before_next_queued_character(project_root, stub_c
             editor.value = TAIL
             app.post_message(Key("enter", "\r"))
             app.post_message(Key("x", "x"))
-            for _ in range(300):
-                await pilot.pause()
-                if client.requests and not app._busy:
-                    break
+            await settle(pilot, session, app, condition=lambda: bool(client.requests))
             assert len(client.requests) == 2 and client.requests[0][1] == TAIL
             assert editor.text == "x"
             assert session.tasks.user_text(session.active_task) == TAIL

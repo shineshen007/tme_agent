@@ -130,11 +130,12 @@ def test_invalid_inputs_still_rejected(project_root, stub_cfg, path):
         validate_plan(project_root, raw, REQUEST, stub_cfg)
 
 
-def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v5(project_root):
+def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v5(project_root, stub_cfg):
     inputs(project_root)
-    cfg = {"llm": normalize({"provider": "ollama", "base_url": "http://localhost:1234/v1",
-                              "model": "fixture", "max_schema_retries": 1, "max_retries": 0,
-                              "cache": True})}
+    # 复用 stub_cfg 的 runtime（含本机 R 库），规划需要真实执行输入结构探测。
+    cfg = {**stub_cfg, "llm": normalize({"provider": "ollama", "base_url": "http://localhost:1234/v1",
+                                         "model": "fixture", "max_schema_retries": 1, "max_retries": 0,
+                                         "cache": True})}
     bodies = []
     replies = iter(({"inputs":plan()["inputs"]}, {**bad_plan(),"input_bindings":{"inventory":True}}, {**plan(),"input_bindings":{"inventory":True}}))
 

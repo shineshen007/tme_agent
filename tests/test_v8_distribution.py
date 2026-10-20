@@ -3,9 +3,66 @@
 These run on any platform; native enforcement (real Seatbelt/R) needs macOS.
 """
 import json
+import platform
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 
 import pytest
+
+
+def test_entry_scripts_are_executable_in_git_index():
+    """Git 工作副本的 .command/.sh 必须带可执行位，否则双击报无访问权限。
+
+    发行 ZIP 由 public_release.build 强制写 0755；Git 检出只看索引模式，
+    这里锁定索引，防止入口脚本再次以 100644 提交。
+    """
+    root = Path(__file__).resolve().parents[1]
+    if not (root / '.git').exists():
+        pytest.skip('发行 ZIP 安装没有 Git 索引；包内模式由 manifest 记录')
+    listed = subprocess.run(['git', 'ls-files', '-s', '-z'], cwd=root, capture_output=True,
+                            text=True, check=True).stdout
+    modes = {}
+    for row in listed.split('\0'):
+        if row:
+            meta, name = row.split('\t', 1)
+            modes[name] = meta.split()[0]
+    declared = [n for n in json.loads((root / 'PUBLIC_FILES.json').read_text(encoding='utf-8'))['files']
+                if n.endswith(('.command', '.sh'))]
+    assert declared, '白名单应包含 macOS 入口脚本'
+    assert {n: modes.get(n) for n in declared} == dict.fromkeys(declared, '100755')
+
+
+@pytest.mark.real_probe
+@pytest.mark.skipif(sys.platform == 'linux', reason='Linux 主机无需探测记录即放行')
+def test_probe_record_is_required_and_fingerprint_bound(project_root, monkeypatch):
+    """require_probe 必须在缺记录或指纹不符时拒绝，合法记录才放行。
+
+    测试默认替换掉探测入口；这条用例显式使用真实实现，避免安全语义
+    只依赖 native 验收。
+    """
+    from native_dist import doctor
+    with pytest.raises(RuntimeError, match='行为验证'):
+        doctor.require_probe(project_root)
+    # 临时项目根没有应用源码和依赖清单，指纹无从计算；先显式指向源码根。
+    source = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv('MULTIOMICS_APP_ROOT', str(source))
+    shutil.copy(source / 'requirements.txt', project_root / 'requirements.txt')
+    (project_root / 'native_dist').mkdir(exist_ok=True)
+    shutil.copy(source / 'native_dist/requirements-native.txt',
+                project_root / 'native_dist/requirements-native.txt')
+    record = {'status': 'passed', 'platform': sys.platform, 'machine': platform.machine(),
+              'guard_fingerprint': doctor.guard_fingerprint(project_root),
+              'runtime_fingerprint': doctor.runtime_fingerprint(project_root)}
+    (project_root / '.runtime').mkdir(exist_ok=True)
+    (project_root / '.runtime/doctor.json').write_text(json.dumps(record), encoding='utf-8')
+    doctor.require_probe(project_root)
+    # 任一指纹不符都必须重新拒绝，而不是复用旧记录。
+    record['runtime_fingerprint'] = '0' * 64
+    (project_root / '.runtime/doctor.json').write_text(json.dumps(record), encoding='utf-8')
+    with pytest.raises(RuntimeError, match='行为验证'):
+        doctor.require_probe(project_root)
 
 
 def test_v8_resources_and_dependencies():

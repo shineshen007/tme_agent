@@ -19,6 +19,9 @@ def isolated_keys(monkeypatch):
     monkeypatch.setattr(config, '_keys', {})
     monkeypatch.setattr(config, '_env_bindings', {})
     monkeypatch.setattr(config, '_known_secrets', set())
+    # 测试不得依赖或消费环境中真实存在的密钥。
+    for name in ('DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_API_KEY', 'LM_STUDIO_API_KEY'):
+        monkeypatch.delenv(name, raising=False)
 
 
 @contextmanager
@@ -84,6 +87,7 @@ def test_bearer_and_parameter_compatibility(tmp_path):
 def test_deepseek_legacy_parameter(tmp_path):
     with server() as (url, requests):
         cfg = settings(url, provider='deepseek', thinking='disabled')
+        config.store_key(cfg, 'synthetic-deepseek-value')
         call(client(tmp_path, cfg))
     assert requests[0]['body']['thinking'] == {'type': 'disabled'}
 

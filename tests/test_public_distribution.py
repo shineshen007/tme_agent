@@ -117,6 +117,26 @@ def test_public_archive_contains_only_declared_source_and_license(releases):
     assert not any(s.startswith(('data/', 'knowledge/', 'analysis/', '.runtime/', '.venv/')) for s in names)
 
 
+def test_public_archive_marks_entry_scripts_executable(releases):
+    """ZIP 内 .command/.sh 必须是 0755，且与 manifest 记录一致。
+
+    解压后双击 setup/start 入口依赖该模式；updater 解包时按 manifest 的
+    mode 字段恢复权限，所以两处必须同源。
+    """
+    _, first, _, _ = releases
+    with ZipFile(first['archive']) as z:
+        modes = {i.filename.removeprefix('tme_agent/'): i.external_attr >> 16 for i in z.infolist()}
+    scripts = {n: stat.S_IMODE(m) for n, m in modes.items() if n.endswith(('.command', '.sh'))}
+    assert scripts and set(scripts.values()) == {0o755}
+    manifest = json.loads(Path(first['manifest']).read_text(encoding='utf-8'))
+    recorded = {item['path']: item['mode'] for item in manifest['files']
+                if item['path'].endswith(('.command', '.sh'))}
+    # 与白名单同源：每个声明的 .command/.sh 都要在包内且为 0755。
+    declared = {n for n in json.loads((SOURCE / 'PUBLIC_FILES.json').read_text(encoding='utf-8'))['files']
+                if n.endswith(('.command', '.sh'))}
+    assert set(recorded) == declared and set(recorded.values()) == {0o755}
+
+
 def test_check_is_read_only_and_upgrade_repeat_rollback(releases):
     root, _, second, protected = releases
     snapshot = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
