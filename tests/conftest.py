@@ -1,7 +1,9 @@
 """Shared fixtures for the multiomics TUI tests (offline, no network, no API key)."""
+from functools import lru_cache
+import json
 from pathlib import Path
 import shutil
-import json
+import subprocess
 
 import pytest
 
@@ -29,32 +31,34 @@ def substituted_probe(request, monkeypatch):
     monkeypatch.setattr(doctor, "require_probe", lambda root: None)
 
 
-def build_project(tmp_path: Path) -> Path:
-    # macOS 上 /var 是 /private/var 的别名。Seatbelt 授权按解析后的真实路径生成，
-    # 用未解析的拼写启动 R 会被拒绝（Operation not permitted），因此这里统一解析。
-    tmp_path = Path(tmp_path).resolve()
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config/study_config.yaml").write_text(
-        "schema_version: '1.0'\n"
-        f"runtime:\n  rscript: {json.dumps(shutil.which('Rscript') or 'Rscript')}\n  workers: 2\n"
-        "llm:\n  enabled: false\n  api_key_env: TEST_DEEPSEEK_KEY\n  model: stub\n",
-        encoding="utf-8")
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts/00_run.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    for name in ("go_gsva_prognosis", "go_gsva_optimal_cutoff", "go_gsva_optimal_cutoff/ne_km",
-                 "go_gsva_gobp2026"):
-        folder = tmp_path / "analysis" / name
-        folder.mkdir(parents=True)
-        (folder / "run_all.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    (tmp_path / "workspace/runs").mkdir(parents=True)
-    return tmp_path
+@lru_cache(maxsize=1)
+def host_r_environment():
+    """宿主 R 的 rscript、R_HOME 与真实库路径，整个测试会话只探测一次。
+
+    _step_environment 把 HOME 指向任务目录，R 因此读不到 ~/.Renviron 里配置的
+    用户库（CI 用 setup-r 安装的 jsonlite 就在那里）。测试必须显式传入库路径，
+    才能和真实安装一致；未安装 Rscript 时返回空列表，由用例自行 skip。
+    """
+    rscript = shutil.which("Rscript") or "Rscript"
+
+    def probe(expression: str) -> list[str]:
+        try:
+            result = subprocess.run([rscript, "--vanilla", "-e", expression],
+                                    capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    home = (probe("cat(R.home())") or [""])[0]
+    libraries = [p for p in probe('cat(.libPaths(), sep="\\n")') if p and Path(p).is_dir()]
+    return rscript, home, libraries
 
 
 def project_r_library_paths() -> list[str]:
-    """开发机上复用 bootstrap 生成的 R 库；没有该文件时返回空列表。
+    """bootstrap 生成的项目 R 库；没有 config/runtime.local.yaml 时返回空列表。
 
-    输入结构探测需要 R 的 jsonlite。用 bootstrap 安装的机器上它位于
-    .runtime/r-library，不在系统库；CI/发行 ZIP 用系统库（CI 已装 jsonlite）。
+    开发机上 jsonlite 装在 .runtime/r-library，不在系统库；CI 则由 setup-r 装入
+    用户库。两者都要并入临时项目配置，输入探测才能在任意机器上找到依赖。
     """
     path = Path(__file__).resolve().parents[1] / "config/runtime.local.yaml"
     try:
@@ -68,6 +72,43 @@ def project_r_library_paths() -> list[str]:
     return [str(p) for p in runtime.get("r_library_paths") or [] if Path(p).is_dir()]
 
 
+def runtime_settings() -> dict:
+    """临时项目与 stub_cfg 共用：宿主 R 解释器、R_HOME 和全部可见库。"""
+    rscript, home, host_libraries = host_r_environment()
+    libraries = list(dict.fromkeys([*project_r_library_paths(), *host_libraries]))
+    runtime = {"rscript": rscript, "workers": 2, "r_library_paths": libraries}
+    if home:
+        runtime["r_home"] = home
+    return runtime
+
+
+def build_project(tmp_path: Path) -> Path:
+    # macOS 上 /var 是 /private/var 的别名。Seatbelt 授权按解析后的真实路径生成，
+    # 用未解析的拼写启动 R 会被拒绝（Operation not permitted），因此这里统一解析。
+    tmp_path = Path(tmp_path).resolve()
+    runtime = runtime_settings()
+    lines = ["schema_version: '1.0'", "runtime:",
+             "  rscript: " + json.dumps(runtime["rscript"]),
+             "  workers: 2"]
+    if runtime.get("r_home"):
+        lines.insert(3, "  r_home: " + json.dumps(runtime["r_home"]))
+    if runtime["r_library_paths"]:
+        lines.append("  r_library_paths:")
+        lines.extend("    - " + json.dumps(p) for p in runtime["r_library_paths"])
+    lines.extend(["llm:", "  enabled: false", "  api_key_env: TEST_DEEPSEEK_KEY", "  model: stub"])
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/study_config.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/00_run.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    for name in ("go_gsva_prognosis", "go_gsva_optimal_cutoff", "go_gsva_optimal_cutoff/ne_km",
+                 "go_gsva_gobp2026"):
+        folder = tmp_path / "analysis" / name
+        folder.mkdir(parents=True)
+        (folder / "run_all.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (tmp_path / "workspace/runs").mkdir(parents=True)
+    return tmp_path
+
+
 @pytest.fixture
 def project_root(tmp_path):
     return build_project(tmp_path)
@@ -76,7 +117,13 @@ def project_root(tmp_path):
 @pytest.fixture
 def stub_cfg():
     return {
-        "runtime": {"rscript": shutil.which("Rscript") or "Rscript", "workers": 2,
-                    "r_library_paths": project_r_library_paths()},
+        "runtime": runtime_settings(),
         "llm": {"enabled": False, "api_key_env": "TEST_DEEPSEEK_KEY", "model": "stub"},
     }
+
+
+@pytest.fixture
+def isolated_r_env(monkeypatch):
+    """R 库环境变量只影响真实安装，不应泄漏进判定"可用包"的用例。"""
+    for name in ("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE"):
+        monkeypatch.delenv(name, raising=False)

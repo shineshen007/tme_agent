@@ -92,6 +92,19 @@ def test_deepseek_legacy_parameter(tmp_path):
     assert requests[0]['body']['thinking'] == {'type': 'disabled'}
 
 
+def test_short_secret_named_environment_value_is_not_a_credential(monkeypatch):
+    """CI 注入的短环境值不得把普通提示词误判为密钥泄漏。"""
+    monkeypatch.setenv('BUILD_TOKEN', 'ci-7')
+    monkeypatch.setenv('RUNNER_KEY', 'abcd')
+    assert config.redact('ci-7 abcd unchanged') == 'ci-7 abcd unchanged'
+
+
+def test_long_environment_secret_is_still_redacted(monkeypatch):
+    value = 'sk-' + 'x' * 32
+    monkeypatch.setenv('DEEPSEEK_API_KEY', value)
+    assert config.redact('leak ' + value) == 'leak [REDACTED]'
+
+
 def test_endpoint_key_isolation_and_replacement(monkeypatch):
     one = settings('http://localhost:10001/v1', auth_mode='bearer')
     two = settings('http://localhost:10002/v1', auth_mode='bearer')

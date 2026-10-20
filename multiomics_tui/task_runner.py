@@ -60,7 +60,9 @@ def file_hash(path: Path) -> str:
 
 def _write_new(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    # O_NOFOLLOW 在 Windows 上不存在；O_EXCL 已保证不覆盖、不跟随已存在的路径。
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as stream:
         stream.write(content)
 

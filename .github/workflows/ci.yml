@@ -26,6 +26,15 @@ jobs:
         run: Rscript -e 'install.packages("jsonlite", repos="https://cloud.r-project.org")'
       - run: python -m pip install -r native_dist/requirements-native.txt
       - run: python -m native_dist.public_release audit
-      - run: python -m pytest -q
+      - run: python -m pytest -q --basetemp=.pytest-tmp
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics-${{ runner.os }}
+          path: |
+            .pytest-tmp/**/probe.log
+            .pytest-tmp/**/logs/*.log
+          if-no-files-found: ignore
       - run: python -m native_dist.public_release build --output dist
       # Portable tests do not claim native R/sandbox or system-vault acceptance.

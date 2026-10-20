@@ -14,6 +14,7 @@
 /.venv/
 /.cache/
 /.pytest_cache/
+/.pytest-tmp/
 /dist/
 /build/
 /config/study_config.yaml

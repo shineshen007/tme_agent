@@ -37,9 +37,20 @@ def inspect_inputs(root: Path, inputs: list[dict], cfg: dict) -> dict:
             rscript_path(root), '--vanilla', str(script), str(request), str(output)]
     try:
         proc = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=120)
-        (folder / 'probe.log').write_text(proc.stdout + proc.stderr, encoding='utf-8')
+        log_path = folder / 'probe.log'
+        log_path.write_text(proc.stdout + proc.stderr, encoding='utf-8')
         if proc.returncode or not output.is_file():
-            raise ValueError(f'Input structure inspection failed; inspect local log {folder / "probe.log"}')
+            # CI 的临时目录随运行销毁；把脱敏后的末尾带进错误信息，用户和日志都能看到原因。
+            detail = ''
+            try:
+                from .model_config import redact
+                detail = redact(log_path.read_text(encoding='utf-8', errors='replace')[-800:]).strip()
+            except OSError:
+                pass
+            message = f'Input structure inspection failed; inspect local log {log_path}'
+            if detail:
+                message += '\n' + detail
+            raise ValueError(message)
     finally:
         cleanup(root, folder.name, task_dir=folder)
     if any(file_hash(root / i['path']) != i['sha256'] for i in inputs):

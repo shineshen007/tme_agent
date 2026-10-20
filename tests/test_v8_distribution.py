@@ -3,6 +3,7 @@
 These run on any platform; native enforcement (real Seatbelt/R) needs macOS.
 """
 import json
+import os
 import platform
 from pathlib import Path
 import shutil
@@ -65,6 +66,18 @@ def test_probe_record_is_required_and_fingerprint_bound(project_root, monkeypatc
         doctor.require_probe(project_root)
 
 
+def test_write_new_never_overwrites_without_o_nofollow(tmp_path, monkeypatch):
+    """Windows 没有 os.O_NOFOLLOW；O_EXCL 仍必须保证不覆盖已有文件。"""
+    from multiomics_tui import task_runner
+    monkeypatch.delattr(os, 'O_NOFOLLOW', raising=False)
+    target = tmp_path / 'scripts' / 'step_01.py'
+    task_runner._write_new(target, 'print(1)\n')
+    assert target.read_text(encoding='utf-8') == 'print(1)\n'
+    with pytest.raises(FileExistsError):
+        task_runner._write_new(target, 'print(2)\n')
+    assert target.read_text(encoding='utf-8') == 'print(1)\n'
+
+
 def test_v8_resources_and_dependencies():
     from native_dist.public_release import source_files
     root = Path(__file__).resolve().parents[1]
@@ -78,7 +91,7 @@ def test_v8_resources_and_dependencies():
     assert not any(n.startswith(('install.log/', 'reports/', 'analysis/')) for n in names)
 
 
-def test_r_env_lists_installed_packages(tmp_path, monkeypatch):
+def test_r_env_lists_installed_packages(tmp_path, monkeypatch, isolated_r_env):
     from multiomics_tui import r_env
     monkeypatch.setattr(r_env, 'SYSTEM_LIBRARIES', ())
     library = tmp_path / 'library'
@@ -94,7 +107,7 @@ def test_r_env_lists_installed_packages(tmp_path, monkeypatch):
     assert 'GSVA' in note and 'ONLY these packages' in note
 
 
-def test_r_env_note_empty_without_libraries(tmp_path, monkeypatch):
+def test_r_env_note_empty_without_libraries(tmp_path, monkeypatch, isolated_r_env):
     from multiomics_tui import r_env
     monkeypatch.setattr(r_env, 'SYSTEM_LIBRARIES', ())
     assert r_env.availability_note({'runtime': {'r_library_paths': [str(tmp_path / 'missing')]}}) == ''

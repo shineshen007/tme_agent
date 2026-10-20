@@ -184,7 +184,11 @@ def redact(value):
     text = str(value)
     with _lock:
         secrets = _known_secrets | set(_keys.values())
-    secrets |= {v for k, v in os.environ.items() if v and re.search(r'(?:KEY|TOKEN|PASSWORD|SECRET)', k, re.I)}
+    # 环境值只有长度像真实凭据时才参与替换：CI 运行器会注入 ACTIONS_* 等短字符串，
+    # 仅按名字匹配会把普通提示词误判为泄漏。真实模型密钥均远长于 16 字符。
+    secrets |= {item for name, item in os.environ.items()
+                if item and len(item) >= 16
+                and re.search(r'(?:KEY|TOKEN|PASSWORD|SECRET)', name, re.I)}
     for secret in sorted(secrets, key=len, reverse=True):
         if len(secret) >= 4:
             text = text.replace(secret, '[REDACTED]')
