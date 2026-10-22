@@ -13,17 +13,6 @@ import sys
 
 IMPORTS = {'PyYAML':'yaml', 'langgraph':'langgraph.graph'}
 
-# R --vanilla skips the environ files that normally add R_LIBS_USER. This
-# snippet is shared by discovery and bootstrap so user-installed packages are
-# visible to both the inventory and the later "missing package" check.
-R_USER_LIBRARY_CODE = (
-    'extra <- unlist(strsplit(Sys.getenv("R_LIBS_USER"), '
-    '.Platform$path.sep, fixed=TRUE)); '
-    'extra <- path.expand(extra[nzchar(extra)]); '
-    'extra <- extra[file.exists(extra)]; '
-    '.libPaths(unique(c(extra, .libPaths()))); '
-)
-
 
 def requirements(root):
     rows = []

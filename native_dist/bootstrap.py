@@ -13,8 +13,8 @@ import venv
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from native_dist.environment import (R_USER_LIBRARY_CODE, inventory, inspect_python,
-                                     requirements, inspect_r, r_candidates)
+from native_dist.environment import (inventory, inspect_python, requirements,
+                                     inspect_r, r_candidates, r_packages, r_user_library_paths)
 
 ROOT = Path(__file__).resolve().parents[1]
 LOG = logging.getLogger("native_install")
@@ -182,20 +182,22 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         checkpoint(report, report_path, "r_dependencies")
         library = runtime / "r-library"
         library.mkdir(exist_ok=True)
-        from native_dist.environment import r_packages
         cran_packages = [line.strip() for line in (root / "native_dist/r-packages.txt").read_text().splitlines() if line.strip()]
         bioc_packages = [line.strip() for line in (root / "native_dist/r-bioc-packages.txt").read_text().splitlines() if line.strip()] if (root / "native_dist/r-bioc-packages.txt").is_file() else []
         packages = r_packages(root)
+        r_state = inspect_r(rscript, root)
+        if not r_state.get('compatible'):
+            raise RuntimeError(f'R 检查失败：{r_state.get("error") or r_state.get("stderr") or "unknown"}')
+        missing = [row['name'] for row in r_state.get('packages', []) if row.get('status') != 'reusable']
         r_literal = lambda value: json.dumps(str(value), ensure_ascii=False)
         # Bioconductor dependency trees include large binary packages; the R
         # default download timeout (60s) is too short and causes spurious
         # "some files were not downloaded" failures, so raise it explicitly.
-        code = 'options(timeout=1800); ' + R_USER_LIBRARY_CODE
-        code += 'lib <- ' + r_literal(library) + '; .libPaths(unique(c(lib,.libPaths()))); '
+        code = 'options(timeout=1800); lib <- ' + r_literal(library) + '; .libPaths(unique(c(lib,.libPaths()))); '
         code += 'packages <- c(' + ','.join(r_literal(x) for x in packages if x) + '); '
+        code += 'missing <- c(' + ','.join(r_literal(x) for x in missing) + '); '
         code += 'cran <- c(' + ','.join(r_literal(x) for x in cran_packages if x) + '); '
         code += 'bioc <- c(' + ','.join(r_literal(x) for x in bioc_packages if x) + '); '
-        code += 'missing <- packages[!vapply(packages,requireNamespace,logical(1),quietly=TRUE)]; '
         if offline:
             code += 'if(length(missing)) stop(paste("离线安装缺少 R 包",paste(missing,collapse=",")))'
         else:
@@ -207,13 +209,13 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
                      'if(length(bioc_missing)) { '
                      'if(!requireNamespace("BiocManager",quietly=TRUE)) install.packages("BiocManager",lib=lib,repos="https://cloud.r-project.org"); '
                      'BiocManager::install(bioc_missing,lib=lib,ask=FALSE,update=FALSE); } ; '
-                     'if(any(!vapply(packages,requireNamespace,logical(1),quietly=TRUE))) stop("R 包安装不完整")')
+                     'if(any(!vapply(missing,requireNamespace,logical(1),quietly=TRUE))) stop("R 包安装不完整")')
         run([rscript, "--vanilla", "-e", code])
-        report['operations'].append({'action':'install_missing_r_packages' if any(p['status']!='reusable' for p in report['r']['packages']) else 'reuse_r_packages',
-                                     'packages':[p['name'] for p in report['r']['packages'] if p['status']!='reusable']})
+        report['operations'].append({'action':'install_missing_r_packages' if missing else 'reuse_r_packages',
+                                     'packages':missing})
         checkpoint(report, report_path)
         base_library = captured_run([str(rscript), "--vanilla", "-e", 'cat(R.home("library"))']).stdout.strip()
-        detected_libraries = captured_run([str(rscript), "--vanilla", "-e", R_USER_LIBRARY_CODE + 'cat(.libPaths(),sep="\\n")']).stdout.strip().splitlines()
+        detected_libraries = [base_library, *r_user_library_paths()]
         private_r = rscript
         if os.name == "nt":
             checkpoint(report, report_path, "windows_private_runtime")
