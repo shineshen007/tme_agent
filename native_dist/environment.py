@@ -337,7 +337,8 @@ def inspect_r(path, root):
         result = locals().get('result')
         return {'path':str(path), 'compatible':False, 'error':type(exc).__name__,
                 'stdout': (getattr(result, 'stdout', '') or '')[-2000:],
-                'stderr': (getattr(result, 'stderr', '') or '')[-2000:]}
+                'stderr': (getattr(result, 'stderr', '') or '')[-2000:],
+                'code': code}
 
 
 def _reusable_count(candidate):

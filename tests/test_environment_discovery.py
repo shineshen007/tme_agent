@@ -74,7 +74,8 @@ def test_inspect_r_includes_user_library(tmp_path, monkeypatch):
     root.mkdir()
     info = environment.inspect_r(Path(rscript), root)
     if not info.get("compatible"):
-        pytest.fail("R inspection failed: " + (info.get("stderr") or repr(info)))
+        pytest.fail("R inspection failed: " + (info.get("stderr") or repr(info))
+                    + "\nCODE: " + (info.get("code") or "<none>"))
     libraries = {str(Path(p).resolve()) for p in info.get("libraries", [])}
     assert str(user_lib.resolve()) in libraries
 
