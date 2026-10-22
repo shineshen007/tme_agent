@@ -307,15 +307,27 @@ def r_user_library_paths():
     return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
 
 
+def _r_package_in_library(library, name):
+    description = Path(library) / name / 'DESCRIPTION'
+    if not description.is_file():
+        return None
+    version = 'unknown'
+    try:
+        for line in description.read_text(encoding='utf-8', errors='replace').splitlines():
+            if line.startswith('Version:'):
+                version = line.split(':', 1)[1].strip() or 'unknown'
+                break
+    except OSError:
+        pass
+    return {'name': name, 'version': version, 'path': str(description.parent)}
+
+
 def inspect_r(path, root):
     packages = r_packages(root)
     private = Path(root).resolve()/'.runtime/r-library'
-    libraries = r_user_library_paths()
-    literal = ','.join(json.dumps(str(item), ensure_ascii=False) for item in libraries)
-    code = 'extra <- c(' + literal + '); .libPaths(unique(c(extra, .libPaths()))); '
-    if private.is_dir():
-        code += 'lib <- ' + json.dumps(private) + '; .libPaths(c(lib,.libPaths())); '
-    code += 'cat("R_VERSION=",as.character(getRversion()),"\\n",sep=""); cat("R_HOME=",R.home(),"\\n",sep=""); '
+    user_libraries = r_user_library_paths()
+    code = ('cat("R_VERSION=",as.character(getRversion()),"\\n",sep=""); '
+            'cat("R_HOME=",R.home(),"\\n",sep=""); ')
     code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\\n",sep="")'
     try:
         result = checked([path, '--vanilla', '-e', code, *packages],
@@ -330,9 +342,25 @@ def inspect_r(path, root):
                              'status':'missing' if parts[1] == 'missing' else 'reusable'})
         if result.returncode or len(rows) != len(packages):
             raise ValueError('R inventory incomplete')
-        return {'path':str(path), 'version':version, 'compatible':tuple(map(int,version.split('.')[:2])) >= (4,4),
+        libraries = [str(private)] if private.is_dir() else []
+        libraries.extend(user_libraries)
+        for line in lines:
+            if line.startswith('R_LIBS='):
+                libraries.extend(line.split('=',1)[1].split('|'))
+                break
+        libraries = list(dict.fromkeys(str(Path(item).resolve()) for item in libraries if item))
+        for row in rows:
+            if row['status'] != 'missing':
+                continue
+            for library in libraries:
+                found = _r_package_in_library(library, row['name'])
+                if found:
+                    row.update(found, status='reusable')
+                    break
+        return {'path':str(path), 'version':version,
+                'compatible':tuple(map(int,version.split('.')[:2])) >= (4,4),
                 'home':next(line.split('=',1)[1] for line in lines if line.startswith('R_HOME=')),
-                'libraries':next(line.split('=',1)[1].split('|') for line in lines if line.startswith('R_LIBS=')), 'packages':rows}
+                'libraries':libraries, 'packages':rows}
     except (OSError, ValueError, StopIteration, subprocess.TimeoutExpired) as exc:
         result = locals().get('result')
         return {'path':str(path), 'compatible':False, 'error':type(exc).__name__,
