@@ -17,6 +17,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Write-Host "user library: $dir"
           $env:R_LIBS_USER = $dir
+          $private = Join-Path $env:RUNNER_TEMP "project\.runtime\r-library"
           Rscript --vanilla -e 'cat("R_VERSION=",as.character(getRversion()),"\n",sep="")'
           Rscript --vanilla -e 'extra <- unlist(strsplit(Sys.getenv("R_LIBS_USER"), .Platform$path.sep, fixed=TRUE)); extra <- path.expand(extra[nzchar(extra)]); extra <- extra[dir.exists(extra)]; .libPaths(unique(c(extra,.libPaths()))); cat("R_VERSION=",as.character(getRversion()),"\n",sep="")'
+          Rscript --vanilla -e "extra <- unlist(strsplit(Sys.getenv('R_LIBS_USER'), .Platform$path.sep, fixed=TRUE)); extra <- path.expand(extra[nzchar(extra)]); extra <- extra[dir.exists(extra)]; .libPaths(unique(c(extra,.libPaths()))); lib <- '$private'; if(dir.exists(lib)) .libPaths(c(lib,.libPaths())); cat('R_VERSION=',as.character(getRversion()),'\n',sep=''); cat('R_HOME=',R.home(),'\n',sep=''); for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else 'missing',if(ok) find.package(p) else '',sep='\t');cat('\n') }; cat('R_LIBS=',paste(.libPaths(),collapse='|'),'\n',sep='')"
           Rscript --vanilla -e 'print(Sys.getenv("R_LIBS_USER")); print(.libPaths()); cat("OK\n")'
