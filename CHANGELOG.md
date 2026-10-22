@@ -1,5 +1,11 @@
 # Changelog
 
+## v8.1.3
+
+- 修复 v8.1.2 Windows CI 失败：`inspect_r` 不再通过 `.libPaths()` 注入用户库（Windows R 4.4 在自定义库路径上报 `The system cannot find the path specified`），改为用 Python 扫描用户库 `DESCRIPTION`，R 只检查系统库。
+- bootstrap 的 R 缺失包检查复用同一份 Python 清单，不再二次运行带自定义 `.libPaths()` 的 R 检查；`runtime.local.yaml` 的用户库路径改由 Python 生成。
+- v8.1.2 的 Windows 用户 Python 测试隔离和 R 探测错误日志保留；三平台 CI 已通过。
+
 ## v8.1.2
 
 - 修复 v8.1.1 Windows CI 失败：R 用户库探测移除对 `R.version$arch/platform` 的路径推导，仅保留 `R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS` 与通用用户目录，避免 Windows Rscript 在输出版本前失败。
