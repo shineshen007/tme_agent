@@ -1,8 +1,8 @@
-updated_at: 2026-10-22T10:52:00+08:00
+updated_at: 2026-10-22T11:03:00+08:00
 
 ## current_goal
 
-v8.1.1 已准备（`/model` 界面精简、默认 32K 输出上限、首次安装优先扫描用户级 Python/R 包）；发布流程待提交、打 tag 并验证 GitHub Release。
+v8.1.1 已发布，但 Windows CI 暴露 R 用户库探测与测试隔离问题；v8.1.2 已准备修复，待提交、打 tag 和验证。
 
 ## completed
 
@@ -14,7 +14,9 @@ v8.1.1 已准备（`/model` 界面精简、默认 32K 输出上限、首次安�
 - Python 检查显式加入 user site，并对已有 venv 写入复用库 `.pth`；R 检查显式加入 `R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS`，bootstrap 缺失包检查与 `runtime.local.yaml` 共用同一套库路径。
 - 安装候选选择改为优先全部依赖可复用，其次复用数量最多；Windows 私有运行时校验关闭 user site，避免误用宿主用户包。
 - 新增 `tests/test_environment_discovery.py`；完整回归 195 passed / 2 skipped，发行白名单 176 项。
-- v8.1.1 准备：`public_release prepare --version 8.1.1` 通过；`audit` 176 项通过；待提交与打 tag。
+- v8.1.1 已发布：提交 `6643acf`，tag `v8.1.1`；Release 附件：`tme_agent-v8.1.1.zip`（466755 B，sha256 6a77739b…）、`manifest-v8.1.1.json`（32164 B，sha256 73b0e522…）、`SHA256SUMS-v8.1.1.txt`（174 B）；下载校验通过。
+- v8.1.1 主分支 CI（run 39714115480）macOS/ubuntu success、Windows failure：测试未隔离 `LOCALAPPDATA`；R 用户库探测在 Windows Rscript 输出版本前失败。Release 工作流（run 39714118690）validate/publish success，附件已发布。
+- v8.1.2 修复：R 用户库探测移除 `R.version$arch/platform` 路径推导，仅保留 `R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS` 与通用用户目录；测试隔离 `LOCALAPPDATA`。
 - v8.1.0 发布：提交 `8b9c63b`，tag `v8.1.0`；主分支 CI（run 39439373796）ubuntu、macOS、Windows 全部 success；发布工作流（run 39439385170）validate 与 publish 均 success。
 - 发布后文档记录提交 `402d6a1` 的 CI（run 39440307545）macOS job 首次被取消（15 分钟未完成），重跑后三平台 success；发布提交本身的 CI 无此问题。
 - Release 附件：`tme_agent-v8.1.0.zip`（458353 B，sha256 29dd2a5f…）、`manifest-v8.1.0.json`（31974 B，sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`（174 B）；`shasum -a 256 -c` 通过。
@@ -33,7 +35,7 @@ v8.1.1 已准备（`/model` 界面精简、默认 32K 输出上限、首次安�
 
 ## in_progress
 
-- v8.1.1 发布：提交当前改动，推送 `v8.1.1` tag，等待 release 工作流和附件校验。
+- v8.1.2 发布：提交修复，推送 `v8.1.2` tag，等待三平台 CI 和 release 工作流；验证 Windows 修复。
 - Windows 原生 PATH/AppContainer 验收与 macOS 原生沙箱验收待执行；本机 `/cd` 真实 doctor 已在 macOS 通过。
 
 ## key_decisions
@@ -54,17 +56,19 @@ v8.1.1 已准备（`/model` 界面精简、默认 32K 输出上限、首次安�
 ## latest_outputs
 
 - 首次安装发现专项：`tests/test_environment_discovery.py` 8 passed；`inspect_python` 可识别 `PYTHONUSERBASE` 下的用户包，`inspect_r` 可识别 `R_LIBS_USER` 用户库。
-- 完整回归：195 passed / 2 skipped，耗时 3m16s。
-- `python -m native_dist.public_release audit`：176 项通过，版本 8.1.0。
+- 完整回归：195 passed / 2 skipped，耗时 3m12s。
+- `python -m native_dist.public_release audit`：176 项通过，版本 8.1.2。
 - `/model` 精简专项：`tests/test_model_interfaces.py` 31 passed。
-- v8.1.0 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.0
-- 附件：`tme_agent-v8.1.0.zip`（sha256 29dd2a5f…）、`manifest-v8.1.0.json`（sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`；下载后校验通过。
-- 手动验收：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`（输出 `multiomics 8.1.0`）；在临时目录执行 `/cd` 新工作区，自动初始化并生成 macOS doctor 记录。
+- v8.1.1 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.1
+- v8.1.1 Windows CI 失败；v8.1.2 已修复 R 用户库探测和测试 `LOCALAPPDATA` 隔离，待发布验证。
+- 附件：`tme_agent-v8.1.1.zip`（sha256 6a77739b…）、`manifest-v8.1.1.json`（sha256 73b0e522…）、`SHA256SUMS-v8.1.1.txt`；下载后校验通过。
+- 手动验收：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`（输出 `multiomics 8.1.1`）；在临时目录执行 `/cd` 新工作区，自动初始化并生成 macOS doctor 记录。
 - 新增测试覆盖：启动器内容/权限/幂等/拒绝覆盖、PATH 受管块增删、参数转发、工作区初始化、活动任务拒绝、探测失败回滚、TUI 回到 Home。
 
 ## blockers_or_warnings
 
 - Windows 原生 AppContainer、Windows 用户 PATH 实际生效、macOS 原生沙箱仍需目标机验收；CI 便携通过不等于原生通过。
+- v8.1.1 Windows CI 失败：测试未隔离 `LOCALAPPDATA`、R 用户库探测提前失败；v8.1.2 已修复，待三平台 CI 验证。
 - PATH 修改后需要新终端；`/cd` 不改变父 shell 目录。
 - 自动初始化只写缺失文件；数据工作区不支持历史固定流程 `/run`、`/data`。
 - 用户级解释器和包优先复用；版本冲突或导入失败时回退到项目环境，显式 `MULTIOMICS_PYTHON` / `MULTIOMICS_RSCRIPT` 可覆盖。
@@ -72,4 +76,4 @@ v8.1.1 已准备（`/model` 界面精简、默认 32K 输出上限、首次安�
 
 ## next_step
 
-提交并推送 `v8.1.1`，验证 Release 附件（ZIP、manifest、SHA256SUMS）与公开更新器识别结果；随后在 Windows 与 Intel macOS 目标机执行原生验收并记入 `docs/VALIDATION.md`。
+提交并推送 `v8.1.2`，确认三平台 CI（尤其 Windows）全绿并验证 Release 附件；随后在 Windows 与 Intel macOS 目标机执行原生验收并记入 `docs/VALIDATION.md`。

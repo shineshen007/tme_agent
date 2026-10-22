@@ -110,10 +110,17 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - 任务运行器与 planner 使用同一套 R 库路径，用户库中的包不仅被列在提示中，也被沙箱授权读取。
 - 新增 `tests/test_environment_discovery.py` 8 项；专项 51 passed；完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过，版本仍为 8.1.0（本次未发布新版本）。
 
+## 2026-10-22 v8.1.1 发布与 v8.1.2 修复
+
+- v8.1.1 已发布：tag `v8.1.1`，Release 附件 `tme_agent-v8.1.1.zip`（466755 B，sha256 6a77739b…）、`manifest-v8.1.1.json`（32164 B，sha256 73b0e522…）、`SHA256SUMS-v8.1.1.txt`；下载校验通过。
+- v8.1.1 主分支 CI（run 39714115480）macOS/ubuntu success、Windows failure；Release 工作流（run 39714118690）validate/publish success。
+- v8.1.2 修复 Windows：R 用户库探测移除 `R.version$arch/platform` 路径推导，保留 `R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS` 与通用用户目录；用户 Python 发现测试隔离 `LOCALAPPDATA`。
+- v8.1.2 本机准备：`prepare --version 8.1.2` 通过，`audit` 176 项通过；完整回归 195 passed / 2 skipped。
+
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
-- 本机完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过；v8.1.0 已发布，v8.1.1 准备发布（VERSION 8.1.1）。
+- v8.1.1 已发布但 Windows CI 失败；v8.1.2 待发布验证。本机完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过。
 
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。

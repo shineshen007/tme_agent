@@ -23,6 +23,7 @@ def _touch(path: Path):
 def test_python_candidates_include_user_managed_interpreter(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData/Local"))
     if os.name == "nt":
         user_python = _touch(tmp_path / "AppData/Local/uv/python/cpython-3.14.0/python.exe")
     else:
@@ -35,6 +36,7 @@ def test_python_candidates_include_user_managed_interpreter(tmp_path, monkeypatc
 def test_r_candidates_include_user_managed_rscript(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData/Local"))
     if os.name == "nt":
         user_r = _touch(tmp_path / "scoop/apps/r/current/bin/Rscript.exe")
     else:

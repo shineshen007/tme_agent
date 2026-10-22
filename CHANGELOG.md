@@ -1,5 +1,10 @@
 # Changelog
 
+## v8.1.2
+
+- 修复 v8.1.1 Windows CI 失败：R 用户库探测移除对 `R.version$arch/platform` 的路径推导，仅保留 `R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS` 与通用用户目录，避免 Windows Rscript 在输出版本前失败。
+- 修复 Windows 用户 Python 发现测试未隔离 `LOCALAPPDATA`：测试现在把用户级 Python 放到临时 LOCALAPPDATA 下验证。
+
 ## v8.1.1
 
 - 首次安装检查优先发现用户级 Python：扫描 `~/.local/bin`、pyenv、uv、conda、asdf、mise 和 Windows 用户 Python 目录，再回退到 PATH 与系统目录。

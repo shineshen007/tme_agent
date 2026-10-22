@@ -21,11 +21,7 @@ R_USER_LIBRARY_CODE = (
     'Sys.getenv("R_LIBS_SITE"), Sys.getenv("R_LIBS")), '
     '.Platform$path.sep, fixed=TRUE)); '
     'extra <- c(extra, path.expand("~/.local/lib/R/site-library"), '
-    'path.expand("~/R/library"), '
-    'path.expand(file.path("~", "R", paste0(R.version$platform, "-library"), '
-    'paste0(R.version$major, ".", R.version$minor))), '
-    'path.expand(file.path("~", "Library", "R", R.version$arch, '
-    'paste0(R.version$major, ".", R.version$minor), "library"))); '
+    'path.expand("~/R/library")); '
     'extra <- path.expand(extra[nzchar(extra)]); '
     '.libPaths(unique(c(extra, .libPaths()))); '
 )
