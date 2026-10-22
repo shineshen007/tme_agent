@@ -1,0 +1,24 @@
+name: Debug R user library
+
+on: push
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.4'
+      - name: Probe short and long library paths
+        shell: pwsh
+        run: |
+          $short = Join-Path $env:RUNNER_TEMP "Rlib"
+          $long = Join-Path $env:RUNNER_WORKSPACE "tme_agent\tme_agent\.pytest-tmp\test_inspect_r_includes_user_l0\R-library"
+          New-Item -ItemType Directory -Force -Path $short | Out-Null
+          New-Item -ItemType Directory -Force -Path $long | Out-Null
+          foreach ($dir in @($short, $long)) {
+            Write-Host "user library: $dir"
+            $env:R_LIBS_USER = $dir
+            Rscript --vanilla -e 'extra <- c(Sys.getenv("R_LIBS_USER")); .libPaths(unique(c(extra,.libPaths()))); cat("R_VERSION=",as.character(getRversion()),"\n",sep=""); cat("R_HOME=",R.home(),"\n",sep=""); cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\n",sep="")'
+          }
