@@ -20,7 +20,7 @@ R_USER_LIBRARY_CODE = (
     'extra <- unlist(strsplit(Sys.getenv("R_LIBS_USER"), '
     '.Platform$path.sep, fixed=TRUE)); '
     'extra <- path.expand(extra[nzchar(extra)]); '
-    'extra <- extra[dir.exists(extra)]; '
+    'extra <- extra[file.exists(extra)]; '
     '.libPaths(unique(c(extra, .libPaths()))); '
 )
 
@@ -299,7 +299,7 @@ def inspect_r(path, root):
     packages = r_packages(root)
     private = str(Path(root).resolve()/'.runtime/r-library')
     code = R_USER_LIBRARY_CODE
-    code += 'lib <- ' + json.dumps(private) + '; if(dir.exists(lib)) .libPaths(c(lib,.libPaths())); '
+    code += 'lib <- ' + json.dumps(private) + '; if(nzchar(lib) && file.exists(lib)) .libPaths(c(lib,.libPaths())); '
     code += 'cat("R_VERSION=",as.character(getRversion()),"\\n",sep=""); cat("R_HOME=",R.home(),"\\n",sep=""); '
     code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\\n",sep="")'
     try:
