@@ -46,18 +46,8 @@ class ModelPanel(ModalScreen):
                 yield Select([('Bearer API key', 'bearer'), ('None / 无认证', 'none')], value=cfg['auth_mode'], allow_blank=False, id='model-auth')
                 yield Static('API key / 仅本进程保存，可留空使用已有密钥')
                 yield Input(password=True, id='model-key')
-                yield Static('Key environment variable / 密钥环境变量名')
-                yield Input(cfg['api_key_env'], id='model-env')
-                yield Static('JSON response / 返回模式')
-                yield Select([('JSON mode', 'json_object'), ('Prompt JSON / 提示词 JSON', 'prompt')], value=cfg['json_mode'], allow_blank=False, id='model-json')
-                yield Static('Timeout seconds / 超时秒数')
-                yield Input(str(cfg['timeout_seconds']), id='model-timeout')
-                yield Static('Output token limit / 输出长度上限')
-                yield Input(str(cfg['max_tokens']), id='model-tokens')
-                yield Static('Token field / 长度参数字段')
-                yield Select([('max_tokens', 'max_tokens'), ('max_completion_tokens', 'max_completion_tokens')], value=cfg['max_tokens_field'], allow_blank=False, id='model-token-field')
-                yield Static('Temperature / 留空则不发送此参数')
-                yield Input('' if cfg['temperature'] is None else str(cfg['temperature']), id='model-temperature')
+                yield Static('Advanced parameters stay in config/api.local.yaml. 高级参数仍可在该文件中调整。',
+                             id='model-advanced-hint')
             yield Static('Settings only; connection has not been tested. 设置不会自动请求模型。', id='model-notice')
             with Horizontal(id='model-buttons'):
                 yield Button('Save', variant='primary', id='model-save')
@@ -74,7 +64,9 @@ class ModelPanel(ModalScreen):
             return
         self._provider = str(event.value)
         preset = PRESETS[str(event.value)]
-        for name, field in [('base_url', 'url'), ('model', 'name'), ('api_key_env', 'env')]:
+        self.settings['api_key_env'] = preset['api_key_env']
+        self.settings['auth_mode'] = preset['auth_mode']
+        for name, field in [('base_url', 'url'), ('model', 'name')]:
             self.query_one('#model-' + field, Input).value = preset[name]
         self.query_one('#model-auth', Select).value = preset['auth_mode']
         self.query_one('#model-key', Input).value = ''
@@ -82,17 +74,15 @@ class ModelPanel(ModalScreen):
 
     def collect(self):
         def text(field): return self.query_one('#model-' + field, Input).value.strip()
-        temperature = text('temperature')
-        return {
+        # Technical parameters are intentionally not shown. Keep their current
+        # values so a simple provider/model edit never resets advanced settings.
+        value = dict(self.settings)
+        value.update({
             'provider': str(self.query_one('#model-provider', Select).value),
             'base_url': text('url'), 'model': text('name'),
             'auth_mode': str(self.query_one('#model-auth', Select).value),
-            'api_key_env': text('env'),
-            'json_mode': str(self.query_one('#model-json', Select).value),
-            'timeout_seconds': int(text('timeout')), 'max_tokens': int(text('tokens')),
-            'max_tokens_field': str(self.query_one('#model-token-field', Select).value),
-            'temperature': float(temperature) if temperature else None,
-        }
+        })
+        return value
 
     def action_cancel(self):
         if self._testing:

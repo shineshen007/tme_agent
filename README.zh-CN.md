@@ -148,9 +148,12 @@ python -m native_dist.command_link status
 python -m native_dist.command_link uninstall
 ```
 
-首次安装生成本地配置和 4 × 4 合成表达示例。真实数据自行放入本地 `data/raw/`、
+首次安装生成本地配置和 4 × 4 合成表达示例。依赖检查优先复用用户已安装的兼容解释器和包
+（user site、pyenv/uv/conda、`R_LIBS_USER`），只把缺失依赖补到项目环境。真实数据自行放入本地 `data/raw/`、
 `data/metadata/`、`data/signature/`；不要上传这些目录。界面 `/model` 设置服务，`/key` 在掩码框
-输入密钥并使用系统凭据库。Linux 无桌面凭据服务时，可显式将本地配置
+输入密钥并使用系统凭据库。`/model` 只填写服务、接口地址、模型名、认证方式和密钥；超时、输出
+上限、JSON 模式、长度字段和 temperature 保留在本地 `config/api.local.yaml`（默认输出上限
+32000 tokens）。Linux 无桌面凭据服务时，可显式将本地配置
 `distribution.credential_storage` 改为 `memory`，密钥仅本次进程有效，不写磁盘。**无模型密钥也能
 运行离线诊断。**
 

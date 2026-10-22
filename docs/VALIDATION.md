@@ -94,10 +94,26 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - `public_update.ReleaseClient` 识别到最新正式版本 8.1.0 与三个附件。
 - Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.0
 
+## 2026-10-22 /model 界面精简
+
+- `/model` 只保留服务、接口地址、模型名、认证方式和 API key；密钥环境变量、JSON 返回模式、超时、输出长度、长度字段和 temperature 从界面移除。
+- 隐藏参数从 `config/api.local.yaml` 读取并原样写回；切换服务自动更新 `api_key_env` 与认证方式。
+- 默认输出上限由 8000 调整为 32000；同步发行模板、本地配置、TUI 客户端与 orchestrator 兜底默认值。
+- 专项测试 31 passed；完整回归 187 passed / 2 skipped；`public_release audit` 175 项通过，版本仍为 8.1.0（本次未发布新版本）。
+
+## 2026-10-22 首次安装用户包优先
+
+- Python 候选新增用户级 `~/.local/bin`、pyenv、uv、conda、asdf、mise 和 Windows 用户目录；候选选择优先全部依赖可复用，其次复用数量最多。
+- `inspect_python` 显式加入 user site；已有 venv 也写入复用库 `.pth`，避免检查可见但运行时导入失败。
+- R 候选新增用户级 Rscript、conda、Scoop 和 MacPorts；`R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS` 显式加入 `.libPaths()`，bootstrap 缺失包检查与 `runtime.local.yaml` 使用相同库路径。
+- Windows 私有运行时校验关闭 user site，防止隔离运行时误用宿主用户包。
+- 任务运行器与 planner 使用同一套 R 库路径，用户库中的包不仅被列在提示中，也被沙箱授权读取。
+- 新增 `tests/test_environment_discovery.py` 8 项；专项 51 passed；完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过，版本仍为 8.1.0（本次未发布新版本）。
+
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
-- 本机完整回归 184 passed / 2 skipped；`public_release audit` 175 项通过；v8.1.0 已发布，VERSION 为 8.1.0。
+- 本机完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过；v8.1.0 已发布，v8.1.1 准备发布（VERSION 8.1.1）。
 
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。

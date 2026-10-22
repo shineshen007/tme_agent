@@ -60,7 +60,7 @@ def normalize(settings):
         raise ValueError("JSON 模式必须是 json_object 或 prompt。")
     if value.setdefault('max_tokens_field', 'max_tokens') not in {'max_tokens', 'max_completion_tokens'}:
         raise ValueError("输出长度字段不受支持。")
-    for name, default, lower, upper in [('timeout_seconds', 120, 1, 3600), ('max_tokens', 8000, 1, 1000000)]:
+    for name, default, lower, upper in [('timeout_seconds', 120, 1, 3600), ('max_tokens', 32000, 1, 1000000)]:
         number = value.setdefault(name, default)
         if isinstance(number, bool) or not isinstance(number, int) or not lower <= number <= upper:
             raise ValueError(f"{name} 必须是 {lower}–{upper} 的整数。")

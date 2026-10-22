@@ -13,7 +13,8 @@ import venv
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from native_dist.environment import inventory, inspect_python, requirements, inspect_r, r_candidates
+from native_dist.environment import (R_USER_LIBRARY_CODE, inventory, inspect_python,
+                                     requirements, inspect_r, r_candidates)
 
 ROOT = Path(__file__).resolve().parents[1]
 LOG = logging.getLogger("native_install")
@@ -72,6 +73,43 @@ def python_exe(root):
     return root / (".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
 
 
+def _write_reused_libraries(py, root, inspected):
+    """Expose host/user libraries inside the project venv via a .pth file.
+
+    This must also run for an existing venv: discovery adds the user site to its
+    own check, but a venv normally disables user site at runtime.
+    """
+    venv = (Path(root) / ".venv").resolve()
+    purelib = Path(captured_run(
+        [py, '-c', 'import sysconfig;print(sysconfig.get_path("purelib"))']).stdout.strip())
+    if not purelib.resolve().is_relative_to(venv):
+        raise RuntimeError('Project package directory is outside the project venv')
+    reused = []
+    for value in inspected.get('library_paths', []):
+        path = Path(value)
+        if (not path.is_absolute() or path.name not in {'site-packages', 'dist-packages'}
+                or not path.is_dir() or '\n' in str(path) or '\r' in str(path)):
+            continue
+        resolved = path.resolve()
+        if resolved.is_relative_to(venv):
+            continue
+        reused.append(str(resolved))
+    reused = list(dict.fromkeys(reused))
+    if not reused:
+        return []
+    target = purelib / 'multiomics_reused_libraries.pth'
+    content = '\n'.join(reused) + '\n'
+    try:
+        if target.is_file() and target.read_text(encoding='utf-8') == content:
+            return reused
+        temp = target.with_name(target.name + '.tmp')
+        temp.write_text(content, encoding='utf-8')
+        temp.replace(target)
+    except OSError as exc:
+        raise RuntimeError(f'无法写入 Python 复用库配置：{target}: {exc}') from exc
+    return reused
+
+
 def dependency_report(py,root):
     result = captured_run([str(py),'-m','native_dist.package_copy','--report','--project-root',str(root)], cwd=root)
     return json.loads(result.stdout)
@@ -107,18 +145,6 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         if not py.is_file():
             LOG.info("创建本机 Python 环境")
             run([report['python']['path'], '-m', 'venv', '--system-site-packages', root/'.venv'])
-            # A venv made from another venv does not inherit its packages.
-            # Reuse the explicitly selected, inspected interpreter's libraries.
-            reused = [str(Path(p).resolve()) for p in report['python'].get('library_paths', [])
-                      if Path(p).is_absolute() and Path(p).name in {'site-packages','dist-packages'}
-                      and Path(p).is_dir() and '\n' not in str(p) and '\r' not in str(p)]
-            if reused:
-                purelib = Path(captured_run([py, '-c', 'import sysconfig;print(sysconfig.get_path("purelib"))']).stdout.strip())
-                if not purelib.resolve().is_relative_to((root/'.venv').resolve()):
-                    raise RuntimeError('Project package directory is outside the project venv')
-                with (purelib/'multiomics_reused_libraries.pth').open('x', encoding='utf-8') as stream:
-                    stream.write('\n'.join(reused)+'\n')
-                report['operations'].append({'action':'reuse_selected_python_libraries','read_only':True,'paths':reused})
             report['operations'].append({'action':'create_project_environment', 'system_packages_readonly':True})
             checkpoint(report, report_path)
         elif not inspect_python(py, requirements(root))['compatible']:
@@ -126,6 +152,11 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         requirement = root / "native_dist/requirements-native.txt"
         checkpoint(report, report_path, "python_dependencies")
         before = inspect_python(py, requirements(root))
+        reused = _write_reused_libraries(py, root, before)
+        if reused:
+            report['operations'].append({'action':'reuse_selected_python_libraries',
+                                         'read_only':True,'paths':reused})
+            checkpoint(report, report_path)
         missing = [row['requirement'] for row in before['packages'] if row['status'] != 'reusable']
         if missing:
             run([py, '-m', 'pip', 'install', *(['--no-index'] if offline else []), *missing])
@@ -159,7 +190,8 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         # Bioconductor dependency trees include large binary packages; the R
         # default download timeout (60s) is too short and causes spurious
         # "some files were not downloaded" failures, so raise it explicitly.
-        code = 'options(timeout=1800); lib <- ' + r_literal(library) + '; .libPaths(c(lib,.libPaths())); '
+        code = 'options(timeout=1800); ' + R_USER_LIBRARY_CODE
+        code += 'lib <- ' + r_literal(library) + '; .libPaths(unique(c(lib,.libPaths()))); '
         code += 'packages <- c(' + ','.join(r_literal(x) for x in packages if x) + '); '
         code += 'cran <- c(' + ','.join(r_literal(x) for x in cran_packages if x) + '); '
         code += 'bioc <- c(' + ','.join(r_literal(x) for x in bioc_packages if x) + '); '
@@ -181,7 +213,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
                                      'packages':[p['name'] for p in report['r']['packages'] if p['status']!='reusable']})
         checkpoint(report, report_path)
         base_library = captured_run([str(rscript), "--vanilla", "-e", 'cat(R.home("library"))']).stdout.strip()
-        detected_libraries = captured_run([str(rscript), "--vanilla", "-e", 'cat(.libPaths(),sep="\\n")']).stdout.strip().splitlines()
+        detected_libraries = captured_run([str(rscript), "--vanilla", "-e", R_USER_LIBRARY_CODE + 'cat(.libPaths(),sep="\\n")']).stdout.strip().splitlines()
         private_r = rscript
         if os.name == "nt":
             checkpoint(report, report_path, "windows_private_runtime")

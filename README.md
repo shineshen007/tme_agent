@@ -163,10 +163,15 @@ python -m native_dist.command_link status
 python -m native_dist.command_link uninstall
 ```
 
-The first install generates local configuration and a 4 × 4 synthetic expression example. Put
+The first install generates local configuration and a 4 × 4 synthetic expression example. The
+dependency check looks for compatible user-installed interpreters and packages first (user
+site, pyenv/uv/conda, `R_LIBS_USER`) and only fills missing dependencies into the project
+environment. Put
 your real data under local `data/raw/`, `data/metadata/`, and `data/signature/` — do not upload
 these directories. Set the service with `/model` and enter the key in the masked field with
-`/key`; the key uses the system credential vault. On Linux without a desktop credential service,
+`/key`; the key uses the system credential vault. The `/model` panel asks only for the service,
+endpoint, model, authentication, and key; timeout, output limit, JSON mode, token field, and
+temperature stay in local `config/api.local.yaml` (default output limit: 32000 tokens). On Linux without a desktop credential service,
 you may explicitly set local config `distribution.credential_storage` to `memory`, where the key
 lives only for the current process and is never written to disk. **Diagnostics run offline even
 without a model key.**

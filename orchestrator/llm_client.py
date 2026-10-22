@@ -170,7 +170,7 @@ class LLMClient:
         record = {'call': self.seq, 'role': role, 'schema': schema_name, 'model': self.cfg['model'],
                   'base_url': self.cfg['base_url'], 'temperature': self.cfg.get('temperature', 0),
                   'cache_key': key, 'cache_hit': bool(cached), 'request_messages': messages,
-                  'max_tokens': self.cfg.get('max_tokens', 4000),
+                  'max_tokens': self.cfg.get('max_tokens', 32000),
                   'thinking_mode': self._thinking_mode(), 'token_budget': self.cfg.get('token_budget'),
                   'attempts': [], 'tokens_before': self.tokens_used, 'schema_retries': 0}
         corrective = []
@@ -255,7 +255,7 @@ class LLMClient:
             raise LLMBudgetExceeded(f'Token budget exhausted: {self.tokens_used}/{budget}')
         request_body = {'model': self.cfg['model'], 'messages': messages,
                         'temperature': self.cfg.get('temperature', 0),
-                        'max_tokens': self.cfg.get('max_tokens', 4000),
+                        'max_tokens': self.cfg.get('max_tokens', 32000),
                         'response_format': {'type': 'json_object'}, 'stream': False}
         mode = self._thinking_mode()
         if mode in {'enabled', 'disabled'}:
@@ -269,7 +269,7 @@ class LLMClient:
         for attempt in range(int(self.cfg.get('max_retries', 2)) + 1):
             started = time.time()
             entry = {'schema_attempt': schema_attempt, 'transport_attempt': attempt + 1,
-                     'max_tokens': self.cfg.get('max_tokens', 4000), 'thinking_mode': self._thinking_mode(),
+                     'max_tokens': self.cfg.get('max_tokens', 32000), 'thinking_mode': self._thinking_mode(),
                      'timeout_seconds': timeout, 'http_status': None, 'finish_reason': None,
                      'usage': None, 'reasoning_tokens': None, 'answer_tokens': None, 'latency_s': None}
             if attempts is not None:

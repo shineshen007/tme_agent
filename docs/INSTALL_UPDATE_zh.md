@@ -3,7 +3,7 @@
 ## 安装
 
 1. 下载 Release 附件 `tme_agent-vX.Y.Z.zip`、`manifest-vX.Y.Z.json`、`SHA256SUMS-vX.Y.Z.txt`。Linux 可用 `sha256sum -c SHA256SUMS-vX.Y.Z.txt`；Mac 用 `shasum -a 256 -c SHA256SUMS-vX.Y.Z.txt`；Windows PowerShell 用 `Get-FileHash` 对照清单。
-2. 解压到新的用户可写目录。先运行 `python -m native_dist.bootstrap check`，再运行 `python -m native_dist.bootstrap setup`。安装器只补项目依赖，不修改全局软件。无需安装 Git 或 GitHub CLI。
+2. 解压到新的用户可写目录。先运行 `python -m native_dist.bootstrap check`，再运行 `python -m native_dist.bootstrap setup`。安装器优先复用用户已安装的兼容 Python/R 解释器与包（user site、pyenv/uv/conda、`R_LIBS_USER` 等），只补齐缺失依赖，不修改全局软件。无需安装 Git 或 GitHub CLI。
 3. 安装成功后，安装器会创建用户级 `multiomics` 命令：macOS/Linux 为 `~/.local/bin/multiomics`，Windows 为 `%USERPROFILE%\.local\bin\multiomics.cmd`。打开新终端后可在任意目录直接运行 `multiomics`，无需先激活 `.venv`；需要手动启动时可激活 `.venv` 后运行 `python -m multiomics_tui`，或双击对应 `start` 文件。
 4. 在本地 `data/` 放自己的输入；输入保持只读。首次配置复制的合成示例不会覆盖已有文件。缺少真实输入时只能做示例任务，不存在默认队列。
 

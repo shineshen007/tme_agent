@@ -1,5 +1,19 @@
 # Changelog
 
+## v8.1.1
+
+- 首次安装检查优先发现用户级 Python：扫描 `~/.local/bin`、pyenv、uv、conda、asdf、mise 和 Windows 用户 Python 目录，再回退到 PATH 与系统目录。
+- Python 检查显式加入 user site（即使 `PYTHONNOUSERSITE` 或 venv 默认禁用），已有 venv 也会写入复用库 `.pth`，避免“检查能看到、运行时导入不到”。
+- R 检查显式加入 `R_LIBS_USER`、`R_LIBS_SITE`、`R_LIBS` 与常见用户库，`inspect_r`、bootstrap 缺失包检查和 `runtime.local.yaml` 使用同一套库路径。
+- 安装候选选择改为优先“全部依赖可复用”，其次“复用数量最多”，最后才按顺序选择；显式 `MULTIOMICS_PYTHON` / `MULTIOMICS_RSCRIPT` 仍优先。
+- Windows 私有运行时校验显式关闭 user site，确保隔离运行时不会误用宿主用户包。
+- 任务运行器使用与 planner 相同的 R 库路径，用户库中的包在沙箱内可读可用。
+- 新增用户解释器、user site、R 用户库和候选选择回归测试；发行白名单增至 176 项。
+- `/model` 设置界面精简：只保留服务、接口地址、模型名、认证方式和 API key；密钥环境变量、JSON 返回模式、超时、输出长度、长度字段和 temperature 从界面移除，减少必填输入。
+- 隐藏参数继续从 `config/api.local.yaml` 读取并原样写回；切换服务时自动更新密钥环境变量与认证方式。高级用户仍可直接编辑该文件。
+- 默认输出长度上限由 8000 调整为 32000，并同步更新 `config/study_config.example.yaml` 与本地配置模板。
+- 新增界面字段精简、隐藏参数保留、服务切换和 32K 默认值回归测试。
+
 ## v8.1.0
 
 - 新增用户级 `multiomics` 启动器：安装成功后可在任意目录启动，自动设置 `PYTHONPATH` 并转发参数；默认使用安装目录，`--project-root` 可指定其他工作区。

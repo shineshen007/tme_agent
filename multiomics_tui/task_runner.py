@@ -26,6 +26,7 @@ from .jobs import _atomic_json
 from .llm import build_client, key_env_name
 from .task_guard import available as guard_available
 from .actions import rscript_path
+from .r_env import library_paths as r_library_paths
 from .task_planner import CODEGEN, CODEGEN_STEP, validate_plan
 from .task_sessions import TaskStore, canonical_hash, utc
 
@@ -157,7 +158,7 @@ def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:
         if key in os.environ:
             env[key] = os.environ[key]
             read_paths.extend(part for part in os.environ[key].split(os.pathsep) if part and Path(part).is_dir())
-    libraries = [str(Path(part).resolve()) for part in cfg.get("runtime", {}).get("r_library_paths", [])
+    libraries = [str(Path(part).resolve()) for part in r_library_paths(cfg)
                  if Path(part).is_dir()]
     if libraries:
         env["R_LIBS_USER"] = os.pathsep.join(libraries)

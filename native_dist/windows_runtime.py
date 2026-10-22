@@ -59,10 +59,11 @@ def prepare(root, py, python_info, rscript, library, packages, dependencies, run
         private_r = next(iter(sorted((path/'r').glob('bin/**/Rscript.exe'))), None)
         if private_r is None:
             raise RuntimeError('Private Rscript.exe is missing')
-        info = inspect_python(private_py, requirements(root))
+        info = inspect_python(private_py, requirements(root), include_user_site=False)
         if not info.get('compatible') or any(p['status'] != 'reusable' for p in info.get('packages', [])):
             raise RuntimeError('Private Python dependency imports failed')
-        run([private_py, '-B', '-m', 'native_dist.package_copy', '--check', '--project-root', root], cwd=root)
+        run([private_py, '-B', '-m', 'native_dist.package_copy', '--check', '--project-root', root],
+            cwd=root, env={**os.environ, 'PYTHONNOUSERSITE': '1'})
         env = {k:v for k,v in os.environ.items() if k not in {'R_HOME','RHOME','R_LIBS','R_LIBS_SITE','R_LIBS_USER','PYTHONHOME','PYTHONPATH'}}
         env.update(R_HOME=str(path/'r'), R_LIBS_USER=str(path/'r/library'), PYTHONDONTWRITEBYTECODE='1')
         rcode = 'for(p in commandArgs(TRUE)) { if(!requireNamespace(p,quietly=TRUE)) stop(p); if(!startsWith(normalizePath(find.package(p),winslash="/"),normalizePath(R.home(),winslash="/"))) stop("External R package") };cat("PRIVATE_R_OK")'
@@ -81,7 +82,8 @@ def prepare(root, py, python_info, rscript, library, packages, dependencies, run
     shutil.copytree(Path(python_info['base_prefix']), stage/'python',
                     ignore=shutil.ignore_patterns('site-packages','__pycache__','*.pyc'))
     run([py, '-B', '-m', 'native_dist.package_copy', '--project-root', root,
-         '--destination', stage/'python/Lib/site-packages'], cwd=root)
+         '--destination', stage/'python/Lib/site-packages'], cwd=root,
+        env={**os.environ, 'PYTHONNOUSERSITE': '1'})
     shutil.copytree(r_home, stage/'r', ignore=shutil.ignore_patterns('__pycache__'))
     for source in sources:
         shutil.copytree(source, stage/'r/library'/source.name, dirs_exist_ok=True)

@@ -80,7 +80,7 @@ def test_bearer_and_parameter_compatibility(tmp_path):
         call(client(tmp_path, cfg))
     assert requests[0]['headers']['Authorization'] == 'Bearer synthetic-compatible-value'
     body = requests[0]['body']
-    assert body['max_completion_tokens'] == 8000
+    assert body['max_completion_tokens'] == 32000
     assert not {'thinking', 'temperature', 'max_tokens', 'response_format'} & body.keys()
 
 
@@ -249,6 +249,78 @@ def test_settings_panel_save_cancel_and_local_readiness(project_root):
             assert '尚未测试' in str(app.query_one('#reply-message', Static).renderable)
             assert session.handle('/key').kind == 'text'
     asyncio.run(scenario())
+
+
+def test_settings_panel_hides_advanced_fields(project_root):
+    pytest.importorskip('textual')
+    from multiomics_tui.app import MultiomicsApp
+    from multiomics_tui.controller import Session
+    from multiomics_tui.model_panel import ModelPanel
+
+    async def scenario():
+        session = Session(project_root, allow_llm=False)
+        app = MultiomicsApp(session)
+        async with app.run_test(size=(90, 32)) as pilot:
+            await app._handle_async('/model'); await pilot.pause()
+            assert isinstance(app.screen, ModelPanel)
+            for ident in ('model-env', 'model-json', 'model-timeout', 'model-tokens',
+                          'model-token-field', 'model-temperature'):
+                assert not app.screen.query('#' + ident)
+            for ident in ('model-provider', 'model-url', 'model-name', 'model-auth', 'model-key'):
+                assert app.screen.query('#' + ident)
+    asyncio.run(scenario())
+
+
+def test_settings_panel_preserves_hidden_parameters_and_switches_preset(project_root):
+    pytest.importorskip('textual')
+    import yaml
+    from textual.widgets import Button, Select
+    from multiomics_tui.app import MultiomicsApp
+    from multiomics_tui.controller import Session
+
+    custom = config.normalize({
+        'provider': 'deepseek', 'base_url': 'https://api.deepseek.com',
+        'model': 'stub-custom', 'auth_mode': 'bearer', 'api_key_env': 'CUSTOM_KEY',
+        'json_mode': 'prompt', 'timeout_seconds': 300, 'max_tokens': 32000,
+        'max_tokens_field': 'max_completion_tokens', 'temperature': 0.2,
+    })
+    config.save_settings(project_root, custom)
+
+    async def scenario():
+        session = Session(project_root, allow_llm=False)
+        app = MultiomicsApp(session)
+        async with app.run_test(size=(90, 32)) as pilot:
+            await app._handle_async('/model'); await pilot.pause()
+            panel = app.screen
+            assert panel.settings['json_mode'] == 'prompt'
+            assert panel.settings['timeout_seconds'] == 300
+            assert panel.settings['max_tokens'] == 32000
+            assert panel.settings['max_tokens_field'] == 'max_completion_tokens'
+            assert panel.settings['temperature'] == 0.2
+
+            panel.query_one('#model-save', Button).press(); await pilot.pause()
+            saved = yaml.safe_load((project_root / 'config/api.local.yaml').read_text())['llm']
+            assert saved['api_key_env'] == 'CUSTOM_KEY'
+            assert saved['json_mode'] == 'prompt'
+            assert saved['timeout_seconds'] == 300
+            assert saved['max_tokens'] == 32000
+            assert saved['max_tokens_field'] == 'max_completion_tokens'
+            assert saved['temperature'] == 0.2
+
+            await app._handle_async('/model'); await pilot.pause()
+            panel = app.screen
+            panel.query_one('#model-provider', Select).value = 'ollama'
+            await pilot.pause()
+            assert panel.settings['api_key_env'] == 'OLLAMA_API_KEY'
+            assert panel.query_one('#model-auth', Select).value == 'none'
+    asyncio.run(scenario())
+
+
+def test_default_output_limit_is_32k():
+    value = config.normalize({
+        'provider': 'deepseek', 'base_url': 'https://api.deepseek.com', 'model': 'stub',
+    })
+    assert value['max_tokens'] == 32000
 
 
 def test_panel_connection_test_is_explicit_and_does_not_save(project_root):

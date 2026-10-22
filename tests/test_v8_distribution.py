@@ -109,6 +109,7 @@ def test_v8_resources_and_dependencies():
 def test_r_env_lists_installed_packages(tmp_path, monkeypatch, isolated_r_env):
     from multiomics_tui import r_env
     monkeypatch.setattr(r_env, 'SYSTEM_LIBRARIES', ())
+    monkeypatch.setattr(r_env, 'user_libraries', lambda: [])
     library = tmp_path / 'library'
     for name in ('GSVA', 'dplyr', 'survival'):
         folder = library / name
@@ -125,6 +126,7 @@ def test_r_env_lists_installed_packages(tmp_path, monkeypatch, isolated_r_env):
 def test_r_env_note_empty_without_libraries(tmp_path, monkeypatch, isolated_r_env):
     from multiomics_tui import r_env
     monkeypatch.setattr(r_env, 'SYSTEM_LIBRARIES', ())
+    monkeypatch.setattr(r_env, 'user_libraries', lambda: [])
     assert r_env.availability_note({'runtime': {'r_library_paths': [str(tmp_path / 'missing')]}}) == ''
 
 

@@ -87,7 +87,7 @@ def test_connection(root, cfg):
     import copy
     value = copy.deepcopy(cfg)
     value['llm'].update(cache=False, max_retries=0, max_schema_retries=0, token_budget=0,
-                        max_tokens=min(value['llm'].get('max_tokens', 8000), 256))
+                        max_tokens=min(value['llm'].get('max_tokens', 32000), 256))
     # A probe must not use project data, cached responses or persist its messages.
     with tempfile.TemporaryDirectory(prefix='multiomics_model_probe_') as temp:
         client = CompatibleClient(root=Path(temp), run=Path(temp), cfg=value, audit_dir=Path(temp)/'calls')

@@ -22,14 +22,27 @@ SYSTEM_LIBRARIES = (
 )
 
 
+def user_libraries() -> list[str]:
+    """Common per-user R libraries, used when runtime.local.yaml is absent."""
+    home = Path.home()
+    paths = [home / ".local/lib/R/site-library", home / "R/library"]
+    for base in (home / "R", home / "Library/R"):
+        if base.is_dir():
+            paths.extend(sorted(base.glob("*/library")))
+            paths.extend(sorted(base.glob("*/*/library")))
+            paths.extend(sorted(base.glob("*-library/*")))
+    return [str(path) for path in paths if path.is_dir()]
+
+
 def library_paths(cfg) -> list[str]:
-    """Configured project libraries plus base/system libraries that exist."""
+    """Configured project libraries plus user and base/system libraries that exist."""
     runtime = (cfg or {}).get("runtime", {}) or {}
     paths: list[str] = []
     paths.extend(str(p) for p in (runtime.get("r_library_paths") or []))
     home = runtime.get("r_home")
     if home:
         paths.append(str(Path(home) / "library"))
+    paths.extend(user_libraries())
     for key in ("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE"):
         paths.extend(part for part in os.environ.get(key, "").split(os.pathsep) if part)
     paths.extend(SYSTEM_LIBRARIES)
