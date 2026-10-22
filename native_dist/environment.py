@@ -320,7 +320,10 @@ def inspect_r(path, root):
                 'home':next(line.split('=',1)[1] for line in lines if line.startswith('R_HOME=')),
                 'libraries':next(line.split('=',1)[1].split('|') for line in lines if line.startswith('R_LIBS=')), 'packages':rows}
     except (OSError, ValueError, StopIteration, subprocess.TimeoutExpired) as exc:
-        return {'path':str(path), 'compatible':False, 'error':type(exc).__name__}
+        result = locals().get('result')
+        return {'path':str(path), 'compatible':False, 'error':type(exc).__name__,
+                'stdout': (getattr(result, 'stdout', '') or '')[-2000:],
+                'stderr': (getattr(result, 'stderr', '') or '')[-2000:]}
 
 
 def _reusable_count(candidate):
