@@ -23,6 +23,7 @@ R_USER_LIBRARY_CODE = (
     'extra <- c(extra, path.expand("~/.local/lib/R/site-library"), '
     'path.expand("~/R/library")); '
     'extra <- path.expand(extra[nzchar(extra)]); '
+    'extra <- extra[dir.exists(extra)]; '
     '.libPaths(unique(c(extra, .libPaths()))); '
 )
 
