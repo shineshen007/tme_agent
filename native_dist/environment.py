@@ -35,10 +35,12 @@ def requirements(root):
     return list(dict.fromkeys(rows))
 
 
-def checked(argv, timeout=90, env_extra=None):
+def checked(argv, timeout=90, env_extra=None, env_remove=()):
     env = {**os.environ, 'PYTHONDONTWRITEBYTECODE':'1', 'PYTHONUTF8':'1'}
     if env_extra:
         env.update(env_extra)
+    for name in env_remove:
+        env.pop(name, None)
     return subprocess.run(list(map(str, argv)), capture_output=True, text=True,
                           encoding='utf-8', errors='replace', timeout=timeout,
                           env=env)
@@ -317,7 +319,7 @@ def inspect_r(path, root):
     code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\\n",sep="")'
     try:
         result = checked([path, '--vanilla', '-e', code, *packages],
-                         env_extra={'R_LIBS_USER': '', 'R_LIBS_SITE': '', 'R_LIBS': ''})
+                         env_remove=('R_LIBS_USER', 'R_LIBS_SITE', 'R_LIBS'))
         lines = result.stdout.splitlines()
         version = next(line.split('=',1)[1] for line in lines if line.startswith('R_VERSION='))
         rows = []
