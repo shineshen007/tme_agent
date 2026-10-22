@@ -55,6 +55,8 @@ provenance needed to trace each number back to the file it came from.
   is stored in the system credential vault and never written to config, logs, or Git.
 - **Workspaces on demand:** launch from any directory with the installed `multiomics` command;
   `/cd` switches or initializes a workspace without copying the code tree or overwriting files.
+- **Command completion:** type `/` to list commands with a one-line hint; `↑`/`↓` choose, `Tab`
+  completes, and `/new` returns to the welcome screen while keeping the draft and history.
 
 ## Architecture
 
@@ -180,6 +182,14 @@ Natural-language tasks are the public entry point. Historical fixed study pipeli
 separate cohort configuration and cannot be restored from the public template. Model-generated
 explanations and code are **not** independent validation — confirm the statistical unit,
 grouping, and study design before you rely on a result.
+
+Slash commands are discoverable without memorizing them: type `/` and the interface lists
+matching commands with a one-line hint, `↑`/`↓` move the highlight, `Tab` (or `Enter`) accepts the
+highlighted command, and `Esc` closes the list. Accepting only fills in the command name; nothing
+runs until you press Enter again, and arguments follow the name. While a request is running only
+read-only commands appear. `/new` starts a separate task and returns to the welcome screen; the
+draft task and its history stay on disk and can be reopened with `/sessions` or
+`/session <task-id>`.
 
 ## Update and Rollback
 

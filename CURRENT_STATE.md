@@ -1,11 +1,16 @@
-updated_at: 2026-10-22T13:18:00+08:00
+updated_at: 2026-10-22T16:05:00+08:00
 
 ## current_goal
 
-v8.1.3 已正式发布（tag `v8.1.3`，Release 附件齐全，三平台 CI 与发布工作流均成功）；剩余工作在目标机完成原生验收。
+v8.1.3 已正式发布（tag `v8.1.3`，Release 附件齐全，三平台 CI 与发布工作流均成功）；剩余工作在目标机完成原生验收。当前分支另有未发布的命令补全与 `/new` 回欢迎界面改动。
 
 ## completed
 
+- 命令补全：新增 `multiomics_tui/command_menu.py` 集中命令目录（27 条，含中英文一行说明与参数形状提示）；输入 `/` 后在输入框上方显示最多 6 条候选，`↑`/`↓` 移动高亮，`Tab`/`Enter` 采纳，`Esc` 关闭。采纳只插入命令名、不自动执行；完整命令不再是候选，`Enter` 直接执行；执行中只显示只读命令。
+- `PromptEditor` 增加可选 `menu` 通道：菜单展开时优先消费 Up/Down/Tab/Enter，其余按键与粘贴行为不变；`Tab` 与菜单采纳插入相同文本，保留原有 `Tab`/`→` 单行补全。
+- `/new` 返回欢迎界面：控制器返回 `home` kind，TUI 新增 `_apply_new_task` 重置任务视图并回到 Home；草稿任务与历史保留，REPL 语义不变。
+- 菜单展开高度计入 Home 居中估算，50×24、80×24、120×40 下输入卡与状态栏不越界。
+- 新增 `tests/test_command_menu.py` 25 项；完整回归 220 passed / 2 skipped；`public_release audit` 178 项通过，版本仍为 8.1.3。
 - `/model` 界面精简：移除密钥环境变量、JSON 返回模式、超时、输出长度、长度字段和 temperature 输入；保留服务、接口地址、模型名、认证方式和 API key。
 - 隐藏参数继续从 `config/api.local.yaml` 读取并原样写回；切换服务时自动更新 `api_key_env` 与认证方式；高级用户可编辑本地配置。
 - 默认输出上限由 8000 调整为 32000；同步 `config/study_config.example.yaml`、本地 `config/study_config.yaml` 与客户端兜底默认值。
@@ -40,6 +45,7 @@ v8.1.3 已正式发布（tag `v8.1.3`，Release 附件齐全，三平台 CI 与�
 
 ## in_progress
 
+- 命令补全与 `/new` 回欢迎界面已实现并通过回归，尚未发布（`VERSION` 仍为 8.1.3）。
 - Windows 原生 PATH/AppContainer 验收与 macOS 原生沙箱验收待执行；本机 `/cd` 真实 doctor 已在 macOS 通过。
 
 ## key_decisions
@@ -50,18 +56,23 @@ v8.1.3 已正式发布（tag `v8.1.3`，Release 附件齐全，三平台 CI 与�
 - PATH 只改当前用户配置，使用带标记的受管块，支持 `uninstall` 精确移除。
 - `/model` 主界面不暴露技术参数；隐藏值从本地配置读取并原样保存，避免简化界面导致既有设置丢失。默认输出上限为 32000。
 - 历史固定流程 `/run`、`/data` 仍要求完整项目根；数据工作区以自然语言任务为主。
+- 命令目录只维护在 `multiomics_tui/command_menu.py`：帮助文本、补全候选与测试同源，避免命令列表漂移。
+- 补全只在“单行、以 `/` 开头、尚未完整”的输入上展开；完整命令立即关闭候选，保证 `Enter` 的语义不变。
+- `/new` 保留草稿任务与历史（只重置视图到 Home），与 `/cd` 的清理策略不同：切换工作区才清空会话视图。
 
 ## changed_files
 
-- 新增：`native_dist/command_link.py`、`multiomics_tui/workspace.py`、`tests/test_command_link.py`、`tests/test_cd_workspace.py`。
-- 修改：`native_dist/bootstrap.py`、`native_dist/environment.py`、`native_dist/windows_runtime.py`、`native_dist/layout.py`、`native_dist/doctor.py`、`orchestrator/llm_client.py`、`multiomics_tui/controller.py`、`multiomics_tui/app.py`、`multiomics_tui/fallback.py`、`multiomics_tui/task_runner.py`、`multiomics_tui/windows_native.py`、`multiomics_tui/model_panel.py`、`multiomics_tui/model_config.py`、`multiomics_tui/model_client.py`、`multiomics_tui/r_env.py`、`config/study_config.example.yaml`、`tests/test_model_interfaces.py`、`tests/test_v8_distribution.py`、`PUBLIC_FILES.json`、`README.md`、`README.zh-CN.md`、`docs/INSTALL_UPDATE_zh.md`、`docs/VALIDATION.md`、`CHANGELOG.md`、`CURRENT_STATE.md`。
-- 新增：`tests/test_environment_discovery.py`。
+- 新增（本轮）：`multiomics_tui/command_menu.py`、`tests/test_command_menu.py`。
+- 修改（本轮）：`multiomics_tui/app.py`、`multiomics_tui/prompt_editor.py`、`multiomics_tui/controller.py`、`multiomics_tui/styles.tcss`、`PUBLIC_FILES.json`、`README.md`、`README.zh-CN.md`、`docs/VALIDATION.md`、`CHANGELOG.md`、`CURRENT_STATE.md`。
+- 新增（历史）：`native_dist/command_link.py`、`multiomics_tui/workspace.py`、`tests/test_command_link.py`、`tests/test_cd_workspace.py`、`tests/test_environment_discovery.py`。
+- 修改（历史）：`native_dist/bootstrap.py`、`native_dist/environment.py`、`native_dist/windows_runtime.py`、`native_dist/layout.py`、`native_dist/doctor.py`、`orchestrator/llm_client.py`、`multiomics_tui/fallback.py`、`multiomics_tui/task_runner.py`、`multiomics_tui/windows_native.py`、`multiomics_tui/model_panel.py`、`multiomics_tui/model_config.py`、`multiomics_tui/model_client.py`、`multiomics_tui/r_env.py`、`config/study_config.example.yaml`、`tests/test_model_interfaces.py`、`tests/test_v8_distribution.py`、`docs/INSTALL_UPDATE_zh.md`。
 
 ## latest_outputs
 
+- 命令补全专项：`tests/test_command_menu.py` 25 passed；补全相关回归（`test_prompt_editor_portable`、`test_cd_workspace`、`test_task_planner_portable`、`test_command_menu`）86 passed。
+- 完整回归：220 passed / 2 skipped，耗时 3m17s。
+- `python -m native_dist.public_release audit`：178 项通过，版本 8.1.3。
 - 首次安装发现专项：`tests/test_environment_discovery.py` 8 passed；`inspect_python` 可识别 `PYTHONUSERBASE` 下的用户包，`inspect_r` 可识别 `R_LIBS_USER` 用户库。
-- 完整回归：195 passed / 2 skipped，耗时 3m07s。
-- `python -m native_dist.public_release audit`：176 项通过，版本 8.1.3。
 - `/model` 精简专项：`tests/test_model_interfaces.py` 31 passed。
 - v8.1.1 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.1
 - v8.1.2 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.2（Windows CI 失败）
@@ -83,4 +94,4 @@ v8.1.3 已正式发布（tag `v8.1.3`，Release 附件齐全，三平台 CI 与�
 
 ## next_step
 
-在 Windows 与 Intel macOS 目标机执行原生验收：新终端运行 `multiomics --version`、从任意目录启动、`/cd` 新目录并完成合成任务，检查用户 PATH 与 doctor 记录；结果记入 `docs/VALIDATION.md`。
+在 Windows 与 Intel macOS 目标机执行原生验收：新终端运行 `multiomics --version`、从任意目录启动、`/cd` 新目录并完成合成任务，检查用户 PATH 与 doctor 记录；结果记入 `docs/VALIDATION.md`。命令补全改动待发布时用 `python -m native_dist.public_release prepare --version <next>` 提升版本。

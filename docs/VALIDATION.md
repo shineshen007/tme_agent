@@ -124,7 +124,8 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
-- v8.1.3 已发布，三平台 CI 与发布工作流成功；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收。本机完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过。
+- v8.1.3 已发布，三平台 CI 与发布工作流成功；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收。本机完整回归 220 passed / 2 skipped；`public_release audit` 178 项通过。
+- 命令补全与 `/new` 回欢迎界面为未发布改动（`CHANGELOG.md` 的 Unreleased 段）：新增 `tests/test_command_menu.py` 25 项，白名单 178 项，`audit` 178 项通过。
 
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。

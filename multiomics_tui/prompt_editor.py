@@ -7,7 +7,12 @@ from textual.widgets import TextArea
 
 
 class PromptEditor(TextArea):
-    """Enter submits; Ctrl+J inserts a newline. Paste never submits."""
+    """Enter submits; Ctrl+J inserts a newline. Paste never submits.
+
+    A completion menu may own Up/Down, Tab and Enter while it is open; the editor
+    only forwards those keys when the menu declines them, so a fully typed command
+    still submits on the first Enter.
+    """
 
     class Submitted(Message):
         def __init__(self, editor: "PromptEditor") -> None:
@@ -15,10 +20,11 @@ class PromptEditor(TextArea):
             self.editor = editor
             self.value = editor.text
 
-    def __init__(self, *, suggester=None, submit_handler=None, **kwargs):
+    def __init__(self, *, suggester=None, submit_handler=None, menu=None, **kwargs):
         super().__init__(soft_wrap=True, tab_behavior="focus", **kwargs)
         self.suggester = suggester
         self.submit_handler = submit_handler
+        self.menu = menu
 
     @property
     def value(self) -> str:
@@ -36,7 +42,25 @@ class PromptEditor(TextArea):
         else:
             self.post_message(self.Submitted(self))
 
+    def _menu_owns_key(self, event: events.Key) -> bool:
+        """Return True when the completion menu consumed this key."""
+        menu = self.menu
+        if menu is None or not menu.visible():
+            return False
+        # The menu describes a single command line, so cursor movement is irrelevant here.
+        if "\n" in self.text or not self.selection.is_empty:
+            return False
+        if event.key in {"up", "down"}:
+            return menu.move(-1 if event.key == "up" else 1)
+        if event.key in {"tab", "enter"}:
+            return menu.accept()
+        return False
+
     async def _on_key(self, event: events.Key) -> None:
+        if self._menu_owns_key(event):
+            event.stop()
+            event.prevent_default()
+            return
         if event.key in {"enter", "ctrl+j"}:
             event.stop()
             event.prevent_default()

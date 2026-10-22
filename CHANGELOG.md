@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- 命令补全：输入 `/` 后在输入框上方列出匹配命令及一行中英文说明（含参数形状提示，如 `/tail <job-id> [n]`）；`↑`/`↓` 移动高亮，`Tab` 或 `Enter` 采纳高亮项，`Esc` 关闭列表。采纳后只插入命令名、不自动提交；命令已完整输入时列表关闭，`Enter` 直接执行。
+- 请求执行中补全只显示只读命令；`Tab`/`→` 的单行补全通道保留，不再出现“能补全但看不到候选”的情况。
+- `/new` 回到欢迎界面：创建独立草稿任务并返回 Home，草稿任务与历史记录仍保存在磁盘上，可用 `/sessions`、`/session <task-id>` 重新打开；REPL 中 `/new` 后继续补充要求的行为不变。
+- 命令目录集中到 `multiomics_tui/command_menu.py`，帮助文本、补全列表与测试同源，新增命令不会只出现在一处。
+- `Tab` 补全与菜单采纳插入完全相同的文本（命令名本身），参数在命令名之后输入，避免两条补全路径产生不同结果。
+- 新增 `tests/test_command_menu.py` 25 项；`PUBLIC_FILES.json` 176 → 178 项。
+
 ## v8.1.3
 
 - 修复 v8.1.2 Windows CI 失败：`inspect_r` 不再通过 `.libPaths()` 注入用户库（Windows R 4.4 在自定义库路径上报 `The system cannot find the path specified`），改为用 Python 扫描用户库 `DESCRIPTION`，R 只检查系统库。

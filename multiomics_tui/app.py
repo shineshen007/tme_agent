@@ -20,6 +20,7 @@ from textual.widgets import Button, Collapsible, Input, RichLog, Static
 
 from .prompt_editor import PromptEditor
 from .controller import HELP_TEXT, READONLY_COMMANDS, Response, Session, planning_failure_message
+from . import command_menu
 from .task_planner import render_plan
 from .language import choose
 from .task_sessions import redact_secrets
@@ -68,10 +69,7 @@ BANNER = _home_banner(_GLYPHS)
 COMPACT_BANNER = _home_banner(_COMPACT_GLYPHS)
 
 # Slash-command completion list: read-only commands first, then the rest.
-COMMAND_LIST = list(READONLY_COMMANDS) + ["/key", "/model", "/ask", "/new", "/cd", "/session", "/sessions",
-                                          "/approve", "/retry", "/cancel", "/quit", "/run", "/data",
-                                          "/resume", "/verify", "/dossiers",
-                                          "/verify-dossiers", "/module", "/kill"]
+COMMAND_LIST = command_menu.COMMAND_LIST
 # Home onboarding examples shown when the terminal is tall enough; click fills the input.
 HOME_EXAMPLES = (
     "Check the input datasets and summarize sample IDs",
@@ -147,6 +145,8 @@ class MultiomicsApp(App):
         self._last_terminal: tuple[str, str] | None = None
         self._home_visible = True
         self._banner_height = 0
+        # The menu is built before compose so the editor can hold the same instance.
+        self._menu = command_menu.CommandMenu(self._accept_command, id="command-menu")
         self.sub_title = f"Multiomics workspace · {session.root.name or session.root}"
 
     def compose(self) -> ComposeResult:
@@ -201,9 +201,10 @@ class MultiomicsApp(App):
                             yield Button("Confirm and run", variant="success", id="execute-plan")
                             yield Button("Revise plan", id="modify-plan")
                 with Horizontal(id="prompt-controls"):
-                    yield PromptEditor(suggester=_CommandSuggester(self),
+                    yield PromptEditor(suggester=_CommandSuggester(self), menu=self._menu,
                                        submit_handler=self._submit_prompt, id="chat-input")
                     yield Button("Send", id="send-prompt", variant="primary")
+                yield self._menu
                 yield Static("", id="prompt-meta")
         with Horizontal(id="footer-row"):
             yield Static("", id="status-bar")
@@ -324,6 +325,9 @@ class MultiomicsApp(App):
         row = self._get("#examples-row")
         if row is not None and row.display:
             below += self._HOME_EXAMPLES_ROWS
+        menu = getattr(self, "_menu", None)
+        if menu is not None and menu.is_attached and menu.visible():
+            below += len(menu.children)
         hero_h = self.size.height - below
         padding = max(0, min(below, hero_h - self._banner_height))
         # This Textual version lays out from the ``padding`` shorthand; padding_top alone is ignored.
@@ -466,7 +470,8 @@ class MultiomicsApp(App):
             log.write(value)
 
     def _refresh_status(self) -> None:
-        self._update("#prompt-meta", "Enter Send · Ctrl+J Newline · /new")
+        self._update("#prompt-meta", self._say("Enter Send · Tab Complete · ↑↓ Choose · /new",
+                                              "Enter 发送 · Tab 补全 · ↑↓ 选择 · /new"))
         service = ("AI checked" if self.session.connection_tested() else "AI configured") if self.session.llm_mode == "LLM" else \
             ("AI on · /key" if self.session.key_available() else "AI off · /key")
         cfg = self.session.cfg.get('llm', {})
@@ -815,6 +820,24 @@ class MultiomicsApp(App):
     def on_text_area_changed(self, event) -> None:
         if event.text_area.id == "chat-input":
             self._resize_prompt()
+            self._refresh_menu(event.text_area.text)
+
+    def _refresh_menu(self, text: str) -> None:
+        """Keep the candidate list in step with the single command line being typed."""
+        menu = getattr(self, "_menu", None)
+        if menu is None or not menu.is_attached:
+            return
+        menu.refresh_for(text, busy=self._busy, language=self.session.reply_language())
+        self._center_home_banner()
+
+    def _accept_command(self, value: str) -> None:
+        """Insert the chosen command and leave the cursor after it, ready for arguments."""
+        chat_input = self._get("#chat-input", PromptEditor)
+        if chat_input is None or self._busy:
+            return
+        chat_input.value = value
+        chat_input.focus()
+        self._center_home_banner()
 
     def _resize_prompt(self) -> None:
         prompt = self._get("#chat-input", PromptEditor)
@@ -851,6 +874,23 @@ class MultiomicsApp(App):
             await self._render(self.session.handle_tui(value))
             return
         head = value.strip().split(maxsplit=1)
+        if head and head[0].lower() == "/new":
+            # A new task returns to Home; do not flash the workspace on the way.
+            self._busy_action = "Starting task"
+            self._set_busy(True)
+            try:
+                response = await asyncio.to_thread(self.session.handle_tui, value)
+                await self._render(response)
+            except Exception as exc:  # noqa: BLE001 - keep the interface usable
+                self._message(self._say("Command failed: ", "命令执行失败：") + f"{type(exc).__name__}: {exc}")
+            finally:
+                self._set_busy(False)
+                self._refresh_task_view()
+                self._refresh_status()
+                chat_input = self._get("#chat-input", PromptEditor)
+                if chat_input is not None and chat_input.is_attached:
+                    chat_input.focus()
+            return
         if head and head[0].lower() == '/cd':
             self._busy_action = "Checking workspace"
             self._set_busy(True)
@@ -931,6 +971,11 @@ class MultiomicsApp(App):
         if busy:
             self._busy_start = time.monotonic()
             self._busy_notice = False
+        # A busy switch changes which commands are allowed, so re-filter any open menu.
+        menu = getattr(self, "_menu", None)
+        prompt = self._get("#chat-input", PromptEditor)
+        if menu is not None and menu.is_attached and prompt is not None:
+            self._refresh_menu(prompt.text)
         # Plan buttons keep their state from _refresh_task_view: a running task must stay disabled.
         for selector in ("#action-confirm", "#action-cancel", "#stop-task"):
             widget = self._get(selector)
@@ -965,6 +1010,41 @@ class MultiomicsApp(App):
         if message:
             self._write_chat(escape(message))
 
+    def _apply_new_task(self, response: Response) -> None:
+        """/new keeps the draft and history, but returns the view to Home."""
+        self._view_task = None
+        self._shown_task = None
+        self._shown_hash = None
+        self._editing_task = None
+        self._editing_hash = None
+        self.selected_job = None
+        self._log_offset = 0
+        self._pending_response = None
+        menu = getattr(self, "_menu", None)
+        if menu is not None:
+            menu.close()
+        self._hide_action()
+        self._hide_key()
+        self._request("")
+        # The visible conversation stays; only the previous task's job log is dropped.
+        job_log = self._get("#job-log", RichLog)
+        if job_log is not None:
+            job_log.clear()
+        self._update("#reply-message", "")
+        self._show("#reply-message", False)
+        self._home_visible = True
+        self._refresh_workspace()
+        self._refresh_task_view()
+        self._refresh_status()
+        self._write_chat(escape(response.message))
+        try:
+            self.notify(escape(response.message), title=self._say("New task", "新任务"), timeout=8)
+        except Exception:  # noqa: BLE001 - notification support is optional
+            pass
+        chat_input = self._get("#chat-input", PromptEditor)
+        if chat_input is not None and chat_input.is_attached:
+            chat_input.focus()
+
     def _apply_workspace_switch(self, response: Response) -> None:
         """Reset task-specific UI state after /cd changes the workspace root."""
         self._view_task = None
@@ -972,9 +1052,12 @@ class MultiomicsApp(App):
         self._shown_hash = None
         self._editing_task = None
         self._editing_hash = None
-        self._selected_job = None
+        self.selected_job = None
         self._log_offset = 0
         self._pending_response = None
+        menu = getattr(self, "_menu", None)
+        if menu is not None:
+            menu.close()
         self._hide_action()
         self._hide_key()
         self._request("")
@@ -1010,6 +1093,9 @@ class MultiomicsApp(App):
         self._show("#input-row", not show)
         self._show("#inline-row", not show)
         if show:
+            menu = getattr(self, "_menu", None)
+            if menu is not None:
+                menu.close()  # The input row is hidden; no candidates can be shown.
             self._show_dock(False)
         self._refresh_workspace()
         if self._home_visible and not show:
@@ -1028,6 +1114,9 @@ class MultiomicsApp(App):
         kind = response.kind
         if kind == "cwd":
             self._apply_workspace_switch(response)
+            return
+        if kind == "home":
+            self._apply_new_task(response)
             return
         if kind == 'model_settings':
             from .model_panel import ModelPanel
@@ -1258,8 +1347,14 @@ class MultiomicsApp(App):
             self._toggle_help(True)
 
     def action_close_help(self) -> None:
-        if self.is_running:
-            self._toggle_help(False)
+        if not self.is_running:
+            return
+        menu = getattr(self, "_menu", None)
+        if menu is not None and menu.visible() and not self._help_showing():
+            menu.close()
+            self._center_home_banner()
+            return
+        self._toggle_help(False)
 
     def on_help_close_requested(self, event: HelpCloseRequested) -> None:
         event.stop()

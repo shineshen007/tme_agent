@@ -43,7 +43,7 @@ HELP_TEXT = """multiomics quick reference
 
 Start a task
   Type a request in English or Chinese; review the plan before it runs.
-  /new               Start a separate task
+  /new               Start a separate task and return to the welcome screen
   /key               Enter the API key in a masked prompt (memory only)
   /model             Configure DeepSeek, compatible API or local model
 
@@ -66,6 +66,7 @@ Explore and sessions
 
 Keys
   Enter Submit  F1 Help / Esc Close  Ctrl+R Refresh  Ctrl+Q Quit
+  Type / to list commands; Tab completes, ↑↓ chooses, Enter accepts the highlighted one.
   While a request runs only /help /status /runs /figures /jobs /tail /modules.
   Jobs continue after exit. Plans, logs and citations stay verbatim.
 """
@@ -519,7 +520,8 @@ class Session:
         if command == "/new":
             state = self.tasks.create()
             self.active_task = state["task_id"]
-            return Response("text", f"New task {state['task_id']}. Describe the analysis goal in natural language.")
+            return Response("home", f"New task {state['task_id']}. Describe the analysis goal in natural language.",
+                            mode=state["task_id"])
         if command == "/sessions":
             states = [self.tasks.reconcile(item["task_id"], self.jobs) for item in self.tasks.list()]
             if not states:

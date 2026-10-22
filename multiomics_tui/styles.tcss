@@ -205,5 +205,13 @@ CollapsibleTitle { color: #a0a0a0; }
     margin-top: 0;
 }
 #chat-input:focus { border: none; }
+#command-menu {
+    width: 100%;
+    height: 0;
+    display: none;
+    padding: 0 1;
+    background: #0b0b0b;
+}
+#command-menu Static { height: 1; width: 100%; }
 #prompt-meta { height: 1; color: #969696; }
 #status-bar { height: 1; padding: 0 1; color: #969696; }
