@@ -14,7 +14,7 @@ jobs:
         shell: pwsh
         run: |
           $short = Join-Path $env:RUNNER_TEMP "Rlib"
-          $long = Join-Path $env:RUNNER_WORKSPACE "tme_agent\tme_agent\.pytest-tmp\test_inspect_r_includes_user_l0\R-library"
+          $long = Join-Path $env:USERPROFILE "Rlib"
           New-Item -ItemType Directory -Force -Path $short | Out-Null
           New-Item -ItemType Directory -Force -Path $long | Out-Null
           foreach ($dir in @($short, $long)) {
