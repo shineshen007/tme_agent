@@ -328,7 +328,7 @@ def inspect_r(path, root):
     user_libraries = r_user_library_paths()
     code = ('cat("R_VERSION=",as.character(getRversion()),"\\n",sep=""); '
             'cat("R_HOME=",R.home(),"\\n",sep=""); ')
-    code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\\n",sep="")'
+    code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBRARY=",R.home("library"),"\\n",sep="")'
     try:
         result = checked([path, '--vanilla', '-e', code, *packages],
                          env_remove=('R_LIBS_USER', 'R_LIBS_SITE', 'R_LIBS'))
@@ -345,8 +345,8 @@ def inspect_r(path, root):
         libraries = [str(private)] if private.is_dir() else []
         libraries.extend(user_libraries)
         for line in lines:
-            if line.startswith('R_LIBS='):
-                libraries.extend(line.split('=',1)[1].split('|'))
+            if line.startswith('R_LIBRARY='):
+                libraries.append(line.split('=',1)[1])
                 break
         libraries = list(dict.fromkeys(str(Path(item).resolve()) for item in libraries if item))
         for row in rows:
