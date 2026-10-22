@@ -297,9 +297,10 @@ def r_packages(root):
 
 def inspect_r(path, root):
     packages = r_packages(root)
-    private = str(Path(root).resolve()/'.runtime/r-library')
+    private = Path(root).resolve()/'.runtime/r-library'
     code = R_USER_LIBRARY_CODE
-    code += 'lib <- ' + json.dumps(private) + '; if(nzchar(lib) && file.exists(lib)) .libPaths(c(lib,.libPaths())); '
+    if private.is_dir():
+        code += 'lib <- ' + json.dumps(private) + '; .libPaths(c(lib,.libPaths())); '
     code += 'cat("R_VERSION=",as.character(getRversion()),"\\n",sep=""); cat("R_HOME=",R.home(),"\\n",sep=""); '
     code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\\n",sep="")'
     try:
