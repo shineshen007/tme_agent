@@ -20,7 +20,7 @@ jobs:
           foreach ($dir in @($short, $long)) {
             Write-Host "user library: $dir"
             New-Item -ItemType Directory -Force -Path (Join-Path $dir "dummy") | Out-Null
-            $env:R_LIBS_USER = $dir
+            $env:R_LIBS_USER = $dir + "\"
             Rscript --vanilla -e 'cat("R_HOME_ONLY=",R.home(),"\n",sep="")'
             Rscript --vanilla -e 'cat("R_LIBS_ONLY=",paste(.libPaths(),collapse="|"),"\n",sep="")'
             Rscript --vanilla -e 'cat("R_VERSION_ONLY=",as.character(getRversion()),"\n",sep="")'
