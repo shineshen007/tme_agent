@@ -295,16 +295,29 @@ def r_packages(root):
     return list(dict.fromkeys(names))
 
 
+def r_user_library_paths():
+    """Existing R library roots from user/system environment, for literal use in R code."""
+    paths = [Path.home()/'.local/lib/R/site-library', Path.home()/'R/library']
+    for name in ('R_LIBS_USER', 'R_LIBS_SITE', 'R_LIBS'):
+        for part in str(os.environ.get(name, '')).split(os.pathsep):
+            if part:
+                paths.append(Path(part).expanduser())
+    return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
+
+
 def inspect_r(path, root):
     packages = r_packages(root)
     private = Path(root).resolve()/'.runtime/r-library'
-    code = R_USER_LIBRARY_CODE
+    libraries = r_user_library_paths()
+    literal = ','.join(json.dumps(str(item), ensure_ascii=False) for item in libraries)
+    code = 'extra <- c(' + literal + '); .libPaths(unique(c(extra, .libPaths()))); '
     if private.is_dir():
         code += 'lib <- ' + json.dumps(private) + '; .libPaths(c(lib,.libPaths())); '
     code += 'cat("R_VERSION=",as.character(getRversion()),"\\n",sep=""); cat("R_HOME=",R.home(),"\\n",sep=""); '
     code += 'for(p in commandArgs(TRUE)) { ok <- requireNamespace(p,quietly=TRUE); cat(p,if(ok) as.character(packageVersion(p)) else "missing",if(ok) find.package(p) else "",sep="\\t");cat("\\n") }; cat("R_LIBS=",paste(.libPaths(),collapse="|"),"\\n",sep="")'
     try:
-        result = checked([path, '--vanilla', '-e', code, *packages])
+        result = checked([path, '--vanilla', '-e', code, *packages],
+                         env_extra={'R_LIBS_USER': '', 'R_LIBS_SITE': '', 'R_LIBS': ''})
         lines = result.stdout.splitlines()
         version = next(line.split('=',1)[1] for line in lines if line.startswith('R_VERSION='))
         rows = []
