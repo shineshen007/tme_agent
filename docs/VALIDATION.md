@@ -117,12 +117,14 @@ Windows、Intel Mac、Apple Silicon 的原生隔离、R 和系统凭据库仍待
 - v8.1.2 已发布（tag `v8.1.2`），但 Windows CI 仍失败：R 4.4 在自定义 `.libPaths()` 上报 `The system cannot find the path specified`。
 - v8.1.3 修复：`inspect_r` 改为 Python 扫描用户库 `DESCRIPTION`，R 只检查系统库；bootstrap 复用同一清单；用户 Python 发现测试隔离 `LOCALAPPDATA`。
 - v8.1.3 主分支 CI（run 39725966979）三平台 success；`prepare --version 8.1.3` 通过，`audit` 176 项通过；完整回归 195 passed / 2 skipped。
+- v8.1.3 已发布：提交 `7cc5413`，tag `v8.1.3`；主分支 CI（run 39726862397）三平台 success；发布工作流（run 39726865701）validate/publish success。
+- v8.1.3 附件：`tme_agent-v8.1.3.zip`（467991 B，sha256 36c27230…）、`manifest-v8.1.3.json`（32164 B，sha256 e6ccfbfe…）、`SHA256SUMS-v8.1.3.txt`（174 B）；下载校验通过；manifest 176 项、ZIP 178 条目、`source_data` 为空。
 - v8.1.1 Release 附件：`tme_agent-v8.1.1.zip`（466755 B，sha256 6a77739b…）、`manifest-v8.1.1.json`（32164 B，sha256 73b0e522…）、`SHA256SUMS-v8.1.1.txt`；下载校验通过。
 
 ## 当前状态
 
 - 三平台 CI 全绿；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收，`docs/VALIDATION.md` 不据此声称原生通过。
-- v8.1.1、v8.1.2 已发布但 Windows CI 失败；v8.1.3 已修复并三平台 CI 通过，待发布验证。本机完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过。
+- v8.1.3 已发布，三平台 CI 与发布工作流成功；Windows 原生 AppContainer 隔离、macOS 原生沙箱与真实模型 API 仍未验收。本机完整回归 195 passed / 2 skipped；`public_release audit` 176 项通过。
 
 
 维护者发布前应复核暂存白名单与 Release 内容；用户只安装 Release 附件 ZIP。研究输入、结果、个人配置和未确认再分发许可的参考资源均不随公开包交付。
