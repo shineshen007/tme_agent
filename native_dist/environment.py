@@ -17,11 +17,8 @@ IMPORTS = {'PyYAML':'yaml', 'langgraph':'langgraph.graph'}
 # snippet is shared by discovery and bootstrap so user-installed packages are
 # visible to both the inventory and the later "missing package" check.
 R_USER_LIBRARY_CODE = (
-    'extra <- unlist(strsplit(c(Sys.getenv("R_LIBS_USER"), '
-    'Sys.getenv("R_LIBS_SITE"), Sys.getenv("R_LIBS")), '
+    'extra <- unlist(strsplit(Sys.getenv("R_LIBS_USER"), '
     '.Platform$path.sep, fixed=TRUE)); '
-    'extra <- c(extra, path.expand("~/.local/lib/R/site-library"), '
-    'path.expand("~/R/library")); '
     'extra <- path.expand(extra[nzchar(extra)]); '
     'extra <- extra[dir.exists(extra)]; '
     '.libPaths(unique(c(extra, .libPaths()))); '
