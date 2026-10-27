@@ -198,6 +198,7 @@ def scrna_brief(run, cfg, axes):
 
 
 def literature_brief(run, cfg, per_axis):
+    from .research_literature import select_passages
     path = Path(run) / 'literature/records.json'
     if not path.exists():
         return 'LITERATURE: none retrieved.'
@@ -216,8 +217,13 @@ def literature_brief(run, cfg, per_axis):
     for axis, items in grouped.items():
         lines.append(f'-- axis: {axis} --')
         for record in items:
-            abstract = (record.get('abstract') or '')[:600]
-            lines.append(f"PMID {record.get('pmid')} | {record.get('title','')} | ABSTRACT: {abstract}")
+            query = ' '.join(str(v) for v in (axis, record.get('query', ''), record.get('title', '')))
+            passages = select_passages(record, query, limit_chars=2400)
+            lines.append(f"PMID {record.get('pmid')} | {record.get('title','')}")
+            for passage in passages:
+                lines.append(f"SOURCE {passage['locator']} | SHA256 {passage['sha256']} | {passage['text']}")
+            if not passages:
+                lines.append('No source passage available; metadata alone cannot support a literature stance.')
     lines.append('<<<UNTRUSTED_LITERATURE_END>>>')
     return '\n'.join(lines)
 

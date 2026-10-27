@@ -625,6 +625,10 @@ class MultiomicsApp(App):
             "killed": ("Stopped", "warn"),
         }
         label, level = stage.get(status, (status, "neutral"))
+        if status == 'succeeded' and state.get('research_status') in {'running', 'partial', 'blocked'}:
+            label, level = {'running': ('Research in progress', 'busy'),
+                            'partial': ('Analysis complete; research partial', 'warn'),
+                            'blocked': ('Analysis complete; research blocked', 'warn')}[state['research_status']]
         self._update_phase(task_id, status)
         self._set_stage(label, level)
         self._show("#plan-preview", editable and not self._busy)
@@ -721,6 +725,8 @@ class MultiomicsApp(App):
                 "succeeded": "Completed", "failed": "Failed", "killed": "Stopped",
             }.get(state["status"], state["status"])
             parts.append(f"Phase: {phase}")
+            if state.get('research_status', 'not_requested') != 'not_requested':
+                parts.append('Research: ' + state['research_status'])
             path = self.session.tasks.directory(state["task_id"]) / "events.jsonl"
             events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.is_file() else []
             steps = [e for e in events if e["role"] == "system"
@@ -793,6 +799,13 @@ class MultiomicsApp(App):
                     str(self.session.jobs.log_path(state["job_id"]) if state.get("job_id") else "unavailable"))
         lines = [self._say("Task completed. Output inventory checked.", "任务完成，产物清单检查通过。"), self._say("Data directory: ", "产物目录：") + str(task_dir),
                  self._say("Report: ", "报告：") + str(report_path), self._say("Outputs in manifest: ", "产物数量：") + str(len(outputs))]
+        if state.get('research_status', 'not_requested') != 'not_requested':
+            lines += [self._say('Research: ', '科研阶段：') + state['research_status'],
+                      'Scientific status: ' + state.get('scientific_status', 'NOT_EVALUABLE')]
+            if state.get('research_attempt'):
+                lines.append(self._say('Research outputs: ', '科研产物：') + state['research_attempt'])
+            if state.get('research_error'):
+                lines.append(self._say('Research issue: ', '科研阶段问题：') + state['research_error'])
         for item in outputs[:10]:
             dimensions = ""
             if item.get("rows") is not None and item.get("columns") is not None:

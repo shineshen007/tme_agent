@@ -23,8 +23,19 @@ LOG = logging.getLogger(__name__)
 class AgentReasoningSession:
     """Run-scoped LLM client; each method is one independently routed graph phase."""
 
-    def __init__(self, root, run, cfg, axes, transport=None):
+    def __init__(self, root, run, cfg, axes, transport=None, *, context=None,
+                 knowledge_context=None, client=None, literature_service=None):
         self.root, self.run, self.cfg, self.axes = Path(root), Path(run), cfg, axes
+        self.context = context
+        if context is not None:
+            self.out = self.run
+            self.knowledge_context = knowledge_context or {'entries': []}
+            self.client = client or LLMClient(root, run, cfg, transport=transport,
+                                             registry_ids=context.private_ids)
+            self.literature_service = literature_service
+            self.literature_result = {'status': 'not_requested', 'records': [], 'queries': [], 'errors': []}
+            self.analyses, self.errors = [], []
+            return
         self.out = self.run / 'report/agent'
         self.out.mkdir(parents=True, exist_ok=True)
         self.registry = pd.read_csv(self.run / 'integration/evidence_registry.csv')
@@ -40,6 +51,9 @@ class AgentReasoningSession:
         return read_json(path) if path.exists() else {'records': []}
 
     def analysts_and_librarian(self):
+        if self.context is not None:
+            from .research_phases import analysts_and_librarian
+            return analysts_and_librarian(self)
         outputs = {}
         for omics in ANALYST_OMICS:
             available = ((self.run / omics / 'triple109/de.csv').exists()
@@ -84,6 +98,9 @@ class AgentReasoningSession:
         return outputs
 
     def integrate(self, analyst_outputs, active_ids=(), lookup_results=()):
+        if self.context is not None:
+            from .research_phases import integrate
+            return integrate(self, analyst_outputs, active_ids, lookup_results)
         graph_path = self.run / 'integration/evidence_graph.json'
         if graph_path.is_file():
             graph = load_evidence_graph(self.root, self.run)
@@ -130,6 +147,9 @@ class AgentReasoningSession:
                 self.axis_evidence, self.axes))['parsed']
 
     def reason(self, clusters, prior_review=None):
+        if self.context is not None:
+            from .research_phases import reason
+            return reason(self, clusters, prior_review)
         ids = {eid for c in clusters['evidence_clusters']
                for eid in c['supporting_evidence_ids'] + c['counterevidence_ids']}
         user = (f'已校验 EvidenceClusters：\n{json.dumps(clusters, ensure_ascii=False)}\n\n'
@@ -143,7 +163,7 @@ class AgentReasoningSession:
             return adapt_reasoner_output(payload, clusters, self.registry,
                                          self.root / 'schemas/agent_reasoner.schema.json',
                                          self.root / 'schemas/agent_synthesis.schema.json',
-                                         self.axis_evidence, pmids)
+                                         self.axis_evidence, pmids, literature_records=self.literature().get('records', []))
         internal = self.client.chat_json(
             role='hypothesis_reasoner', system=f'{self.shared}\n\n{_prompt(self.root, "agent_hypothesis_reasoner.md")}',
             user=user, schema_name='agent_reasoner', validator=lambda p: adapt(p))['parsed']
@@ -151,6 +171,9 @@ class AgentReasoningSession:
         return internal, synthesis, rejected
 
     def critic(self, synthesis, rejected):
+        if self.context is not None:
+            from .research_phases import critic
+            return critic(self, synthesis, rejected)
         user = (f'待复核产出：\n{json.dumps(synthesis, ensure_ascii=False)}\n\n'
                 f'被确定性校验器拒绝的草稿：\n{json.dumps(rejected, ensure_ascii=False)}\n\n'
                 f'冻结证据简报：\n{evidence_brief(self.run, self.cfg, self.registry, self.axes)}\n\n只输出 JSON。')

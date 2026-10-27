@@ -46,7 +46,7 @@ def test_catalogue_covers_every_dispatchable_command():
     ("/", ["/help", "/status", "/runs", "/figures", "/report", "/jobs"]),
     ("/ret", ["/retry"]),
     ("/rep", ["/report"]),
-    ("/re", ["/report", "/retry", "/resume"]),
+    ("/re", ["/report", "/retry", "/resume", "/research"]),
     ("/ver", ["/verify", "/verify-dossiers"]),
 ])
 def test_prefix_matching_is_ordered_and_capped(typed, expected):
@@ -95,7 +95,7 @@ def test_menu_opens_filters_and_stays_inside_the_window(session, size):
             editor.value = "/re"
             await pilot.pause()
             await pilot.pause()
-            assert menu_names(app) == ["/report", "/retry", "/resume"]
+            assert menu_names(app) == ["/report", "/retry", "/resume", "/research"]
             assert app.query_one("#input-card").region.bottom <= size[1]
             assert session.active_task is None
 
@@ -111,7 +111,7 @@ def test_menu_moves_accepts_and_closes_without_submitting(session):
             editor.value = "/re"
             await pilot.pause()
             await pilot.pause()
-            assert menu_names(app) == ["/report", "/retry", "/resume"]
+            assert menu_names(app) == ["/report", "/retry", "/resume", "/research"]
             assert menu_rows(app)[0].startswith("❯ /report")
             await pilot.press("down")
             await pilot.pause()
@@ -177,7 +177,7 @@ def test_busy_switch_refilters_an_open_menu(session):
             editor.value = "/r"
             await pilot.pause()
             await pilot.pause()
-            assert menu_names(app) == ["/runs", "/report", "/retry", "/run", "/resume"]
+            assert menu_names(app) == ["/runs", "/report", "/retry", "/run", "/resume", "/research"]
             app._set_busy(True)
             await pilot.pause()
             await pilot.pause()

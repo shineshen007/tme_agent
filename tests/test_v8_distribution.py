@@ -160,7 +160,9 @@ def test_codegen_prompt_injects_available_packages(tmp_path):
     plan = {'steps': [{'id': 's1', 'language': 'python', 'purpose': 'x', 'outputs': ['tables/a.csv']},
                       {'id': 's2', 'language': 'python', 'purpose': 'y', 'outputs': ['tables/b.csv']}]}
     task_runner._codegen(Client(), plan, cfg=cfg)
-    assert 'GSVA' in seen['system'] and 'do not install anything' in seen['system']
+    assert 'GSVA' in seen['system'] and 'or install packages' in seen['system']
+    assert 'preserve the missing dependency' in seen['system']
+    assert 'do not improvise statistical algorithms' in seen['system']
 
 
 def test_macos_guard_has_macos26_authorizations():

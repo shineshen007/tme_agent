@@ -215,6 +215,23 @@ class LLMClient:
             if role == 'tui_task_codegen': retry_limit = min(2, retry_limit)
             for attempt in range(retry_limit + 1):
                 record['schema_retries'] = attempt
+                # Corrections resend the prompt plus the rejected response. Use
+                # provider-reported input usage and a conservative UTF-8 bound
+                # for added messages before committing another paid request.
+                # This is a reservation estimate, not a replacement tokenizer.
+                budget = int(self.cfg.get('token_budget', 0) or 0)
+                prior_usage = [item.get('usage') for item in record['attempts']
+                               if isinstance(item.get('usage'), dict) and item['usage'].get('prompt_tokens')]
+                if budget and corrective and prior_usage:
+                    prompt_bound = int(prior_usage[-1]['prompt_tokens']) + sum(
+                        len(message['content'].encode('utf-8')) + 64 for message in corrective)
+                    reserved = prompt_bound + int(self.cfg.get('max_tokens', 32000))
+                    record['retry_budget_reservation'] = {'estimated_prompt_bound': prompt_bound,
+                        'requested_completion_limit': self.cfg.get('max_tokens', 32000),
+                        'remaining': max(0, budget - self.tokens_used), 'required': reserved}
+                    if reserved > budget - self.tokens_used:
+                        raise LLMBudgetExceeded('Insufficient remaining budget for a schema correction: '
+                                                f'reserve {reserved}, remaining {max(0, budget - self.tokens_used)}')
                 try:
                     parsed, usage, latency, retries = self._request(
                         role, messages + corrective, attempts=record['attempts'], schema_attempt=attempt + 1)
@@ -271,7 +288,8 @@ class LLMClient:
             entry = {'schema_attempt': schema_attempt, 'transport_attempt': attempt + 1,
                      'max_tokens': self.cfg.get('max_tokens', 32000), 'thinking_mode': self._thinking_mode(),
                      'timeout_seconds': timeout, 'http_status': None, 'finish_reason': None,
-                     'usage': None, 'reasoning_tokens': None, 'answer_tokens': None, 'latency_s': None}
+                     'usage': None, 'reasoning_tokens': None, 'answer_tokens': None, 'latency_s': None,
+                     'request_messages': messages}
             if attempts is not None:
                 attempts.append(entry)
             try:
@@ -295,7 +313,7 @@ class LLMClient:
                 completion = usage.get('completion_tokens')
                 answer = completion - reasoning if isinstance(completion, int) and isinstance(reasoning, int) else None
                 entry.update(finish_reason=finish, usage=usage, reasoning_tokens=reasoning,
-                             answer_tokens=answer, content_characters=len(content))
+                             answer_tokens=answer, content_characters=len(content), response_content=content)
                 # Charge once before checking length/JSON; failed replies still cost tokens.
                 self._charge(usage)
                 if finish == 'length':

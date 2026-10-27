@@ -1,13 +1,43 @@
 # Changelog
 
-## Unreleased
+## v8.3.0 — 2026-10-27
 
+科研专家工作流首版，包含此前尚未发布的内置数据和交互改动。工程验证与科研验收分别记录；真实模型端到端、真实多组学和人工科学审阅仍未完成。
+
+### 科研专家与任务交互
+
+- 科研专家入口：新增通用 ResearchContext、TaskResearchAdapter 与旧运行适配器；差异/富集显式映射、EvidenceRecord v3、来源行列定位与哈希核验接入既有科研会话。科研计划和规划知识快照纳入审批。
+- Scientific Wiki：SQLite 事务、版本/来源/实体关系与反向关联、待审候选、哈希绑定人工审查、撤回、独立共享发布；新增 `/wiki`，`/ask` 复用已审查检索。规划、解释、假说和实验设计冻结实际知识版本。
+- 文献与推理：PubMed/Europe PMC 可信连接器、缓存/限流/有界重试、完整可得摘要与相关段落、逐主张引文验证及支持/矛盾/直接性审查。修复旧文献部分失败仍返回 complete 和仅凭 PMID 接受引用的问题。
+- 科研状态独立保存；`/research` 仅重试已批准科研阶段，不重跑统计。Critic 新分析需求进入新审批，空假说是合法结果；实验方案要求模型依据、对照、可证伪判据和未知参数。
+- 冻结分析来源、知识、文献、提示、代码/schema、配置和模型审计；新增离线生命周期、隐私、篡改、失败恢复与科学边界测试。真实多组学科学验收仍为 NOT_EVALUABLE；用法见 `docs/RESEARCH_EXPERT.md`。
+- 真实模型试运行暴露的接口边界已修复：查询限额前置校验、明确引用的主张 ID、直接证据的上下文条件、纠错前预算预留、逐次请求/回答审计；源校验失败的科研重试和审计落盘失败均显式 blocked，统计成功状态保留。真实模型最终复核仍待外发授权，失败记录完整保留。
 - 命令补全：输入 `/` 后在输入框上方列出匹配命令及一行中英文说明（含参数形状提示，如 `/tail <job-id> [n]`）；`↑`/`↓` 移动高亮，`Tab` 或 `Enter` 采纳高亮项，`Esc` 关闭列表。采纳后只插入命令名、不自动提交；命令已完整输入时列表关闭，`Enter` 直接执行。
 - 请求执行中补全只显示只读命令；`Tab`/`→` 的单行补全通道保留，不再出现“能补全但看不到候选”的情况。
 - `/new` 回到欢迎界面：创建独立草稿任务并返回 Home，草稿任务与历史记录仍保存在磁盘上，可用 `/sessions`、`/session <task-id>` 重新打开；REPL 中 `/new` 后继续补充要求的行为不变。
 - 命令目录集中到 `multiomics_tui/command_menu.py`，帮助文本、补全列表与测试同源，新增命令不会只出现在一处。
 - `Tab` 补全与菜单采纳插入完全相同的文本（命令名本身），参数在命令名之后输入，避免两条补全路径产生不同结果。
 - 新增 `tests/test_command_menu.py` 25 项；`PUBLIC_FILES.json` 176 → 178 项。
+
+### 官方数据与发行
+
+- 内置数据集 `datasets/TCGA-LIHC/` 改为**从 NCI GDC 官方下载**：TCGA-LIHC bulk RNA-seq，STAR - Counts 流程、GENCODE v36，19938 个 protein_coding 基因 × 424 样本（371 原发瘤、50 癌旁、3 复发瘤，50 对肿瘤/癌旁配对）。含 `counts_full.rds`（11.5 MB）、`counts_paired.rds`（2.7 MB）、`tpm_full.rds`（20.3 MB）、`gene_annotation.csv`（0.9 MB）与两份样本表；总计约 36 MB。
+- 新增 `scripts/08_fetch_gdc_tcga_lihc.py`：只调 GDC REST API（纯标准库），分批下载 424 个文件的 tar 包并逐文件校验 `MANIFEST.txt` 的 md5 与字节数；支持 `--resume`、`--verify-only`；`fetch_report.json` 固定 `data_release`（46.0）、GDC API 版本（8.5.0）与 commit。
+- `scripts/07_build_builtin_dataset.R` 改为读取 GDC TSV：只做结构规范化，counts 取 `unstranded`、TPM 取 `tpm_unstranded`，不重算、不归一化、不取整；保留 GENCODE 顺序，同一输入可复现相同 `.rds` 字节。
+- **修复重复基因符号合并错误**：GENCODE v36 有 24 个重复 `gene_name`（PAR 基因等），旧派生表只取第一行，导致 `MATR3`/`PDE11A`/`POLR2J3`/`TMSB15B` 在 8,453,712 个单元中出现 560 个错误值（最大差 27 counts）。现按符号求和，规则写入 `quality_flags` 并逐个列出符号。
+- **修复临床数据损坏**：旧表的 `morphology` 列被 Excel 误识别为日期（`Mar-70` 等，424/424 行）。新数据集不再随附诊断表，只保留 GDC 样本级字段（`sample_type`/`tissue_type`/`patient`/`group`/`pairing`/`pair_id`/`file_id`），并在 README 说明临床终点需另行从 GDC 获取。
+- 样本标识改为 **16 位 TCGA sample barcode**（与 GDC 一致），`file_id` 列可回查原文件；README 给出与 28 位 aliquot barcode 的对照说明。
+- 新增 `expression/gene_annotation.csv`（每行代表性 `gene_id`/`gene_name`/`gene_type`），用户可据此自行过滤基因类型。
+- `dataset.json` 的 `provenance_status` 改为 `recorded`：记录 GDC 仓库、项目、访问级别 `open`、Data Release 46.0、API 8.5.0、commit、上游流程 `STAR - Counts`、基因模型 `GENCODE v36`、表达列与重复符号规则；`upstream_files` 记录 424 个文件的 `file_id`/md5/字节数。
+- `python -m native_dist.public_release gate --provenance` 现返回 **exit 0**；release workflow 保持该步骤，作为未来新增数据集的强制门槛。
+- 新增 `multiomics_tui/datasets.py`：读取并校验 `dataset.json`（逐文件 sha256/字节数），返回工作区播种映射与待补来源列表；缺 `datasets/` 视为未安装而非错误，清单不符则失败。
+- 新增只读命令 `/datasets`：列数据集、维度、分组计数、冻结的 `input_bindings` 与 `provenance_status`；不打印任何样本 ID。`/datasets` 加入 `READONLY_COMMANDS` 与命令目录。
+- 安装与 `/cd` 新工作区自动播种数据集到 `data/raw/TCGA-LIHC/` 与 `data/metadata/TCGA-LIHC/`，沿用独占创建，已有文件逐字节保留；播种放在配置写入之后，清单异常不会留下半配置工作区。
+- 发行白名单新增 `datasets` 区域（`.rds`/`.csv`/`.md`/`.json`）；manifest 新增 `builtin_datasets` 字段并与 `datasets/*/dataset.json` 交叉校验，`source_data` 仍固定为空以继续保证私有队列不随发行。
+- `audit` 对未记录的来源打印警告但不失败，日常 CI 与本地开发不受影响。
+- 新增 `tests/test_builtin_datasets.py` 21 项（含 16 位 barcode、重复符号求和、无 Excel 损坏值、`gene_annotation` 结构）；`tests/test_public_distribution.py` 的发行夹具改为 session 级构建（含 36 MB 数据集后仍 43 s），并断言数据集随 ZIP 发布且仍不含 `data/`。
+- `PUBLIC_FILES.json` 178 → 190 项；README、`docs/THIRD_PARTY_RESOURCES.md`、`docs/LICENSE_NOTICE.md`、`PROJECT_CONTEXT.md` 明确数据来自 GDC 开放获取层、不在 GPL 授权范围内。
+- 删除用户手工放入的 `data/raw/TCGA/*.csv` 与据此构建的第一版数据集；删除前记录 sha256 与废弃原因于 `docs/VALIDATION.md`。
 
 ## v8.1.3
 

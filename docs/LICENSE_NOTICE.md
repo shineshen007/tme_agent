@@ -16,6 +16,13 @@ PARTICULAR PURPOSE. See LICENSE for the full terms.
 The LICENSE file inherited from the existing GitHub repository is preserved.
 Original source provenance is recorded in V8_SOURCE.json. Existing notices are
 retained; this notice does not assert authorship over third-party dependencies.
-Private research inputs and separately obtained reference datasets are not
-licensed or distributed as part of this public source release. Installed
-Python/R dependencies remain subject to their respective upstream licenses.
+Private research inputs are not licensed or distributed as part of this public
+source release. Installed Python/R dependencies remain subject to their
+respective upstream licenses.
+
+`datasets/` is **not** covered by the GPL grant above. The built-in TCGA-LIHC
+dataset is redistributed under its upstream publisher's terms: it was retrieved
+from the NCI Genomic Data Commons (GDC) open-access tier, and the exact project,
+data release, upstream pipeline and per-file checksums are recorded in
+`datasets/TCGA-LIHC/dataset.json` (`source` and `license`). GPL-3.0-or-later covers
+the code that reads the dataset, not the data itself.

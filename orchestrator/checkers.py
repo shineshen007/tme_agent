@@ -380,15 +380,37 @@ def _check_targets(payload, known):
                 raise ValueError('Targets must not carry ranking or priority fields')
 
 
-def _check_stances(payload, literature_pmids):
+def _check_stances(payload, literature_pmids, literature_records=None):
+    """Optionally check quotes against frozen source text, not only PMID membership.
+
+    Legacy callers can omit records. Text verification does not establish that a
+    quotation semantically supports the hypothesis or matches its study context.
+    """
+    if literature_records is not None:
+        from .research_literature import _normalise, record_passages, verify_source_record
+        records = (literature_records.get('records', []) if isinstance(literature_records, dict)
+                   else literature_records)
+        by_pmid = {}
+        for record in records:
+            by_pmid.setdefault(str(record.get('pmid', '')), []).append(record)
     for stance in payload['literature_stances']:
         if stance['pmid'] not in (literature_pmids or set()):
             raise ValueError(f'Stance cites unknown PMID: {stance["pmid"]}')
         if stance['stance'] in {'supports', 'contradicts'} and not stance['quote'].strip():
             raise ValueError(f'Stance for PMID {stance["pmid"]} asserts a position without a quote')
+        if literature_records is not None and stance['quote'].strip():
+            sources = by_pmid.get(str(stance['pmid']), [])
+            passages = []
+            for source in sources:
+                if 'passages' in source or 'source_text_sha256' in source:
+                    verify_source_record(source)
+                passages.extend(record_passages(source))
+            if not any(_normalise(stance['quote']) in _normalise(p['text']) for p in passages):
+                raise ValueError(f'Stance quote does not match frozen source text for PMID {stance["pmid"]}')
 
 
-def validate_agent_synthesis(payload, registry, schema_path, axis_evidence=None, literature_pmids=None):
+def validate_agent_synthesis(payload, registry, schema_path, axis_evidence=None, literature_pmids=None,
+                             literature_records=None):
     """Strict form: any rule violation rejects the whole synthesis."""
     validate_schema(payload, schema_path)
     known = set(registry.evidence_id)
@@ -399,12 +421,13 @@ def validate_agent_synthesis(payload, registry, schema_path, axis_evidence=None,
         except ValueError as exc:
             raise ValueError(f'Hypothesis {h.get("id", "?")} {exc}') from exc
     _check_targets(payload, known)
-    _check_stances(payload, literature_pmids)
+    _check_stances(payload, literature_pmids, literature_records)
     validate_no_numbers(payload)
     validate_language(payload)
 
 
-def filter_agent_hypotheses(payload, registry, schema_path, axis_evidence=None, literature_pmids=None):
+def filter_agent_hypotheses(payload, registry, schema_path, axis_evidence=None, literature_pmids=None,
+                            literature_records=None):
     """Envelope stays strict; rule-violating hypotheses are dropped and reported, never silently.
 
     A single non-compliant hypothesis must not discard the compliant ones, but it also must never
@@ -414,7 +437,7 @@ def filter_agent_hypotheses(payload, registry, schema_path, axis_evidence=None, 
     known = set(registry.evidence_id)
     by = registry.set_index('evidence_id')
     _check_targets(payload, known)
-    _check_stances(payload, literature_pmids)
+    _check_stances(payload, literature_pmids, literature_records)
     validate_no_numbers(payload)
     validate_language(payload)
     kept, rejected = [], []
@@ -553,7 +576,7 @@ def validate_evidence_clusters(payload, registry, schema_path, axis_evidence=Non
 
 
 def adapt_reasoner_output(payload, clusters, registry, reasoner_schema, synthesis_schema,
-                           axis_evidence=None, literature_pmids=None):
+                           axis_evidence=None, literature_pmids=None, literature_records=None):
     """Validate private cluster references, then return a legacy synthesis and rejection ledger."""
     validate_schema(payload, reasoner_schema)
     validate_no_numbers(payload)
@@ -590,5 +613,6 @@ def adapt_reasoner_output(payload, clusters, registry, reasoner_schema, synthesi
         except ValueError as exc:
             rejected.append({'hypothesis_id': str(h.get('id', '?')), 'reason': str(exc)})
     rejected.extend(filter_agent_hypotheses(legacy, registry, synthesis_schema,
-                                            axis_evidence=axis_evidence, literature_pmids=literature_pmids))
+                                            axis_evidence=axis_evidence, literature_pmids=literature_pmids,
+                                            literature_records=literature_records))
     return legacy, rejected

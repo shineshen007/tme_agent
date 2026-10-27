@@ -94,7 +94,7 @@ def test_screenshot_parameters_use_original_quotes(project_root, stub_cfg):
     generate_plan(client, project_root, REQUEST, stub_cfg, language="zh")
     system, request, schema = client.requests[-1]
     assert "exact, contiguous quotation" in system and "split compound parameters" in PLANNER
-    assert request == REQUEST and schema == "tui_task_plan_v5"
+    assert request == REQUEST and schema == "tui_task_plan_v6"
 
 
 def test_all_parameter_source_errors_are_reported(project_root, stub_cfg):
@@ -130,7 +130,7 @@ def test_invalid_inputs_still_rejected(project_root, stub_cfg, path):
         validate_plan(project_root, raw, REQUEST, stub_cfg)
 
 
-def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v5(project_root, stub_cfg):
+def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v6(project_root, stub_cfg):
     inputs(project_root)
     # 复用 stub_cfg 的 runtime（含本机 R 库），规划需要真实执行输入结构探测。
     cfg = {**stub_cfg, "llm": normalize({"provider": "ollama", "base_url": "http://localhost:1234/v1",
@@ -154,9 +154,9 @@ def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v5(project_ro
     assert len(bodies) == 3
     messages = bodies[0]["messages"]
     assert client._cache_key("tui_task_plan", messages, "tui_task_plan_v3") != client._cache_key(
-        "tui_task_plan", messages, "tui_task_plan_v5")
+        "tui_task_plan", messages, "tui_task_plan_v6")
     records = [json.loads(p.read_text()) for p in (project_root / "audit").rglob("*task_plan.json")]
-    assert records and all(r["schema"] == "tui_task_plan_v5" for r in records)
+    assert records and all(r["schema"] == "tui_task_plan_v6" for r in records)
 
 
 @pytest.mark.parametrize("error,kind", [
@@ -238,8 +238,10 @@ def test_retry_preserves_multiple_user_turns_and_invalidates_old_confirmation(pr
     assert client.requests[-1][1] == all_text == REQUEST + "\n保持上述要求"
     state = session.tasks.get(task_id)
     assert state["plan_version"] == 2 and state["approved_hash"] is None
-    # Even if identical content yields the same hash, the old approval token is unusable.
-    assert state["plan_hash"] == old_hash
+    # The new user request changes the frozen knowledge query, so approval binds
+    # a new plan even when the statistical steps remain the same.
+    assert state["plan_hash"] != old_hash
+    assert session.tasks.plan(task_id)['steps'] == plan()['steps']
     assert session.confirm(initial.pending_id).kind == "text"
     session.jobs.start.assert_not_called()
 

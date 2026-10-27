@@ -57,6 +57,12 @@ provenance needed to trace each number back to the file it came from.
   `/cd` switches or initializes a workspace without copying the code tree or overwriting files.
 - **Command completion:** type `/` to list commands with a one-line hint; `↑`/`↓` choose, `Tab`
   completes, and `/new` returns to the welcome screen while keeping the draft and history.
+- **Research continuation:** approved disease context and evidence mappings connect completed
+  analysis to literature checks, biological interpretation, falsifiable hypotheses and experiment design.
+  `/research` retries this stage while preserving completed statistics.
+- **Scientific Wiki:** reviewed, versioned project knowledge and explicitly published local shared
+  entries support planning, interpretation and experiments. `/wiki` manages review and retraction;
+  `/ask` retrieves reviewed knowledge. See the [research workflow and limits](docs/RESEARCH_EXPERT.md).
 
 ## Architecture
 
@@ -177,6 +183,30 @@ temperature stay in local `config/api.local.yaml` (default output limit: 32000 t
 you may explicitly set local config `distribution.credential_storage` to `memory`, where the key
 lives only for the current process and is never written to disk. **Diagnostics run offline even
 without a model key.**
+
+### Built-in dataset
+
+The install ships one open-access TCGA-LIHC bulk RNA-seq dataset (`datasets/TCGA-LIHC/`, about
+36 MB), downloaded from the NCI Genomic Data Commons **STAR - Counts** pipeline with
+**GENCODE v36**: raw `unstranded` counts, `tpm_unstranded`, and a gene annotation for 19938
+protein-coding genes × 424 samples — 371 primary tumours, 50 adjacent tissues and 3 recurrent
+tumours, with 50 patients having a tumour/adjacent pair. Install and `/cd` into a new workspace
+copy the files to `data/raw/TCGA-LIHC/` and `data/metadata/TCGA-LIHC/`; existing files are never
+overwritten.
+
+```bash
+# inside the interface: dimensions, groups and the frozen input bindings
+/datasets
+```
+
+Matrices are RDS (gene symbols as row names, 16-character TCGA sample barcodes as column names)
+and drop straight into a plan's `input_bindings.matrices`; `/datasets` prints the full JSON. Use
+`counts_paired.rds` (`pair_key: pair_id`) for tumour/adjacent paired analysis, or
+`counts_full.rds` / `tpm_full.rds` for the whole cohort. Formats, column definitions, example
+requests and limits are in `datasets/TCGA-LIHC/README.md`; the GDC project, data release, upstream
+pipeline and per-file md5 checksums are recorded in `dataset.json`
+(`provenance_status: recorded`). Only protein-coding genes ship, so TPM column sums are below the
+full-transcriptome 1e6 — never rescale them or merge them with another TPM dataset.
 
 Natural-language tasks are the public entry point. Historical fixed study pipelines need a
 separate cohort configuration and cannot be restored from the public template. Model-generated

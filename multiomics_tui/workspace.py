@@ -143,7 +143,34 @@ def initialize(path, template_root) -> list[str]:
             continue
         if source is not None and _copy_exclusive(source, destination):
             created.append(relative)
+    # Built-in datasets are data, not templates: they are seeded last so a
+    # manifest problem never leaves a workspace half-configured. Seeding is
+    # exclusive, so an existing user copy is preserved and never replaced.
+    created.extend(seed_datasets(path))
     return created
+
+
+def seed_datasets(path) -> list[str]:
+    """Copy built-in dataset files into ``data/``; return the relative paths written.
+
+    A source checkout without ``datasets/`` seeds nothing. The manifest is
+    validated before the first copy, so a corrupt dataset fails the whole
+    workspace check instead of writing a partial copy.
+    """
+    from .datasets import DatasetError, seeds
+    try:
+        mapping = seeds(path)
+    except DatasetError as exc:
+        raise WorkspaceError(f'Built-in dataset check failed: {exc}') from exc
+    written: list[str] = []
+    for relative, source in sorted(mapping.items()):
+        destination = safe_path(path, relative)
+        try:
+            if _copy_exclusive(Path(source), destination):
+                written.append(relative)
+        except OSError as exc:
+            raise WorkspaceError(f'Cannot seed dataset file {relative}: {exc}') from exc
+    return written
 
 
 def ensure_probe(path, *, timeout=900) -> dict | None:

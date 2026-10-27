@@ -11,6 +11,73 @@ from .reasoning import (freeze_reasoning_sources, save_iteration,
                         verify_reasoning_sources, verify_iterations)
 
 
+def run_context_reasoning(session, verify, save, maximum=2):
+    """Use the existing phase topology for public tasks, without legacy cohort paths.
+
+    The caller freezes retrieval before this graph starts. New analysis requests
+    are saved for approval, never executed by this interpretation graph.
+    """
+    from typing import TypedDict
+    from langgraph.graph import StateGraph, START
+
+    if isinstance(maximum, bool) or not isinstance(maximum, int) or not 1 <= maximum <= 5:
+        raise ValueError('Research reasoning maximum must be between one and five')
+
+    class ContextState(TypedDict, total=False):
+        analysts: dict
+        clusters: dict
+        raw: dict
+        draft: dict
+        rejected: list
+        review: dict
+        iteration: int
+        action: str
+        error: str
+
+    def guarded(function):
+        def invoke(state):
+            verify()
+            result = function(state)
+            verify()
+            return result
+        return invoke
+
+    @guarded
+    def integrate(state):
+        value = session.integrate(state['analysts'])
+        save(f"iteration_{state['iteration']:02d}/clusters.json", value)
+        return {'clusters': value}
+
+    @guarded
+    def reason(state):
+        raw, draft, rejected = session.reason(state['clusters'], state.get('review'))
+        save(f"iteration_{state['iteration']:02d}/draft.json", draft)
+        save(f"iteration_{state['iteration']:02d}/raw.json", raw)
+        save(f"iteration_{state['iteration']:02d}/rejected.json", rejected)
+        return {'raw': raw, 'draft': draft, 'rejected': rejected}
+
+    @guarded
+    def critic(state):
+        review = session.critic(state['draft'], state['rejected'])
+        save(f"iteration_{state['iteration']:02d}/review.json", review)
+        decision = review['decision']
+        if decision == 'revise_reasoning' and state['iteration'] >= maximum:
+            return {'review': review, 'action': 'block', 'error': 'reasoning_iteration_limit'}
+        return {'review': review, 'action': decision, 'iteration': state['iteration'] + 1}
+
+    graph = StateGraph(ContextState)
+    graph.add_node('integrate', integrate)
+    graph.add_node('reason', reason)
+    graph.add_node('critic', critic)
+    graph.add_edge(START, 'integrate')
+    graph.add_edge('integrate', 'reason')
+    graph.add_edge('reason', 'critic')
+    graph.add_conditional_edges('critic', lambda state: state['action'], {
+        'accept': END, 'block': END, 'request_analysis': END, 'revise_reasoning': 'integrate'})
+    return graph.compile().invoke({'analysts': session.research_analysts, 'iteration': 1},
+                                  {'recursion_limit': maximum * 4 + 4})
+
+
 def attach_reasoning_loop(graph, root, run, cfg, axes, transport=None):
     root, run = Path(root), Path(run)
     settings = cfg.get('reasoning', {})

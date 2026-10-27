@@ -395,3 +395,75 @@ def integrator_graph_view(graph, active_ids=()):
                  'target': edge['target'], 'evidence_id': edge['evidence_id'],
                  'evidence_context': edge['evidence_context']}
                 for edge in graph['edges'] if edge['evidence_id'] in off_ids]}
+
+
+def build_context_evidence_graph(context):
+    """Build an in-memory graph for explicitly bound, disease-independent evidence.
+
+    This separate schema leaves legacy graph files untouched. An observed edge
+    reports an estimate, not significance or causation; unknown directions and
+    unsuccessful tests never gain an association edge. Knowledge and hypotheses
+    must be joined by their own typed references, not inserted as observations.
+    """
+    from .research_context import ResearchContext, _hash_json, _validate_context
+    if not isinstance(context, ResearchContext):
+        value = dict(context)
+        value.pop('schema_version', None)
+        context = ResearchContext(**value)
+    _validate_context(context)
+    nodes, edges, seen = {}, [], set()
+    measured = set()
+    contrast_known = 'unknown' not in context.contrast.values()
+    contrast_identity = {'cohort': context.cohort_id, **context.contrast}
+    contrast_id = 'contrast:' + _hash_json(contrast_identity)[:20]
+    for record in context.evidence:
+        eid = record['evidence_id']
+        if eid in seen:
+            raise ValueError('Duplicate context graph evidence ID')
+        seen.add(eid)
+        entity = record['biological_entity']
+        identity = {name: entity[name] for name in ('entity_type', 'namespace', 'species', 'entity_id')}
+        # An unknown namespace cannot establish entity equivalence across files.
+        if entity['namespace'] == 'unknown' or entity['species'] == 'unknown':
+            identity['unresolved_source'] = record['provenance']['artifact_path']
+        node_id = 'entity:' + _hash_json(identity)[:20]
+        nodes[node_id] = {'id': node_id, 'type': entity['entity_type'], **identity,
+                          'label': entity['symbol'] if entity['symbol'] != 'unknown' else entity['entity_id']}
+        source, observation = record['source'], record['observation']
+        if source['evidence_context'] == 'measured_evidence':
+            if source['measured_omics'] != [source['omics']]:
+                raise ValueError('Context graph measured modality disagrees with assay')
+            measured.update(source['measured_omics'])
+        elif source['measured_omics']:
+            raise ValueError('Derived or external evidence cannot add measured modalities')
+        if (not contrast_known or observation['effect'] is None or observation['direction'] == 'unknown' or
+                observation['status'] not in {'tested', 'unknown'} or source['evidence_layer'] not in {'de', 'pathway_enrichment'}):
+            continue
+        nodes[contrast_id] = {'id': contrast_id, 'type': 'condition_contrast', **contrast_identity}
+        kind = 'observed_association' if source['evidence_context'] == 'measured_evidence' else 'estimated_association'
+        edges.append({'id': _edge_id(kind, node_id, contrast_id, eid), 'type': kind,
+                      'source': node_id, 'target': contrast_id, 'evidence_id': eid,
+                      'relation_status': 'observed', 'claim_type': 'statistical_fact',
+                      'evidence_context': source['evidence_context'], 'direction': observation['direction'],
+                      'selected': observation['selected'], 'provenance': dict(record['provenance'])})
+    return {'schema_version': 'research_graph.1.0',
+            'task_id': context.task_id, 'plan_hash': context.plan_hash,
+            'nodes': sorted(nodes.values(), key=lambda item: item['id']),
+            'edges': sorted(edges, key=lambda item: item['id']),
+            'evidence_records': copy_records(context.evidence),
+            'source_artifacts': copy_records(context.artifacts),
+            'measured_omics': sorted(measured),
+            'limitations': ['Modality coverage is not independent replication or causal evidence.',
+                            'An edge records an estimate; selected=null means no approved selection binding.']}
+
+
+def copy_records(records):
+    """Keep in-memory graph construction from sharing mutable evidence records."""
+    import copy
+    return copy.deepcopy(records)
+
+
+def verify_context_sources(root, context):
+    """Public graph facade for the source verifier shared with the task adapter."""
+    from .research_context import verify_context_sources as verify
+    return verify(root, context)

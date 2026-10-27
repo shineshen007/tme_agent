@@ -5,13 +5,13 @@
 1. 下载 Release 附件 `tme_agent-vX.Y.Z.zip`、`manifest-vX.Y.Z.json`、`SHA256SUMS-vX.Y.Z.txt`。Linux 可用 `sha256sum -c SHA256SUMS-vX.Y.Z.txt`；Mac 用 `shasum -a 256 -c SHA256SUMS-vX.Y.Z.txt`；Windows PowerShell 用 `Get-FileHash` 对照清单。
 2. 解压到新的用户可写目录。先运行 `python -m native_dist.bootstrap check`，再运行 `python -m native_dist.bootstrap setup`。安装器优先复用用户已安装的兼容 Python/R 解释器与包（user site、pyenv/uv/conda、`R_LIBS_USER` 等），只补齐缺失依赖，不修改全局软件。无需安装 Git 或 GitHub CLI。
 3. 安装成功后，安装器会创建用户级 `multiomics` 命令：macOS/Linux 为 `~/.local/bin/multiomics`，Windows 为 `%USERPROFILE%\.local\bin\multiomics.cmd`。打开新终端后可在任意目录直接运行 `multiomics`，无需先激活 `.venv`；需要手动启动时可激活 `.venv` 后运行 `python -m multiomics_tui`，或双击对应 `start` 文件。
-4. 在本地 `data/` 放自己的输入；输入保持只读。首次配置复制的合成示例不会覆盖已有文件。缺少真实输入时只能做示例任务，不存在默认队列。
+4. 在本地 `data/` 放自己的输入；输入保持只读。首次配置复制的合成示例和内置数据集不会覆盖已有文件。安装包自带 TCGA-LIHC 开放获取数据集（`datasets/TCGA-LIHC/`，约 36 MB，来自 NCI GDC 的 STAR - Counts 流程），安装时复制到 `data/raw/TCGA-LIHC/` 与 `data/metadata/TCGA-LIHC/`；`/datasets` 可查看维度、分组、冻结的输入绑定与已记录的来源（GDC 数据版本、上游流程、逐文件 md5）。除此之外不存在默认队列。
 
 ## 全局命令与工作目录
 
 - `multiomics` 默认使用安装目录作为工作区；`multiomics --project-root <目录>` 可指定起始工作区。
 - 界面内 `/cd` 显示当前工作目录，`/cd <目录>` 切换当前会话的工作区。支持 `~`、相对路径和带空格的路径。
-- 目标目录没有 `config/study_config*.yaml` 时，会从安装模板生成 `config/study_config.yaml`、`config/runtime.local.yaml`、`config/api.local.yaml`（不含密钥）和合成示例；已有文件一律不覆盖，配置路径上的符号链接会被拒绝。
+- 目标目录没有 `config/study_config*.yaml` 时，会从安装模板生成 `config/study_config.yaml`、`config/runtime.local.yaml`、`config/api.local.yaml`（不含密钥）、合成示例和内置数据集副本；已有文件一律不覆盖，配置路径上的符号链接会被拒绝。
 - macOS/Windows 上首次进入新工作区会运行本地 doctor 并生成绑定该工作区的 `.runtime/doctor.json`；检查失败则不切换。
 - `/cd` 只影响当前会话，不改变父 shell 的目录，也不会跨会话记住。下次仍从安装目录或 `--project-root` 指定的目录开始。
 - 有活动后台任务时拒绝切换；旧任务保留在原工作区，切回后可用 `/session` 恢复。

@@ -55,6 +55,7 @@ class TaskStore:
                  "created_at": utc(), "updated_at": utc(), "plan_version": 0,
                  "plan_hash": None, "approved_hash": None, "job_id": None,
                  "result_dir": str(self.root / "analysis" / task_id), "error": None}
+        state.update(research_status='not_requested', scientific_status='NOT_EVALUABLE')
         self.save(state)
         if request:
             self.event(task_id, "user", request)

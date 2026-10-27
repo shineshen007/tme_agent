@@ -37,9 +37,9 @@ class GeneratedCodeError(ValueError):
 class MissingDependencyError(ImportError, GeneratedCodeError):
     """Generated code needs a package that is not installed.
 
-    Eligible for bounded correction: the model is asked to rewrite the step
-    using base R or the already-installed packages, rather than the task being
-    aborted. Never eligible for installation of new packages. It subclasses
+    Eligible for bounded correction using an installed implementation of the
+    same approved method. A missing method must remain blocked, never be
+    replaced by an improvised statistical implementation. It subclasses
     ImportError so failure records still classify it as a dependency problem.
     """
 
@@ -85,7 +85,7 @@ def _check_code(root: Path, path: Path, language: str, env: dict | None = None, 
         if missing:
             raise MissingDependencyError(
                 f"缺少 Python 分析包 / Missing Python dependencies in {path.name}: {', '.join(missing)}；"
-                "请仅使用已安装的包或标准库重写该步骤，不要安装软件包。")
+                "仅可改用已安装且实现同一审批方法的成熟 API；若无适用实现则保持依赖阻塞，不得自编统计方法或安装软件包。")
     else:
         rscript = Path(shutil.which(rscript_path(root)) or rscript_path(root))
         if not rscript.is_file():
@@ -94,7 +94,7 @@ def _check_code(root: Path, path: Path, language: str, env: dict | None = None, 
                                 cwd=root, env=env, capture_output=True, text=True, timeout=30, check=False)
         if result.returncode == 4:
             raise MissingDependencyError(f"缺少 R 分析包 / Missing R dependencies in {path.name}: {result.stderr[-1500:]}；"
-                                         "请改用 base R 或已安装的包重写该步骤；任务不会自动安装软件包。")
+                                         "仅可调用已安装且实现同一审批方法的成熟 API；否则保持依赖阻塞，不得自编统计方法或安装软件包。")
         if result.returncode == 3:
             raise GeneratedCodeError(result.stderr[-1500:])
         if result.returncode == 2:
@@ -111,7 +111,7 @@ def _check_code(root: Path, path: Path, language: str, env: dict | None = None, 
                                    cwd=root, env=env, capture_output=True, text=True, timeout=30, check=False)
             if check.returncode:
                 raise MissingDependencyError(f"缺少 R 分析包 / Missing R dependencies in {path.name}: {check.stdout.strip() or check.stderr[-500:]}；"
-                                             "请改用 base R 或已安装的包重写该步骤；任务不会自动安装软件包。")
+                                             "仅可调用已安装且实现同一审批方法的成熟 API；否则保持依赖阻塞，不得自编统计方法或安装软件包。")
 
 
 def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:
@@ -231,15 +231,16 @@ def _validate_step_reply(parsed, step):
 
 
 def _codegen(client, plan: dict, on_step=None, validate_code=None, on_generation=None, cfg=None) -> dict:
-    if len(plan["steps"]) > 1 or plan.get("input_bindings"):
+    if len(plan["steps"]) > 1 or plan.get("input_bindings") or plan.get('research', {}).get('enabled'):
         system = CODEGEN_STEP.replace("{plan}", json.dumps(plan, ensure_ascii=False))
         if cfg is not None:
             from .r_env import availability_note
             note = availability_note(cfg)
             if note:
-                system += ("\n" + note + "\nIf the requested method needs a package outside this list "
-                           "(for example a Bioconductor package), implement it with base R or the listed "
-                           "packages instead; do not install anything.")
+                system += ("\n" + note + "\nUse an installed mature API for the approved method. "
+                           "If no installed API implements that method, preserve the missing dependency "
+                           "so the task is blocked; do not improvise statistical algorithms, change the "
+                           "approved method, or install packages.")
         code, contracts = {}, []
         for number, step in enumerate(plan["steps"], 1):
             if on_generation: on_generation(step)
@@ -247,8 +248,9 @@ def _codegen(client, plan: dict, on_step=None, validate_code=None, on_generation
             user = json.dumps({"step": step, "previous_output_contracts": contracts}, ensure_ascii=False)
             def validate(parsed):
                 _validate_step_reply(parsed, step)
-                from .output_contracts import validate_contracts
-                validate_contracts(parsed["output_contracts"], step, required=bool(plan.get("input_bindings")))
+                from .output_contracts import validate_contracts, validate_research_contracts
+                validate_contracts(parsed["output_contracts"], step, required=bool(plan.get("input_bindings") or plan.get('research', {}).get('enabled')))
+                validate_research_contracts(plan, parsed['output_contracts'], step)
                 if validate_code: validate_code(step, parsed["files"][0]["content"])
             try:
                 result = client.chat_json("tui_task_codegen", system, user, "tui_task_codegen_step_v3",
@@ -498,6 +500,18 @@ def _run(root: Path, task_id: str, client=None) -> int:
     save_manifest("succeeded")
     _state(store, task_id, "succeeded", current_stage="complete", current_step=None)
     store.event(task_id, "assistant", f"Task completed. Results: {task_dir / 'reports/task_report.md'}")
+    if plan.get('research', {}).get('enabled'):
+        # Computational success stays immutable even if research is unavailable.
+        try:
+            from orchestrator.research_pipeline import run_task_research
+            research = run_task_research(root, task_id, cfg=cfg, client=client)
+            print(f"Research: {research['research_status']}; {research.get('attempt', '')}", flush=True)
+        except Exception as exc:
+            LOG.exception('Research could not start; verified analysis outputs are preserved')
+            from .task_sessions import redact_secrets
+            _state(store, task_id, 'succeeded', research_status='blocked',
+                   scientific_status='NOT_EVALUABLE', research_error=redact_secrets(str(exc)))
+            store.event(task_id, 'system', 'Research blocked: ' + str(exc))
     return 0
 
 

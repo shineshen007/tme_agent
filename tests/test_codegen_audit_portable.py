@@ -53,6 +53,8 @@ def test_truncation_correction_accounts_for_both_responses_without_thought_text(
     assert audit["total_usage"]["total_tokens"] == model.tokens_used == audit["charged_tokens"] == 8623
     assert audit["usage"]["total_tokens"] == 612
     assert "PRIVATE_THOUGHT_NEVER_STORE" not in json.dumps(audit)
+    assert all(json.loads(item['response_content']) == {'ok': True} for item in audit['attempts'])
+    assert 'shorter' in audit['attempts'][1]['request_messages'][-1]['content'] or 'concise' in audit['attempts'][1]['request_messages'][-1]['content']
     assert all(x["latency_s"] is not None and x["max_tokens"] == 32000 for x in audit["attempts"])
 
 
@@ -93,6 +95,26 @@ def test_http_retries_record_each_attempt_and_no_unreported_token_cost(tmp_path,
     assert audit["attempts"][0]["usage"] is None
     assert audit["transport_retries"] == 1 and audit["schema_retries"] == 0
     assert model.tokens_used == 110
+
+
+def test_schema_correction_reserves_remaining_budget_before_another_paid_call(tmp_path):
+    sent = []
+
+    def transport(*args):
+        sent.append(True)
+        return 200, envelope(parsed={'invalid': True}, prompt=19221, completion=10158, reasoning=4894)
+
+    def reject(parsed):
+        raise ValueError('A corrected claim/source relation is required')
+
+    model = client(tmp_path, transport, token_budget=50000, max_tokens=16000)
+    with pytest.raises(LLMBudgetExceeded, match='schema correction'):
+        model.chat_json('hypothesis_reasoner', 'system', 'frozen evidence', 'fixture', validator=reject)
+    audit = record(tmp_path)
+    assert len(sent) == audit['attempt_count'] == 1
+    assert audit['charged_tokens'] == model.tokens_used == 29379
+    assert json.loads(audit['attempts'][0]['response_content']) == {'invalid': True}
+    assert audit['retry_budget_reservation']['required'] > audit['retry_budget_reservation']['remaining']
 
 
 def test_failed_transport_is_audited(tmp_path):

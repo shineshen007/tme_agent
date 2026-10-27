@@ -26,15 +26,22 @@ _MAJOR, _MINOR, _PATCH = (int(part) for part in BASE_VERSION.split('.'))
 NEXT_VERSION = f'{_MAJOR}.{_MINOR}.{_PATCH + 1}'
 
 
-@pytest.fixture
-def releases(tmp_path):
-    source = tmp_path / 'source'
+@pytest.fixture(scope='session')
+def release_assets(tmp_path_factory):
+    """Build the two release ZIPs once: each carries the ~32 MB built-in dataset.
+
+    Building per test would recompress the dataset for every case, so the
+    archives are session-scoped and every test unpacks its own copy. Nothing
+    writes into the release directories afterwards.
+    """
+    base = tmp_path_factory.mktemp('releases')
+    source = base / 'source'
     source.mkdir()
     for name, _, data in release.source_files(SOURCE):
         target = source / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    first = release.build(source, tmp_path / 'releases-v0')
+    first = release.build(source, base / 'releases-v0')
     (source / 'VERSION').write_text(NEXT_VERSION + '\n')
     (source / 'README.md').write_text((source / 'README.md').read_text(encoding='utf-8') + '\nPatch fixture.\n', encoding='utf-8')
     names = json.loads((source / 'PUBLIC_FILES.json').read_text())['files']
@@ -44,7 +51,13 @@ def releases(tmp_path):
     names.append(added)
     (source / added).write_text('New release fixture.\n')
     (source / 'PUBLIC_FILES.json').write_text(json.dumps({'files': sorted(names)}))
-    second = release.build(source, tmp_path / 'releases-v1')
+    second = release.build(source, base / 'releases-v1')
+    return first, second
+
+
+@pytest.fixture
+def releases(tmp_path, release_assets):
+    first, second = release_assets
     root = tmp_path / 'installed'
     updater.unpack(Path(first['archive']), Path(first['manifest']), root)
     initialize(root)
@@ -116,11 +129,21 @@ def test_public_archive_contains_only_declared_source_and_license(releases):
     manifest = updater.installed(root)
     assert manifest['version'] == BASE_VERSION
     assert manifest['source_data'] == []
+    assert manifest['builtin_datasets'] == ['TCGA-LIHC']
     assert manifest['license'] == 'GPL-3.0-or-later'
     with ZipFile(first['archive']) as z:
         names = [s.removeprefix('tme_agent/') for s in z.namelist()]
     assert set(names) == {s['path'] for s in manifest['files']} | {release.MANIFEST, release.SUMS}
+    # Private study data and local state never ship; the built-in open-access
+    # dataset does, and only under datasets/.
     assert not any(s.startswith(('data/', 'knowledge/', 'analysis/', '.runtime/', '.venv/')) for s in names)
+    assert {s for s in names if s.startswith('datasets/')} == {
+        s['path'] for s in manifest['files'] if s['path'].startswith('datasets/')}
+    assert 'datasets/TCGA-LIHC/dataset.json' in names
+    assert 'datasets/TCGA-LIHC/expression/counts_paired.rds' in names
+    assert 'datasets/TCGA-LIHC/expression/gene_annotation.csv' in names
+    # The shipped dataset records its provenance, so the release gate is clear.
+    assert release.pending_provenance(root) == []
 
 
 def test_public_archive_marks_entry_scripts_executable(releases):

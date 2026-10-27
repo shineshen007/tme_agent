@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Source verified research context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "question", "disease", "species", "tissue", "analysis_unit", "cohort_id", "contrast", "limitations", "evidence", "artifacts", "task_id", "plan_hash", "private_ids"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "question": {"type": "string", "minLength": 1},
+    "disease": {"type": "string", "minLength": 1},
+    "species": {"type": "string", "minLength": 1},
+    "tissue": {"type": "string", "minLength": 1},
+    "analysis_unit": {"type": "string", "minLength": 1},
+    "cohort_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "plan_hash": {"type": "string", "minLength": 1},
+    "contrast": {
+      "type": "object", "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {"numerator": {"type": "string", "minLength": 1}, "denominator": {"type": "string", "minLength": 1}}
+    },
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "private_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "artifacts": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256", "bytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

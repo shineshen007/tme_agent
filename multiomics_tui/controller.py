@@ -6,6 +6,7 @@ confirmation, key material stays in memory, and Q&A stays retrieval-first.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -54,12 +55,15 @@ Run and inspect
   /verify [run-id]   Verify a run (read-only)
   /dossiers [run-id] Publish target dossiers (confirm)
   /module <name>     Run a module (confirm); /modules lists modules
+  /datasets          List built-in datasets and their frozen input bindings
   /jobs              List jobs; /tail <job-id> [n] shows log lines
   /kill <job-id>     Stop a job (confirm)
 
 Explore and sessions
   /status [run-id]   /runs   /figures   /report [run-id]
   /ask <question>    Source excerpts; add --summary for an AI summary
+  /wiki              Search, import and review scientific knowledge
+  /research [task-id] Retry approved research without rerunning statistics
   /sessions          /session <task-id>   /approve [task-id]   /cancel
   /retry [task-id]    Retry planning for a draft or blocked task
   /cd [directory]    Show or change the working directory; a new directory is initialized
@@ -100,7 +104,8 @@ class Response:
 
 # Commands safe to run while a planning request or job is in flight: they only
 # read framework state and never touch pending confirmations or task state.
-READONLY_COMMANDS = ("/help", "/status", "/runs", "/figures", "/jobs", "/tail", "/modules")
+READONLY_COMMANDS = ("/help", "/status", "/runs", "/figures", "/jobs", "/tail", "/modules",
+                     "/datasets")
 
 
 def _tail_lines(args: list) -> int:
@@ -405,6 +410,8 @@ class Session:
                 response = Response("text", self.jobs.tail(args[0], _tail_lines(args)))
         elif command == "/modules":
             response = self.modules_response()
+        elif command == "/datasets":
+            response = self.datasets_response()
         elif command in {"/status", "/runs", "/figures"}:
             intent, slot_name = COMMAND_INTENTS[command]
             slots = {slot_name: args[0]} if slot_name and args else {}
@@ -517,6 +524,44 @@ class Session:
             return self.process_view_command(text)
         if command == "/cd":
             return self.switch_root(remainder)
+        if command == '/wiki':
+            from .wiki import handle_wiki
+            result = handle_wiki(self.root, remainder, settings=self.cfg.get('knowledge'))
+            if result.get('confirmation'):
+                self.cancel()
+                with self._pending_lock:
+                    self.pending = {'id': uuid.uuid4().hex, 'action': 'wiki', 'ready': True,
+                                    'payload': result['confirmation'], 'message': result['message'], 'slots': {}}
+                    return Response('need_confirm', result['message'], action_id='wiki',
+                                    pending_id=self.pending['id'])
+            return Response('text', result['message'])
+        if command == '/research':
+            task_id = args[0] if args else self.active_task
+            if not task_id or len(args) > 1:
+                return Response('text', 'Usage: /research [approved-task-id]')
+            try:
+                state = self.tasks.get(task_id)
+                plan = self.tasks.plan(task_id)
+                if (state['status'] != 'succeeded' or state['approved_hash'] != state['plan_hash'] or
+                        not plan.get('research', {}).get('enabled')):
+                    raise ValueError('Research requires an already approved and completed research task.')
+                if self.jobs.active_pipeline() is not None:
+                    raise ValueError('A task is still active.')
+                snapshot = self.tasks.directory(task_id) / 'model_config.json'
+                if snapshot.is_file():
+                    frozen_model = json.loads(snapshot.read_text(encoding='utf-8'))
+                    current_model = self.cfg.get('llm', {})
+                    if any(frozen_model.get(key) != current_model.get(key)
+                           for key in ('provider', 'base_url', 'model', 'auth_mode')):
+                        raise ValueError('Restore this task\'s model provider, endpoint, model and authentication mode before research retry.')
+                from .model_config import worker_environment
+                job = self.jobs.start('task', [sys.executable, str(self.app_root / 'orchestrator/research_pipeline.py'),
+                                               str(self.root.resolve()), task_id],
+                                      label='Approved research continuation', run_id=task_id,
+                                      env_extra=worker_environment(self.cfg))
+                return Response('job', 'Research continuation: ' + job['job_id'], job=job)
+            except (OSError, ValueError) as exc:
+                return Response('text', str(exc))
         if command == "/new":
             state = self.tasks.create()
             self.active_task = state["task_id"]
@@ -527,7 +572,7 @@ class Session:
             if not states:
                 return Response("text", "No task sessions found.")
             return Response("text", "Task sessions:\n" + "\n".join(
-                f"{item['task_id']}  {item['status']}  {item['goal'][:75]}" for item in states[:50]))
+                f"{item['task_id']}  {item['status']}  research={item.get('research_status', 'not_requested')}  {item['goal'][:75]}" for item in states[:50]))
         if command == "/session":
             if not args:
                 return Response("text", "Usage: /session <task-id>")
@@ -673,7 +718,7 @@ class Session:
     def _confirmation(self, reply="") -> Response:
         pending = self.pending
         action = pending["action"]
-        if action == "kill_job":
+        if action in {"kill_job", 'wiki'}:
             message = pending["message"]
         else:
             spec = SPECS[action]
@@ -707,6 +752,10 @@ class Session:
                 return Response("text", "Confirmation expired or is not ready. Nothing was executed.")
             self.pending = None  # consume before performing any side effect
         try:
+            if pending['action'] == 'wiki':
+                from .wiki import execute_wiki
+                result = execute_wiki(self.root, pending['payload'], settings=self.cfg.get('knowledge'))
+                return Response('text', result['message'])
             if pending["action"] == "task_plan":
                 task_id = pending["task_id"]
                 active = self.jobs.active_pipeline()
@@ -797,6 +846,15 @@ class Session:
             return Response("text", "No runnable modules were found under analysis/.")
         return Response("text", "Available modules (analysis/):\n" + "\n".join(f"  {name}" for name in modules))
 
+    def datasets_response(self) -> Response:
+        """List built-in datasets with their frozen bindings; never prints sample IDs."""
+        from .datasets import DatasetError, summary_lines
+        try:
+            lines = summary_lines(self.root, self.reply_language())
+        except DatasetError as exc:
+            return Response("text", f"Built-in dataset check failed: {exc}")
+        return Response("text", "\n".join(lines))
+
     def jobs_response(self) -> Response:
         jobs = self.jobs.list_jobs()
         if not jobs:
@@ -823,7 +881,7 @@ class Session:
     def qa_response(self, question: str, summary=False) -> Response:
         if not question.strip():
             return Response("text", "Enter a question, for example: /ask What evidence supports the 3MT axis?")
-        result = qa_module.answer(self.root, question, client=self.client if self.allow_llm else None, summary=summary, language=self.reply_language())
+        result = qa_module.answer(self.root, question, client=self.client if self.allow_llm else None, summary=summary, language=self.reply_language(), knowledge_settings=self.cfg.get('knowledge'))
         message = result.get("answer") or ""
         if result.get("notice"):
             message = (message + "\n\n" if message else "") + f"Notice: {result['notice']}"

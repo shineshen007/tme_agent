@@ -1,97 +1,43 @@
-updated_at: 2026-10-22T16:05:00+08:00
+updated_at: 2026-10-27
 
 ## current_goal
-
-v8.1.3 已正式发布（tag `v8.1.3`，Release 附件齐全，三平台 CI 与发布工作流均成功）；剩余工作在目标机完成原生验收。当前分支另有未发布的命令补全与 `/new` 回欢迎界面改动。
+v8.3.0 源码与版本交付；真实模型与真实多组学科学验收继续独立记录。
 
 ## completed
-
-- 命令补全：新增 `multiomics_tui/command_menu.py` 集中命令目录（27 条，含中英文一行说明与参数形状提示）；输入 `/` 后在输入框上方显示最多 6 条候选，`↑`/`↓` 移动高亮，`Tab`/`Enter` 采纳，`Esc` 关闭。采纳只插入命令名、不自动执行；完整命令不再是候选，`Enter` 直接执行；执行中只显示只读命令。
-- `PromptEditor` 增加可选 `menu` 通道：菜单展开时优先消费 Up/Down/Tab/Enter，其余按键与粘贴行为不变；`Tab` 与菜单采纳插入相同文本，保留原有 `Tab`/`→` 单行补全。
-- `/new` 返回欢迎界面：控制器返回 `home` kind，TUI 新增 `_apply_new_task` 重置任务视图并回到 Home；草稿任务与历史保留，REPL 语义不变。
-- 菜单展开高度计入 Home 居中估算，50×24、80×24、120×40 下输入卡与状态栏不越界。
-- 新增 `tests/test_command_menu.py` 25 项；完整回归 220 passed / 2 skipped；`public_release audit` 178 项通过，版本仍为 8.1.3。
-- `/model` 界面精简：移除密钥环境变量、JSON 返回模式、超时、输出长度、长度字段和 temperature 输入；保留服务、接口地址、模型名、认证方式和 API key。
-- 隐藏参数继续从 `config/api.local.yaml` 读取并原样写回；切换服务时自动更新 `api_key_env` 与认证方式；高级用户可编辑本地配置。
-- 默认输出上限由 8000 调整为 32000；同步 `config/study_config.example.yaml`、本地 `config/study_config.yaml` 与客户端兜底默认值。
-- 新增 `/model` 字段精简、隐藏参数保留、服务切换和默认 32K 回归测试；完整回归 187 passed / 2 skipped。
-- 首次安装优先扫描用户级解释器：Python 增加 `~/.local/bin`、pyenv、uv、conda、asdf、mise 与 Windows 用户目录；R 增加用户 `Rscript`、conda、Scoop 与 MacPorts 路径。
-- Python 检查显式加入 user site，并对已有 venv 写入复用库 `.pth`；R 检查显式加入 `R_LIBS_USER`/`R_LIBS_SITE`/`R_LIBS`，bootstrap 缺失包检查与 `runtime.local.yaml` 共用同一套库路径。
-- 安装候选选择改为优先全部依赖可复用，其次复用数量最多；Windows 私有运行时校验关闭 user site，避免误用宿主用户包。
-- 新增 `tests/test_environment_discovery.py`；完整回归 195 passed / 2 skipped，发行白名单 176 项。
-- v8.1.1 已发布：提交 `6643acf`，tag `v8.1.1`；Release 附件：`tme_agent-v8.1.1.zip`（466755 B，sha256 6a77739b…）、`manifest-v8.1.1.json`（32164 B，sha256 73b0e522…）、`SHA256SUMS-v8.1.1.txt`（174 B）；下载校验通过。
-- v8.1.1 主分支 CI（run 39714115480）macOS/ubuntu success、Windows failure：测试未隔离 `LOCALAPPDATA`；R 用户库探测在 Windows Rscript 输出版本前失败。Release 工作流（run 39714118690）validate/publish success，附件已发布。
-- v8.1.2 已发布：提交 `bff78e2`，tag `v8.1.2`；Release 工作流成功，但主分支 Windows CI 仍失败（R 用户库 `.libPaths()` 在 Windows R 4.4 上报路径错误）。
-- v8.1.3 修复：`inspect_r` 改为 Python 扫描用户库 `DESCRIPTION`，R 只检查系统库；bootstrap 复用同一清单；Windows 用户 Python 测试隔离 `LOCALAPPDATA`。
-- v8.1.3 主分支 CI（run 39725966979）ubuntu、macOS、Windows 全部 success；`prepare --version 8.1.3` 与 audit 176 项通过。
-- v8.1.3 已发布：提交 `7cc5413`，tag `v8.1.3`；主分支 CI（run 39726862397）三平台 success；发布工作流（run 39726865701）validate/publish success。
-- Release 附件：`tme_agent-v8.1.3.zip`（467991 B，sha256 36c27230…）、`manifest-v8.1.3.json`（32164 B，sha256 e6ccfbfe…）、`SHA256SUMS-v8.1.3.txt`（174 B）；下载校验通过。
-- 发布内容：manifest 176 项、`source_data` 为空；ZIP 178 条目，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；`ReleaseClient` 识别到 8.1.3。
-- v8.1.0 发布：提交 `8b9c63b`，tag `v8.1.0`；主分支 CI（run 39439373796）ubuntu、macOS、Windows 全部 success；发布工作流（run 39439385170）validate 与 publish 均 success。
-- 发布后文档记录提交 `402d6a1` 的 CI（run 39440307545）macOS job 首次被取消（15 分钟未完成），重跑后三平台 success；发布提交本身的 CI 无此问题。
-- Release 附件：`tme_agent-v8.1.0.zip`（458353 B，sha256 29dd2a5f…）、`manifest-v8.1.0.json`（31974 B，sha256 41dcc9ef…）、`SHA256SUMS-v8.1.0.txt`（174 B）；`shasum -a 256 -c` 通过。
-- 发布内容校验：manifest 175 项、`source_data` 为空；ZIP 177 条目，无 `data/`、`.runtime/`、`.venv/`、`analysis/`、`workspace/`；四个 `.command`/`.sh` 为 0755；本地构建 ZIP 哈希与 GitHub 附件一致。
-- `public_update.ReleaseClient` 识别到最新正式版本 8.1.0 与三个附件。
-- 新增 `native_dist/command_link.py`：生成 POSIX `~/.local/bin/multiomics` / Windows `%USERPROFILE%\.local\bin\multiomics.cmd`，设置 `PYTHONPATH`、转发参数、原子写入、拒绝覆盖非本工具文件；提供 `install/status/uninstall`。
-- 新增受管 PATH 配置：POSIX 写入带标记的 zsh/bash/fish/profile 块，Windows 写入当前用户 `HKCU\Environment` 的 `Path`；不需要管理员权限；`setup --no-path` 跳过，`--path` 强制启用，偏好记录在 `.runtime/command_link.json`。
-- `bootstrap.setup` 在 doctor 通过后安装启动器，把结果写入 `.runtime/install_report.json`；启动器失败只告警，不把环境安装判为失败。
-- 新增 `multiomics_tui/workspace.py`：`/cd` 路径解析（`~`、相对路径、带空格路径）、自动初始化（study 配置、runtime 配置、无密钥的模型配置、合成示例）、独占创建与符号链接拒绝。
-- `Session` 增加 `app_root` / 当前工作区分离；`/cd` 支持无参数显示、切换、`-` 返回上一目录；有活动后台任务或探测失败时拒绝切换，旧任务保留在原工作区。
-- `native_dist.layout.code_root` 在工作区无代码时回退到安装目录；`doctor.runtime_fingerprint` 从代码根读取 requirements 与私有运行时，使新工作区可生成绑定自身的 `.runtime/doctor.json`。
-- Windows 任务运行时根与工作区根分离：`_step_environment` 设置 `MULTIOMICS_RUNTIME_ROOT`，`windows_native.launch_paths` 从安装目录共享私有 Python/R 运行时，不复制到每个 `/cd` 工作区。
-- TUI 接入 `/cd`：命令补全、帮助文本、切换到 Home、清空旧任务视图、更新标题/状态栏；REPL 提示符显示当前工作区。
-- 新增 `tests/test_command_link.py`、`tests/test_cd_workspace.py`；发行白名单 171 → 175 项。
-- 文档更新：`README.md`、`README.zh-CN.md`、`docs/INSTALL_UPDATE_zh.md`、`CHANGELOG.md`。
+- VERSION 与 CHANGELOG 更新为 v8.3.0；版本/发行/数据专项 78 passed，公开白名单与数据来源检查通过；源码交付范围仅限 PUBLIC_FILES.json，不包含本地知识、缓存、凭据和任务结果。
+- 通用 ResearchContext、TaskResearchAdapter/LegacyResearchAdapter、EvidenceRecord v3 与差异/富集独立类型；来源行列和输入/脚本/输出哈希绑定，公开入口串联既有科研会话。
+- 项目 SQLite Scientific Wiki 与明确发布的本机共享库；实体命名空间/物种、版本/来源、Know-How、候选质检、人工审查、撤回、共享发布和 JSON/Markdown 导出。
+- 规划、解释、假说和实验设计的知识快照；PubMed/Europe PMC 连接器、完整可得文本、逐主张引文与直接性核验、Critic 同源复核。
+- 独立 research_status/scientific_status；/wiki、/ask、/research；科研重试不重跑统计，新增分析须另建审批计划；代码/schema、查询、文献、提示、配置和逐次响应冻结。
+- 完整回归 481 passed / 2 skipped / 1 warning；最后响应审计修改后相关专项 151 passed（覆盖重叠）。发行白名单 209 项审计与 provenance gate 通过，回归覆盖实际 ZIP 构建/解包/升级。
+- 真实公共连接器首次查询 complete（4 条），缓存重放通过；另一轮 Europe PMC 失败如实记 partial。
+- 保护数据 8/8 个文件哈希不变；已有 v8.2.0 开发改动与科研专家首版合并为 v8.3.0。
 
 ## in_progress
-
-- 命令补全与 `/new` 回欢迎界面已实现并通过回归，尚未发布（`VERSION` 仍为 8.1.3）。
-- Windows 原生 PATH/AppContainer 验收与 macOS 原生沙箱验收待执行；本机 `/cd` 真实 doctor 已在 macOS 通过。
+- 最后真实模型 Reasoner/Critic 冻结材料复核待明确外发授权；已准备具体请求预览和哈希。
+- 真实 HCC 新科研入口端到端解释、真实多组学案例与人工科学审阅尚未验收。
 
 ## key_decisions
-
-- `multiomics` 默认进入安装目录；`multiomics --project-root <dir>` 指定其他工作区；`/cd` 仅影响当前会话，不跨会话记住。
-- `/cd` 到未初始化目录时自动生成缺失文件，已有文件绝不覆盖；数据工作区不复制代码树。
-- 应用代码根与用户工作区根分离；doctor 记录绑定工作区配置与库，不把安装目录的探测记录直接复用到新工作区。
-- PATH 只改当前用户配置，使用带标记的受管块，支持 `uninstall` 精确移除。
-- `/model` 主界面不暴露技术参数；隐藏值从本地配置读取并原样保存，避免简化界面导致既有设置丢失。默认输出上限为 32000。
-- 历史固定流程 `/run`、`/data` 仍要求完整项目根；数据工作区以自然语言任务为主。
-- 命令目录只维护在 `multiomics_tui/command_menu.py`：帮助文本、补全候选与测试同源，避免命令列表漂移。
-- 补全只在“单行、以 `/` 开头、尚未完整”的输入上展开；完整命令立即关闭候选，保证 `Enter` 的语义不变。
-- `/new` 保留草稿任务与历史（只重置视图到 Home），与 `/cd` 的清理策略不同：切换工作区才清空会话视图。
+- 通用疾病框架，HCC 是首个真实输入；合成工程测试不等于科学验证。
+- 自动候选经人工审查才能入库；共享发布单独确认；批准不改变主张证据等级。
+- 重复队列、RNA 派生评分和丰度关联不能升级为独立组学、因果、活性或通量；无假说是合法结果。
+- 缺少成熟包实现时保持依赖阻塞，不让模型自行重写统计方法。
 
 ## changed_files
-
-- 新增（本轮）：`multiomics_tui/command_menu.py`、`tests/test_command_menu.py`。
-- 修改（本轮）：`multiomics_tui/app.py`、`multiomics_tui/prompt_editor.py`、`multiomics_tui/controller.py`、`multiomics_tui/styles.tcss`、`PUBLIC_FILES.json`、`README.md`、`README.zh-CN.md`、`docs/VALIDATION.md`、`CHANGELOG.md`、`CURRENT_STATE.md`。
-- 新增（历史）：`native_dist/command_link.py`、`multiomics_tui/workspace.py`、`tests/test_command_link.py`、`tests/test_cd_workspace.py`、`tests/test_environment_discovery.py`。
-- 修改（历史）：`native_dist/bootstrap.py`、`native_dist/environment.py`、`native_dist/windows_runtime.py`、`native_dist/layout.py`、`native_dist/doctor.py`、`orchestrator/llm_client.py`、`multiomics_tui/fallback.py`、`multiomics_tui/task_runner.py`、`multiomics_tui/windows_native.py`、`multiomics_tui/model_panel.py`、`multiomics_tui/model_config.py`、`multiomics_tui/model_client.py`、`multiomics_tui/r_env.py`、`config/study_config.example.yaml`、`tests/test_model_interfaces.py`、`tests/test_v8_distribution.py`、`docs/INSTALL_UPDATE_zh.md`。
+- orchestrator/knowledge.py、knowledge_context.py、research_context.py、research_literature.py、research_phases.py、research_pipeline.py；新增 schema 和科研/Wiki 测试。
+- 既有 agent_loop、loop_graph、evidence_graph、文献核验、llm_client 和 TUI planner/runner/controller/qa 局部接入。
+- docs/RESEARCH_EXPERT.md、docs/VALIDATION.md、README、PROJECT_CONTEXT、CHANGELOG、配置示例、PUBLIC_FILES.json。
 
 ## latest_outputs
-
-- 命令补全专项：`tests/test_command_menu.py` 25 passed；补全相关回归（`test_prompt_editor_portable`、`test_cd_workspace`、`test_task_planner_portable`、`test_command_menu`）86 passed。
-- 完整回归：220 passed / 2 skipped，耗时 3m17s。
-- `python -m native_dist.public_release audit`：178 项通过，版本 8.1.3。
-- 首次安装发现专项：`tests/test_environment_discovery.py` 8 passed；`inspect_python` 可识别 `PYTHONUSERBASE` 下的用户包，`inspect_r` 可识别 `R_LIBS_USER` 用户库。
-- `/model` 精简专项：`tests/test_model_interfaces.py` 31 passed。
-- v8.1.1 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.1
-- v8.1.2 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.2（Windows CI 失败）
-- v8.1.3 Release：https://github.com/shineshen007/tme_agent/releases/tag/v8.1.3
-- v8.1.3 附件：`tme_agent-v8.1.3.zip`（sha256 36c27230…）、`manifest-v8.1.3.json`（sha256 e6ccfbfe…）、`SHA256SUMS-v8.1.3.txt`；下载校验通过。
-- v8.1.3 主分支 CI（run 39726862397）三平台 success；发布工作流 validate/publish success。
-- 附件：`tme_agent-v8.1.1.zip`（sha256 6a77739b…）、`manifest-v8.1.1.json`（sha256 73b0e522…）、`SHA256SUMS-v8.1.1.txt`；下载后校验通过。
-- 手动验收：从 `/tmp` 通过临时 PATH 运行 `multiomics --version`（输出 `multiomics 8.1.1`）；在临时目录执行 `/cd` 新工作区，自动初始化并生成 macOS doctor 记录。
-- 新增测试覆盖：启动器内容/权限/幂等/拒绝覆盖、PATH 受管块增删、参数转发、工作区初始化、活动任务拒绝、探测失败回滚、TUI 回到 Home。
+- v8.3.0：reports/research_expert_upgrade_20261026/v830_commit_tests.log/xml，78 passed；发布标签尚未创建。
+- reports/research_expert_upgrade_20261026/：baseline.json、delivery_regression.log/xml、delivery_audit_fix.log/xml、protected_hashes_final.json、public_audit_final.json。
+- live_literature.json、live_literature_offline_replay.json；live_model_fixture 保留两次失败尝试，live_frozen_replay/result.json 保留预算失败。
+- approval_scope.json、approval_reasoner_request.json：仅 3 条合成证据与 6 条公开文献；私有 ID 检查通过，不含项目 Wiki；具体请求 SHA256 在 scope 中。
 
 ## blockers_or_warnings
-
-- Windows 原生 AppContainer、Windows 用户 PATH 实际生效、macOS 原生沙箱仍需目标机验收；CI 便携通过不等于原生通过。
-- v8.1.1/8.1.2 的 Windows CI 曾失败；v8.1.3 已修复并通过三平台 CI 与发布工作流。
-- PATH 修改后需要新终端；`/cd` 不改变父 shell 目录。
-- 自动初始化只写缺失文件；数据工作区不支持历史固定流程 `/run`、`/data`。
-- 用户级解释器和包优先复用；版本冲突或导入失败时回退到项目环境，显式 `MULTIOMICS_PYTHON` / `MULTIOMICS_RSCRIPT` 可覆盖。
-- 真实模型 API 未验收。
+- 真实模型未端到端通过：已观察并修复查询限额、主张 ID 和直接性说明；一次重放消耗 60,176 tokens 后预算阻断。最后真实复核未执行。
+- 自动审批审查拒绝最后复核：读取凭据并向外部端点发送材料的具体范围未明确授权。预览端点 https://api.deepseek.com，模型 deepseek-flash，配置预算 120,000 tokens，仅 Reasoner/Critic，冻结文献、不重新检索或统计。
+- 科学验收仍为 NOT_EVALUABLE；原生跨平台和真实实验可行性需要独立验收。
 
 ## next_step
-
-在 Windows 与 Intel macOS 目标机执行原生验收：新终端运行 `multiomics --version`、从任意目录启动、`/cd` 新目录并完成合成任务，检查用户 PATH 与 doctor 记录；结果记入 `docs/VALIDATION.md`。命令补全改动待发布时用 `python -m native_dist.public_release prepare --version <next>` 提升版本。
+获得对 approval_scope.json 所列 DeepSeek 外发范围的明确同意后，运行冻结材料的 Reasoner/Critic 复核；记录真实结果，再推进 HCC 与真实多组学人工验收。

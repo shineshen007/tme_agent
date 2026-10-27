@@ -165,10 +165,23 @@ def fetch_additional(root, run, cfg, additional):
         payload = _invoke(root, run, cfg, job, 'additional')
     except Exception as exc:
         LOG.exception('Additional literature retrieval failed')
-        return {'status': 'failed', 'n_records': 0, 'error': str(exc), 'queries': queries}
-    current = read_json(run / 'literature/records.json')
-    merged = _merge({'records': current['records']}, None, payload)
+        payload = {'records': [], 'status': 'failed',
+                   'errors': [{'query': 'additional', 'error': str(exc)}]}
+    path = run / 'literature/records.json'
+    current = read_json(path) if path.exists() else {'records': [], 'errors': []}
+    errors = list(payload.get('errors', []))
+    additional_status = payload.get('status')
+    if additional_status == 'failed' and not errors:
+        errors.append({'query': 'additional', 'error': 'Provider reported retrieval failure'})
+    status = ('failed' if additional_status == 'failed' else 'partial' if errors or additional_status == 'partial'
+              else 'complete' if payload.get('records') else 'no_results')
+    merged = _merge({'records': current.get('records', [])}, None, payload)
+    combined_errors = [*current.get('errors', []), *errors]
     summary = {**current, 'n_records': len(merged), 'n_additional_records': len(payload.get('records', [])),
-               'additional_queries': queries, 'records': merged}
-    write_json(run / 'literature/records.json', summary)
-    return {'status': 'complete', 'n_records': len(payload.get('records', [])), 'queries': queries}
+               'additional_queries': queries, 'records': merged, 'errors': combined_errors,
+               'additional_status': status,
+               'status': ('partial' if merged else 'failed') if combined_errors else
+                         'complete' if merged else 'no_results'}
+    write_json(path, summary)
+    return {'status': status, 'n_records': len(payload.get('records', [])),
+            'queries': queries, 'errors': errors}

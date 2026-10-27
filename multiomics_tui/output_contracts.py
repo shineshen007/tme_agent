@@ -13,6 +13,21 @@ FORMATS={'.csv':{'csv'},'.tsv':{'tsv'},'.rds':{'rds_matrix','rds_table','rds_lis
          '.pdf':{'pdf'},'.json':{'json'},'.txt':{'text'},'.md':{'text'},'.svg':{'svg'}}
 
 
+def validate_research_contracts(plan, contracts, step):
+    """Generated output schemas cannot change the approved statistical meanings."""
+    if not plan.get('research', {}).get('enabled'):
+        return
+    by = {item['path']: item for item in contracts}
+    for spec in plan['research']['evidence_outputs']:
+        if spec['path'] not in step['outputs']:
+            continue
+        contract = by.get(spec['path'], {})
+        expected = set(spec['columns'].values()) | set(spec['row_key'])
+        if (contract.get('format') not in {'csv', 'tsv'} or
+                not expected <= set(contract.get('columns', []))):
+            raise ValueError('Output contract disagrees with frozen research evidence mapping: ' + spec['path'])
+
+
 def validate_contracts(contracts, step, required=False):
     for c in contracts:
         if 'format' not in c and not required: continue

@@ -27,6 +27,7 @@ SOURCE_GLOBS = (
     "result/README.md",
     "analysis/*/reports/*.md",
     "analysis/*/*/reports/*.md",
+    "analysis/*/research/attempt_*/research_report.md",
     "docs/analysis_flowchart.md",
 )
 
@@ -218,9 +219,16 @@ def validate_summary(parsed: dict, chunks: list[Chunk], language: str = "en") ->
     return {"answer": answer, "citations": sorted(set(str(item) for item in citations))}
 
 
-def answer(root, question: str, client=None, k: int = 3, cache: bool = True, summary: bool = False, language: str = "en") -> dict:
+def answer(root, question: str, client=None, k: int = 3, cache: bool = True, summary: bool = False, language: str = "en", knowledge_settings=None) -> dict:
     root = Path(root)
     chunks = collect_chunks(root)
+    from orchestrator.knowledge_context import knowledge_service
+    for entry in knowledge_service(root, knowledge_settings).search(question, limit=k):
+        identifier = entry.get('entry_id', entry.get('id'))
+        sources = '\n'.join(f"{source['source_id']}: {source['locator']}" for source in entry['sources'])
+        chunks.append(Chunk(source=f"wiki:{entry.get('scope', 'project')}:{identifier}@{entry['revision']}",
+                            line=None, heading=entry['title'],
+                            text=f"[{entry['kind']}; reviewed knowledge, not independent validation]\n{entry['statement']}\n{sources}"))
     selected = search(chunks, question, k=k)
     for index, chunk in enumerate(selected, start=1):
         chunk.cid = f"S{index}"

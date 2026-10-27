@@ -48,6 +48,8 @@ tme_agent 把你提供的数据和感兴趣的科研方向，转化为经审核�
 - **自带模型：** 用 `/model` 设置服务，用 `/key` 输入密钥；密钥存入系统凭据库，绝不写入配置、日志或 Git。
 - **按需工作区：** 安装后可在任意目录用 `multiomics` 启动；`/cd` 切换或初始化工作区，不复制代码树，也不覆盖已有文件。
 - **命令补全：** 输入 `/` 列出命令和一行说明；`↑`/`↓` 选择，`Tab` 补全，`/new` 回到欢迎界面并保留草稿与历史。
+- **科研解释链：** 在同一审批计划中绑定疾病背景和证据列映射，统计完成后继续文献核验、生物学解释、可证伪假说及实验设计；科研重试不重跑统计。
+- **Scientific Wiki：** 项目 SQLite 知识库与明确发布的本机共享库，规划、解释和实验设计共用检索；`/wiki` 人工审查、版本追溯与撤回，`/ask` 查询已审知识。使用方法与能力边界见 [科研专家工作流](docs/RESEARCH_EXPERT.md)。
 
 ## 架构
 
@@ -157,6 +159,28 @@ python -m native_dist.command_link uninstall
 32000 tokens）。Linux 无桌面凭据服务时，可显式将本地配置
 `distribution.credential_storage` 改为 `memory`，密钥仅本次进程有效，不写磁盘。**无模型密钥也能
 运行离线诊断。**
+
+### 内置数据集
+
+安装包自带一份开放获取的 TCGA-LIHC bulk RNA-seq 数据集（`datasets/TCGA-LIHC/`，约 36 MB），
+从 NCI **GDC（Genomic Data Commons）** 下载，上游流程为 **STAR - Counts**、基因模型
+**GENCODE v36**：19938 个 protein_coding 基因 × 424 个样本的 `unstranded` counts、
+`tpm_unstranded` 与基因注释，含 371 原发瘤、50 癌旁、3 复发瘤，其中 50 位患者有肿瘤/癌旁配对。
+安装和 `/cd` 新工作区时，文件会复制到 `data/raw/TCGA-LIHC/` 与 `data/metadata/TCGA-LIHC/`，
+已有文件不会被覆盖。
+
+```bash
+# 界面内查看数据集、维度、分组和冻结的输入绑定
+/datasets
+```
+
+矩阵以 RDS 保存（行名为基因符号、列名为 16 位 TCGA sample barcode），可直接作为计划里的
+`input_bindings.matrices` 使用；`/datasets` 会打印完整 JSON。只做肿瘤/癌旁配对分析时用
+`counts_paired.rds`（`pair_key: pair_id`），全量队列用 `counts_full.rds` 或 `tpm_full.rds`。
+格式、列定义、示例请求与限制见 `datasets/TCGA-LIHC/README.md`；GDC 项目、数据版本、上游流程
+与逐文件 md5 记录在 `dataset.json`（`provenance_status: recorded`）。数据集只含
+protein_coding 基因，因此 TPM 列和低于全转录组的 1e6——不要重新缩放，也不要与其它 TPM
+数据集直接合并。
 
 自然语言新任务是公开版入口。原固定研究流程需要独立的队列配置，不可用公开模板恢复。
 模型生成的解释和代码**不代表**独立验证，分析前仍需确认统计单位、分组和研究设计。

@@ -22,6 +22,7 @@ AREAS = {'multiomics_tui': {'.py', '.tcss', '.md', '.R'}, 'orchestrator': {'.py'
          'native_dist': {'.py', '.txt', '.json', '.c', '.m', '.ps1', '.iss'},
          'scripts': {'.py', '.R', '.sh'}, 'schemas': {'.json'}, 'prompts': {'.md'},
          'tests': {'.py'}, 'docs': {'.md', '.json'}, 'examples': {'.csv', '.md'},
+         'datasets': {'.rds', '.csv', '.md', '.json'},
          'assets': {'.svg'}, '.github': {'.yml', '.yaml'}}
 GENERATED = {MANIFEST, SUMS}
 MAX_BYTES = 100 * 1024 * 1024
@@ -123,8 +124,23 @@ def validate_manifest(manifest):
         total += item['bytes']
     if total > MAX_BYTES or not {'version', 'license', 'public_files.json', 'multiomics_tui/__main__.py', 'native_dist/public_update.py', 'config/study_config.example.yaml'} <= seen:
         raise ValueError('发行不完整或体积超限')
+    # ``source_data`` keeps its original meaning: private study data never ships.
     if manifest.get('source_data') != []:
         raise ValueError('公开发行不允许携带研究数据清单')
+    # ``builtin_datasets`` lists the shipped open-access datasets, and must match
+    # the datasets/<id>/dataset.json manifests that are actually declared. Older
+    # manifests predate the field; they declared no datasets, so an absent key
+    # means an empty list and a rollback stays valid.
+    # ``seen`` holds casefolded names, so the dataset ids are read from the
+    # original records to keep their declared spelling.
+    declared = sorted({name.split('/')[1] for name in (item['path'] for item in files)
+                       if name.startswith('datasets/') and name.endswith('/dataset.json')
+                       and len(name.split('/')) == 3})
+    shipped = manifest.get('builtin_datasets', [])
+    if not isinstance(shipped, list) or not all(isinstance(v, str) for v in shipped):
+        raise ValueError('发行清单的 builtin_datasets 必须是数据集 ID 列表')
+    if sorted(shipped) != declared or len(set(shipped)) != len(shipped):
+        raise ValueError('builtin_datasets 与 datasets/ 声明不一致')
     return manifest
 
 
@@ -147,10 +163,41 @@ def source_files(root: Path):
         yield name, path, data
 
 
+def builtin_datasets(root: Path) -> list[dict]:
+    """Validate every shipped dataset manifest and return ``{id, provenance_status}``.
+
+    Only ``dataset.json`` is read here; file checksums are verified by
+    ``multiomics_tui.datasets`` so the release and the runtime share one rule.
+    """
+    base = Path(root) / 'datasets'
+    if not base.is_dir():
+        return []
+    found = []
+    for directory in sorted(base.iterdir()):
+        manifest_path = directory / 'dataset.json'
+        if not directory.is_dir() or not manifest_path.is_file():
+            continue
+        try:
+            value = load_json(manifest_path.read_bytes())
+        except ValueError as exc:
+            raise ValueError(f'数据集清单无效：{directory.name}: {exc}') from exc
+        if value.get('schema_version') != 1 or value.get('dataset_id') != directory.name:
+            raise ValueError('数据集清单 schema 或 ID 与目录不一致：' + directory.name)
+        found.append({'dataset_id': directory.name,
+                      'provenance_status': value.get('provenance_status')})
+    return found
+
+
+def pending_provenance(root: Path) -> list[str]:
+    return [item['dataset_id'] for item in builtin_datasets(root)
+            if item['provenance_status'] != 'recorded']
+
+
 def build(root: Path, output: Path, expected_version=None):
     v = version((root / 'VERSION').read_text(encoding='utf-8').strip())
     if expected_version and version(expected_version) != v:
         raise ValueError('标签与 VERSION 不一致')
+    datasets = builtin_datasets(root)
     records = []
     members = {}
     for name, path, data in source_files(root):
@@ -161,7 +208,8 @@ def build(root: Path, output: Path, expected_version=None):
         raise ValueError('VERSION 不在公开白名单内')
     manifest = {'schema_version': 1, 'delivery': 'public_source', 'repository': REPOSITORY,
                 'version': v, 'tag': 'v' + v, 'license': 'GPL-3.0-or-later',
-                'source_data': [], 'files': records,
+                'source_data': [], 'builtin_datasets': [item['dataset_id'] for item in datasets],
+                'files': records,
                 'validation_status': {'windows': 'native_pending', 'macos_intel': 'native_pending',
                                       'macos_arm64': 'native_pending', 'real_api': 'not_tested'}}
     validate_manifest(manifest)
@@ -196,10 +244,22 @@ def main(argv=None):
     release.add_argument('--output', type=Path, default=ROOT / 'dist')
     release.add_argument('--expected-version')
     sub.add_parser('audit', help='Validate every declared public file')
+    gate = sub.add_parser('gate', help='Refuse to publish when shipped datasets lack provenance')
+    gate.add_argument('--provenance', action='store_true',
+                      help='Fail while any dataset.json still says provenance_status is not recorded')
     args = parser.parse_args(argv)
     try:
         if args.action == 'build':
             result = build(ROOT, args.output, args.expected_version)
+        elif args.action == 'gate':
+            datasets = builtin_datasets(ROOT)
+            pending = [item['dataset_id'] for item in datasets
+                       if item['provenance_status'] != 'recorded']
+            result = {'status': 'blocked' if (args.provenance and pending) else 'passed',
+                      'datasets': [item['dataset_id'] for item in datasets],
+                      'provenance_pending': pending}
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 1 if result['status'] == 'blocked' else 0
         else:
             rows = list(source_files(ROOT))
             if args.action == 'prepare':
@@ -208,7 +268,16 @@ def main(argv=None):
                 if tuple(map(int, v.split('.'))) < tuple(map(int, old.split('.'))):
                     raise ValueError('准备新版本不能降低版本号')
                 (ROOT / 'VERSION').write_text(v + '\n', encoding='utf-8')
-            result = {'status': 'passed', 'files': len(rows), 'version': (ROOT / 'VERSION').read_text().strip()}
+            result = {'status': 'passed', 'files': len(rows),
+                      'version': (ROOT / 'VERSION').read_text().strip(),
+                      'builtin_datasets': [item['dataset_id'] for item in builtin_datasets(ROOT)]}
+            pending = pending_provenance(ROOT)
+            if pending:
+                # A pending record is reported, never silently dropped: the data
+                # is usable locally while the source metadata is still missing.
+                result['provenance_pending'] = pending
+                print('数据集来源尚未记录：' + ', '.join(pending) + '；发布前需补齐 '
+                      'datasets/<id>/dataset.json 的 source 与 license。', file=__import__('sys').stderr)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as exc:

@@ -20,6 +20,8 @@ jobs:
       - name: Install synthetic RDS inspection dependency
         run: Rscript -e 'install.packages(c("jsonlite", "digest"), repos="https://cloud.r-project.org")'
       - run: python -m pip install -r native_dist/requirements-native.txt
+      - name: Refuse a release whose built-in datasets lack recorded provenance
+        run: python -m native_dist.public_release gate --provenance
       - run: python -m native_dist.public_release audit
       - run: python -m pytest -q
   publish:
