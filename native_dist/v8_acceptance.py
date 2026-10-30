@@ -35,13 +35,25 @@ def _gene_set_scoring(root):
         'expr <- as.matrix(read.csv(file.path(Sys.getenv("TASK_DIR"),"expr.csv"), row.names=1, check.names=FALSE)); '
         'sets <- list(setA=c("g0","g1","g2"), setB=c("g3","g4","g5")); '
         'stopifnot(requireNamespace("GSVA", quietly=TRUE)); '
+        'methods <- c("ssgsea","plage","zscore","gsva"); available <- character(); status <- character(); '
         # GSVA >= 1.47/2.x requires a parameter object (plageParam); older
         # releases accept method="plage" directly. Support both so the probe
         # reflects whichever GSVA the host actually installed.
-        'if (exists("plageParam", where=asNamespace("GSVA"))) '
-        'scores <- GSVA::gsva(GSVA::plageParam(expr, sets), verbose=FALSE) '
-        'else scores <- GSVA::gsva(expr, sets, method="plage", verbose=FALSE); '
-        'write.csv(as.data.frame(scores), file.path(Sys.getenv("TASK_DIR"),"tables/scores.csv"))\n',
+        'constructors <- list(ssgsea=GSVA::ssgseaParam, plage=GSVA::plageParam, '
+        'zscore=GSVA::zscoreParam, gsva=GSVA::gsvaParam); '
+        'for (m in methods) { '
+        'ok <- exists(paste0(m, "Param"), where=asNamespace("GSVA")); '
+        'if (ok) ok <- tryCatch({ GSVA::gsva(constructors[[m]](expr, sets), verbose=FALSE); TRUE }, '
+        'error=function(e) FALSE); '
+        'if (!ok && m == "plage") ok <- tryCatch({ GSVA::gsva(expr, sets, method="plage", verbose=FALSE); TRUE }, '
+        'error=function(e) FALSE); '
+        'status[m] <- if (ok) "ok" else "failed"; if (ok) available <- c(available, m) }; '
+        'if (!length(available)) stop("no GSVA method produced scores"); '
+        # PLAGE stays the canonical probe output so downstream checks keep one shape.
+        'scores <- GSVA::gsva(constructors[["plage"]](expr, sets), verbose=FALSE); '
+        'write.csv(as.data.frame(scores), file.path(Sys.getenv("TASK_DIR"),"tables/scores.csv")); '
+        'writeLines(paste0(names(status), "=", status), '
+        'file.path(Sys.getenv("TASK_DIR"),"tables/methods.txt"))\n',
         encoding='utf-8')
     env = task_runner._step_environment(root, task, load_tui_config(root), [])
     argv = [__import__('sys').executable, str(Path(task_runner.__file__).with_name('task_guard.py')),
@@ -54,7 +66,12 @@ def _gene_set_scoring(root):
     lines = [line for line in scores.read_text(encoding='utf-8').splitlines() if line.strip()]
     if len(lines) != 3:
         raise RuntimeError('GSVA scoring output unexpected: ' + str(lines))
-    return {'gsva_available': True, 'gene_sets': 2, 'samples': 4, 'rows': len(lines) - 1}
+    # Each method is reported separately; a missing method is recorded, never hidden.
+    method_lines = (task / 'tables/methods.txt').read_text(encoding='utf-8').split()
+    methods = dict(line.split('=', 1) for line in method_lines if '=' in line)
+    return {'gsva_available': True, 'gene_sets': 2, 'samples': 4, 'rows': len(lines) - 1,
+            'gsva_methods': methods,
+            'gsva_methods_available': [name for name, state in methods.items() if state == 'ok']}
 
 
 def acceptance(root):

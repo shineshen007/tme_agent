@@ -306,6 +306,38 @@ def test_workspace_initialize_seeds_datasets_without_overwriting(tmp_path):
     assert edited.read_text(encoding="utf-8") == "sample_id\nuser-edit\n"
 
 
+def test_existing_workspace_can_still_receive_the_dataset(tmp_path):
+    """``/cd`` into an already-initialized workspace must seed, not skip.
+
+    initialize() is only called for a workspace that lacks its config, so an
+    existing study directory would otherwise never receive built-in datasets.
+    """
+    from multiomics_tui.workspace import seed_datasets
+    target = tmp_path / "existing"
+    (target / "config").mkdir(parents=True)
+    (target / "config/study_config.yaml").write_text("schema_version: '1.0'\n", encoding="utf-8")
+    written = seed_datasets(target)
+    assert "data/raw/TCGA-LIHC/counts_paired.rds" in written
+    assert (target / "data/raw/TCGA-LIHC/counts_paired.rds").is_file()
+    # Seeding is exclusive: a second pass writes nothing and preserves user edits.
+    edited = target / "data/metadata/TCGA-LIHC/samples_paired.csv"
+    edited.write_text("sample_id\nuser-edit\n", encoding="utf-8")
+    assert seed_datasets(target) == []
+    assert edited.read_text(encoding="utf-8") == "sample_id\nuser-edit\n"
+
+
+def test_cd_into_an_existing_workspace_seeds_the_dataset(project_root, stub_cfg, tmp_path):
+    from multiomics_tui.controller import Session
+    session = Session(project_root, cfg=stub_cfg, client=None, app_root=SOURCE,
+                      probe=lambda target: None)
+    target = tmp_path / "existing"
+    (target / "config").mkdir(parents=True)
+    (target / "config/study_config.yaml").write_text("schema_version: '1.0'\n", encoding="utf-8")
+    response = session.switch_root(str(target))
+    assert response.kind == "cwd"
+    assert (target / "data/raw/TCGA-LIHC/counts_paired.rds").is_file()
+
+
 def test_workspace_initialize_skips_datasets_when_the_source_tree_has_none(tmp_path, monkeypatch):
     from multiomics_tui import datasets, workspace
     monkeypatch.setattr(datasets, "datasets_root", lambda root: tmp_path / "absent")

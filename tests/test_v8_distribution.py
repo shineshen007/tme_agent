@@ -209,3 +209,6 @@ def test_v8_acceptance_module_and_diagnostics_wiring():
     # The GSVA probe must work with both the legacy and the param-object API.
     probe = Path(v8_acceptance.__file__).read_text(encoding='utf-8')
     assert 'plageParam' in probe and 'method="plage"' in probe
+    # All four parameter-object APIs are exercised and reported per method.
+    for constructor in ('ssgseaParam', 'plageParam', 'zscoreParam', 'gsvaParam'):
+        assert constructor in probe

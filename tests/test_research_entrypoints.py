@@ -130,7 +130,7 @@ def test_generate_plan_freezes_local_reviewed_knowledge_not_model_injection(tmp_
     assert "PENDING_ONLY" not in model_calls[-1][1]
     assert entry["statement"] in model_calls[-1][1]
     assert "untrusted source content" in model_calls[-1][1]
-    assert model_calls[-1][2] == "tui_task_plan_v6"
+    assert model_calls[-1][2] == "tui_task_plan_v7"
     assert inspection_calls[0][0]["sha256"] == digest(tmp_path / raw["inputs"][0])
     store = TaskStore(tmp_path)
     state = store.save_plan(store.create(raw["goal"])["task_id"], checked)

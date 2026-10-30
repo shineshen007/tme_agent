@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import urllib.request
 
 from orchestrator.llm_client import LLMClient, LLMConfigError, LLMError, LLMValidationError
 from .model_config import credential, normalize, redact
@@ -15,15 +14,6 @@ class CompatibleClient(LLMClient):
         super().__init__(*args, transport=self._compatible_post, **kwargs)
         self.cfg = normalize(self.cfg)
         self._send = provided_transport or self._http_post
-
-    def _http_post(self, url, headers, body, timeout):
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
-        request = urllib.request.Request(url, data=body, headers=headers, method='POST')
-        # A redirected API call must not carry a key to a different endpoint.
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
-            return response.status, response.read().decode('utf-8')
 
     def _api_key_for_request(self):
         if self.cfg['auth_mode'] == 'none':

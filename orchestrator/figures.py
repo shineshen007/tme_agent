@@ -6,6 +6,10 @@ import pandas as pd
 from .io import artifact, write_json
 
 
+PROPORTION_METADATA = {'biospecimen_id', 'patient_id', 'tissue', 'panel',
+                       'claim_type', 'method', 'reference_panel'}
+
+
 def resolve_font():
     """Arial when present; otherwise the metric-compatible Liberation Sans, recorded in the manifest."""
     from matplotlib import font_manager
@@ -89,7 +93,7 @@ def render_scrna_figures(run,out,source,plt):
     if prop_path.exists():
         props=pd.read_csv(prop_path)
         props.to_csv(source/'scrna_deconvolution_proportions_pancancer.csv',index=False)
-        cts=[c for c in props.columns if c not in {'biospecimen_id','patient_id','tissue','panel'}]
+        cts=[c for c in props.columns if c not in PROPORTION_METADATA]
         if cts:
             ncol=3;nrow=int(np.ceil(len(cts)/ncol))
             fig,axes=plt.subplots(nrow,ncol,figsize=(2.1*ncol,1.9*nrow),layout='constrained',squeeze=False)

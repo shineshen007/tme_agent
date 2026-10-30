@@ -8,6 +8,10 @@ if(length(args)!=1L) stop('Usage: Rscript --vanilla scripts/06_prognosis.R JOB.j
 if(!requireNamespace('jsonlite',quietly=TRUE)) stop('jsonlite unavailable')
 job <- jsonlite::fromJSON(args[1], simplifyVector=FALSE)
 if(length(job$r_library_paths)) .libPaths(c(unlist(job$r_library_paths), .libPaths()))
+# Frozen multiple-testing level supplied by the orchestrator; never guessed here.
+fdr <- job$fdr
+if(is.null(fdr) || !is.numeric(fdr) || length(fdr) != 1L || !is.finite(fdr) || fdr <= 0 || fdr >= 1)
+  stop('job$fdr must be one finite numeric in (0,1); frozen config analysis.prognosis.fdr is required (no default)')
 out <- job$output_dir
 dir.create(out, recursive=TRUE, showWarnings=FALSE)
 set.seed(job$seed)
@@ -116,6 +120,7 @@ for(panel in names(job$proportions)) {
 }
 
 signature_status <- 'complete'; signature_used <- character(0)
+signature_background_genes <- 0L; signature_dropped_constant_features <- 0L
 sig_map <- do.call(rbind, lapply(job$signature_features, function(x) as.data.frame(x, stringsAsFactors=FALSE)))
 if(is.null(sig_map)) sig_map <- data.frame(symbol=character(), feature_id=character())
 rna <- mats[['transcriptomics']]
@@ -124,15 +129,33 @@ sig_ok <- sig_ok[!duplicated(sig_ok$symbol), , drop=FALSE]
 if(nrow(sig_ok) < job$signature_min_size) {
   signature_status <- 'blocked_insufficient_signal_genes'
 } else {
+  if(is.null(job$signature_background) || !length(job$signature_background))
+    stop('job$signature_background is required for a nonempty signature; ssGSEA needs the full expression background')
+  bg <- data.frame(
+    symbol=vapply(job$signature_background, `[[`, '', 'symbol'),
+    feature_id=vapply(job$signature_background, `[[`, '', 'feature_id'),
+    stringsAsFactors=FALSE)
+  if(!nrow(bg) || !all(c('symbol','feature_id') %in% names(bg)))
+    stop('job$signature_background must provide symbol and feature_id for every mapped gene')
+  bg <- bg[!duplicated(bg$symbol) & !duplicated(bg$feature_id), , drop=FALSE]
+  bg <- bg[bg$feature_id %in% rownames(rna), , drop=FALSE]
+  if(!nrow(bg)) stop('job$signature_background has no feature present in the expression matrix')
   sets <- read_gmt(job$signature_gmt)
   meta <- tumor_samples(metas[['transcriptomics']], cohorts$triple109)
-  em <- rna[sig_ok$feature_id, meta$biospecimen_id, drop=FALSE]
-  rownames(em) <- sig_ok$symbol
-  sets_ok <- lapply(sets, function(s) intersect(s, rownames(em)))
-  sets_ok <- sets_ok[vapply(sets_ok, length, integer(1)) >= job$signature_min_size]
-  if(!length(sets_ok)) {
-    signature_status <- 'blocked_insufficient_signal_genes'
+  em <- rna[bg$feature_id, meta$biospecimen_id, drop=FALSE]
+  rownames(em) <- bg$symbol
+  variable <- apply(em, 1L, stats::var) > 0
+  signature_dropped_constant_features <- sum(!variable)
+  em <- em[variable, , drop=FALSE]
+  signature_background_genes <- nrow(em)
+  if(!nrow(em)) {
+    signature_status <- 'blocked_insufficient_background_genes'
   } else {
+    sets_ok <- lapply(sets, function(s) intersect(s, rownames(em)))
+    sets_ok <- sets_ok[vapply(sets_ok, length, integer(1)) >= job$signature_min_size]
+    if(!length(sets_ok)) {
+      signature_status <- 'blocked_insufficient_signal_genes'
+    } else {
     score <- tryCatch(GSVA::gsva(GSVA::ssgseaParam(em, sets_ok, minSize=job$signature_min_size, normalize=TRUE),
                                  verbose=FALSE, BPPARAM=BiocParallel::SerialParam()),
                       error=function(e) stop('ssGSEA failed: ', conditionMessage(e)))
@@ -143,6 +166,7 @@ if(nrow(sig_ok) < job$signature_min_size) {
         stringsAsFactors=FALSE)
       signature_used <- c(signature_used, set_name)
     }
+    }
   }
 }
 
@@ -150,6 +174,8 @@ long <- do.call(rbind, long_rows)
 write.csv(long, file.path(out,'patient_features.csv'), row.names=FALSE, na='')
 
 # ---------- Cox models (one exposure per model, standardized per analyzed sample) ----------
+# Separation / non-convergence is a non-estimable result, never a tested association:
+# capture coxph warnings and require finite coefficient, SE, HR and CI with a positive SE.
 fit_cox <- function(d, time_col, event_col, model_type) {
   covariates <- if(model_type=='adjusted') c('age','sex_male','cirrhosis_num','tnm_ordinal') else character(0)
   needed <- c(time_col, event_col, 'value', covariates)
@@ -165,17 +191,27 @@ fit_cox <- function(d, time_col, event_col, model_type) {
   d$x <- as.numeric(scale(d$value))
   formula <- stats::as.formula(paste0('survival::Surv(', time_col, ',', event_col, ') ~ ',
                                       paste(c('x', covariates), collapse=' + ')))
-  fit <- tryCatch(survival::coxph(formula, data=d, ties='efron'), error=function(e) NULL)
+  cox_warnings <- character(0)
+  fit <- withCallingHandlers(
+    tryCatch(survival::coxph(formula, data=d, ties='efron'),
+             error=function(e){ cox_warnings <<- c(cox_warnings, conditionMessage(e)); NULL }),
+    warning=function(w){ cox_warnings <<- c(cox_warnings, conditionMessage(w)); invokeRestart('muffleWarning') })
   if(is.null(fit)) { base$reason <- 'coxph_failed'; return(base) }
-  co <- summary(fit)$coefficients
+  co <- tryCatch(summary(fit)$coefficients, error=function(e) NULL)
   if(is.null(co) || !'x' %in% rownames(co)) { base$reason <- 'exposure_not_estimable'; return(base) }
   co <- co['x',]
+  coef_v <- unname(co['coef']); se_v <- unname(co['se(coef)']); p_v <- unname(co['Pr(>|z|)'])
+  z <- stats::qnorm(0.975)
+  hr_v <- exp(coef_v); ci_low_v <- exp(coef_v - z*se_v); ci_high_v <- exp(coef_v + z*se_v)
+  nonfinite <- !all(is.finite(c(coef_v, se_v, p_v, hr_v, ci_low_v, ci_high_v)))
+  convergence_warning <- any(grepl('converg|infinite|singular|separation|iteration', tolower(cox_warnings)))
+  if(nonfinite || convergence_warning || se_v <= 0) {
+    base$reason <- if(convergence_warning) 'separation_or_nonconvergence' else 'nonfinite_estimate'
+    return(base)
+  }
   zph <- tryCatch(unname(survival::cox.zph(fit)$table['x','p']), error=function(e) NA_real_)
-  list(status='tested', reason='', n=n, n_events=as.integer(ev), coef=unname(co['coef']),
-       se=unname(co['se(coef)']), hr=unname(co['exp(coef)']),
-       ci_low=exp(unname(co['coef']) - 1.96*unname(co['se(coef)'])),
-       ci_high=exp(unname(co['coef']) + 1.96*unname(co['se(coef)'])),
-       pvalue=unname(co['Pr(>|z|)']), ph_p=zph)
+  list(status='tested', reason='', n=n, n_events=as.integer(ev), coef=coef_v, se=se_v, hr=hr_v,
+       ci_low=ci_low_v, ci_high=ci_high_v, pvalue=p_v, ph_p=zph)
 }
 
 cox_rows <- list()
@@ -204,10 +240,24 @@ for(i in seq_len(nrow(features))) {
     }
   }
 }
-cox_columns <- c('cohort','outcome','model_type','feature_id','omics','entity','axis','effect_scale',
-                 'n','n_events','coef','se','hr','ci_low','ci_high','pvalue','ph_p','status','reason')
+cox_columns <- c('cohort','outcome','model_type','family','feature_id','omics','entity','axis','effect_scale',
+                 'n','n_events','coef','se','hr','ci_low','ci_high','pvalue','padj','selected','ph_p',
+                 'status','reason')
 cox <- if(length(cox_rows)) do.call(rbind, cox_rows) else
   data.frame(matrix(nrow=0, ncol=length(cox_columns), dimnames=list(NULL, cox_columns)))
+# Predeclared families: one BH adjustment per cohort x outcome x model_type; only tested
+# models with finite p enter a family. Every not-estimable model is retained with padj=NA.
+cox$family <- if(nrow(cox)==0L) character(0) else
+  paste('prognosis', cox$cohort, cox$outcome, cox$model_type, sep='_')
+cox$padj <- rep(NA_real_, nrow(cox))
+cox$selected <- rep(FALSE, nrow(cox))
+in_family <- cox$status=='tested' & is.finite(cox$pvalue)
+for(fam in unique(cox$family[in_family])) {
+  idx <- which(cox$family==fam & in_family)
+  cox$padj[idx] <- stats::p.adjust(cox$pvalue[idx], method='BH')
+}
+cox$selected <- cox$status=='tested' & is.finite(cox$padj) & cox$padj <= fdr
+cox <- cox[, cox_columns]
 write.csv(cox, file.path(out,'cox_models.csv'), row.names=FALSE, na='')
 
 clinical_out <- clin[clin$patient_id %in% cohorts$triple109,
@@ -221,19 +271,26 @@ events_of <- function(outcome) as.integer(sum(clinical_out[[paste0(outcome,'_eve
 elapsed <- round(as.numeric(difftime(Sys.time(), t_start, units='secs')), 1)
 jsonlite::write_json(list(
   status='complete',
-  method='candidate_axis_tracking_prespecified_tumor_values_only',
+  method='candidate_axis_tracking_prespecified_tumor_values_only_BH_within_predeclared_cohort_outcome_model_type_families',
   n_patients_triple109=length(cohorts$triple109),
   n_patients_same_batch108=length(cohorts$same_batch108),
   n_events_os_triple109=events_of('os'),
   n_events_rfs_triple109=events_of('rfs'),
   n_features_per_omics=as.list(table(features$omics)),
   n_cox_rows=nrow(cox), n_cox_tested=sum(cox$status=='tested'),
+  n_cox_padj=sum(is.finite(cox$padj)),
+  n_cox_selected=sum(cox$selected),
   n_not_estimable=sum(cox$status!='tested'),
+  fdr=fdr,
+  multiple_testing='Benjamini-Hochberg (BH) FDR within each predeclared cohort x outcome x model_type family; selected = status tested and padj <= fdr; not-estimable models retained with padj=NA',
+  families=as.list(sort(unique(cox$family))),
+  n_families=length(unique(cox$family)),
   n_missing_feature_specimens=missing_specimens,
   signature_status=signature_status, signature_sets_used=as.list(signature_used),
   signature_genes_mapped=nrow(sig_ok),
+  signature_background_genes=signature_background_genes,
+  signature_dropped_constant_features=signature_dropped_constant_features,
   exposure_scale='per_1_sd_of_tumor_values_included_in_each_model',
-  multiple_testing='BH_FDR_within_pre_declared_families_split_by_cohort_outcome_and_model_type',
   r_version=R.version.string, survival_version=as.character(packageVersion('survival')),
   gsva_version=as.character(packageVersion('GSVA')), seed=job$seed, elapsed_seconds=elapsed,
   interpretation='Single-cohort observational candidate-axis association; not flux, causality or cell of origin; deconvolution proportions are atlas-signature estimates'),

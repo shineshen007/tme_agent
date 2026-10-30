@@ -17,6 +17,8 @@ import sqlite3
 from urllib.parse import urlsplit
 import uuid
 
+from .privacy import sensitive_matches
+
 
 KINDS = frozenset({'statistical_fact', 'literature_report', 'biological_inference',
                    'hypothesis', 'know_how', 'experience'})
@@ -520,16 +522,21 @@ class KnowledgeService:
         def inspect(item):
             if isinstance(item, dict):
                 for key, val in item.items():
-                    if re.search(r'(^|_)(patient|donor|subject|sample)(_?id|_ids)$|password|api_?key|token|secret|'
+                    if re.search(r'(^|_)(patient|donor|subject|sample|case|specimen|biospecimen)(_?id|_ids)$|'
+                                 r'^(mrn|medical_record|record_number|accession|dob|date_of_birth|'
+                                 r'patient_name|address|phone|email|notes|comments)$|'
+                                 r'password|api_?key|token|secret|'
                                  r'^(run_id|row_key|artifact_path|raw_path|input_path|source_path)$', key, re.I):
                         raise KnowledgeError('Shared payload contains a private identifier or credential field')
                     inspect(val)
             elif isinstance(item, list):
                 for val in item:
                     inspect(val)
-            elif isinstance(item, str) and re.search(
-                    r'/(?:Users|home|private|tmp|Volumes)/|(?:^|\s)[A-Za-z]:[\\/]|TCGA-[A-Z0-9]{2}-[A-Z0-9]{4}', item):
-                raise KnowledgeError('Shared payload contains a private path or sample identifier')
+            elif isinstance(item, str):
+                if sensitive_matches(item, channel='wiki'):
+                    raise KnowledgeError('Shared payload contains private, clinical or credential content')
+                if re.search(r'/(?:Users|home|private|tmp|Volumes)/|(?:^|\s)[A-Za-z]:[\\/]|TCGA-[A-Z0-9]{2}-[A-Z0-9]{4}', item):
+                    raise KnowledgeError('Shared payload contains a private path or sample identifier')
         inspect(value)
 
     def publish(self, entry_id, expected_sha256, confirmed=False):

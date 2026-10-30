@@ -9,6 +9,7 @@ two-measured-omics rule.
 """
 from __future__ import annotations
 import logging
+import math
 from pathlib import Path
 import pandas as pd
 import yaml
@@ -17,6 +18,23 @@ from .statistics import invoke_r
 from .checkers import validate_prognosis_outputs, validate_schema
 
 LOG = logging.getLogger(__name__)
+
+
+def _frozen_fdr(pcfg):
+    """Frozen multiple-testing level for the predeclared prognosis families.
+
+    Never guessed: a missing or invalid config value is a configuration error, not a
+    reason to fall back to a conventional alpha.
+    """
+    if 'fdr' not in pcfg:
+        raise ValueError('Frozen config analysis.prognosis.fdr is required; refusing to guess a multiple-testing level')
+    try:
+        fdr = float(pcfg['fdr'])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'analysis.prognosis.fdr must be numeric in (0,1), got {pcfg["fdr"]!r}') from exc
+    if not math.isfinite(fdr) or not 0.0 < fdr < 1.0:
+        raise ValueError(f'analysis.prognosis.fdr must be finite and in (0,1), got {fdr!r}')
+    return fdr
 
 
 def _feature_index(path):
@@ -47,6 +65,7 @@ def analyze_prognosis(root, run, cfg, scrna_result=None):
     (run / 'prognosis').mkdir(parents=True, exist_ok=True)
     pcfg = cfg['analysis']['prognosis']
     tcfg = cfg['analysis']['tcell']
+    fdr = _frozen_fdr(pcfg)
     axes = yaml.safe_load((root / 'knowledge/tme_metabolism_axes.yaml').read_text())['axes']
     axis = next(a for a in axes if a['axis'] == pcfg['axis'])
     errors, stats = [], {}
@@ -56,7 +75,20 @@ def analyze_prognosis(root, run, cfg, scrna_result=None):
             raise FileNotFoundError('gene_mapping_audit.csv missing; transcriptomics pathway stage did not complete')
         audit = pd.read_csv(audit_path)
         audit = audit.loc[audit.selected_representative.fillna(False) & audit.symbol.notna()]
-        symbol_to_rna = dict(zip(audit.symbol.astype(str), audit.feature_id.astype(str)))
+        # Deterministic whole-transcriptome symbol map: sort the representative
+        # pairs, keep one feature per symbol and one symbol per feature. The same
+        # mapping becomes the ssGSEA rank background, not just the signature genes.
+        pairs = sorted({(str(symbol), str(feature)) for symbol, feature in
+                        zip(audit.symbol, audit.feature_id) if str(symbol).strip() and str(feature).strip()})
+        symbol_to_rna, feature_seen = {}, set()
+        for symbol, feature in pairs:
+            if symbol in symbol_to_rna or feature in feature_seen:
+                continue
+            symbol_to_rna[symbol] = feature
+            feature_seen.add(feature)
+        signature_mapping_duplicates = len(pairs) - len(symbol_to_rna)
+        signature_background = [{'symbol': symbol, 'feature_id': feature}
+                                for symbol, feature in symbol_to_rna.items()]
         annotations = pd.read_csv(run / 'inputs/metabolite_annotations.csv')
         met_index = _feature_index(run / 'metabolomics/triple109/expression.csv')
         prot_index = _feature_index(run / 'proteomics/triple109/expression.csv')
@@ -98,8 +130,11 @@ def analyze_prognosis(root, run, cfg, scrna_result=None):
                'same_batch_metadata': str(run / 'metabolomics/same_batch108/sample_metadata.csv'),
                'proportions': proportions, 'deconvolution_celltypes': tcfg['deconvolution_celltypes'],
                'signature_gmt': str(gmt), 'signature_features': signature_features,
+               'signature_background': signature_background,
+               'signature_mapping_duplicates': signature_mapping_duplicates,
                'signature_min_size': int(tcfg['signature_min_size']),
-               'min_events': int(pcfg['min_events']), 'output_dir': str(run / 'prognosis'),
+               'min_events': int(pcfg['min_events']), 'fdr': fdr,
+               'output_dir': str(run / 'prognosis'),
                'seed': cfg['study']['seed'], 'r_library_paths': cfg['runtime']['r_library_paths']}
         invoke_r(root, run, cfg, job, '06_prognosis.R')
         stats = read_json(run / 'prognosis/statistics.json')
@@ -108,18 +143,21 @@ def analyze_prognosis(root, run, cfg, scrna_result=None):
         LOG.exception('Prognosis branch failed')
         errors.append({'step': 'prognosis', 'message': str(exc), 'resolved': False})
     paths = sorted(p for p in (run / 'prognosis').rglob('*') if p.is_file() and p != result_path)
+    signature_detail = str(stats.get('signature_status', 'skipped'))
+    signature_status = ('complete' if signature_detail == 'complete' else
+                        'blocked' if signature_detail.startswith('blocked') else 'skipped')
     analyses = [{'name': 'cox_models', 'status': 'failed' if errors else 'complete',
                  'n_rows': int(stats.get('n_cox_rows', 0) or 0),
-                 'method': 'coxph_per_sd_tumor_value_univariable_plus_adjusted_sensitivity',
-                 'note': 'single-cohort observational association; PH diagnostics recorded, not used to switch models'},
+                 'method': 'coxph_per_sd_tumor_value_univariable_plus_adjusted_BH_FDR_within_predeclared_cohort_outcome_model_type_families',
+                 'note': 'single-cohort observational association; selected = tested & padj <= frozen fdr; separation/non-convergence retained as not_estimable; PH diagnostics recorded, not used to switch models'},
                 {'name': 'tcell_proportions', 'status': 'complete' if stats.get('n_patients_triple109') else 'skipped',
                  'n_rows': int(stats.get('n_patients_triple109', 0) or 0),
                  'method': 'nnls_deconvolution_estimates_from_external_atlas',
                  'note': 'estimated fractions, not measured cells; samples the same external atlas as the scrna branch'},
-                {'name': 'tcell_signature', 'status': stats.get('signature_status', 'skipped'),
+                {'name': 'tcell_signature', 'status': signature_status,
                  'n_rows': len(stats.get('signature_sets_used', []) or []),
                  'method': 'ssgsea_frozen_marker_sets_log2_normalized_counts',
-                 'note': 'RNA-derived score sharing the RNA source; not an independent evidence layer'}]
+                 'note': f'RNA-derived score sharing the RNA source; not an independent evidence layer; detail={signature_detail}'}]
     result = {'schema_version': '1.0', 'status': 'failed' if errors else 'review_only',
               'omics': 'prognosis_candidate_axis', 'cohort_id': ['triple109', 'same_batch108']
               if stats.get('n_patients_same_batch108') else ['triple109'],

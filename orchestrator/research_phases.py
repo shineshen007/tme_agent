@@ -53,6 +53,10 @@ LITERATURE_CLAIM = obj({'claim_id': {**TEXT, 'description': 'Exact id of an entr
 NOVELTY = obj({'claim_id': TEXT, 'assessment': {'enum': ['reported', 'context_extension',
                                                        'potentially_novel', 'undetermined']},
                'rationale': TEXT, 'source_ids': STRINGS})
+EVIDENCE_REVIEW = obj({'claim_id': TEXT, 'reviewed_evidence_ids': STRINGS,
+                       'counterevidence_ids': STRINGS, 'negative_result_ids': STRINGS,
+                       'assessment': {'enum': ['consistent', 'concern', 'insufficient']},
+                       'rationale': TEXT})
 SCHEMAS = {
     'analyst': obj({'interpretations': items(CLAIM), 'limitations': STRINGS}),
     'librarian': obj({'queries': {**STRINGS, 'maxItems': 32}}),
@@ -67,6 +71,7 @@ SCHEMAS = {
                                         'message': TEXT})),
                    'literature_review': items(obj({'claim_id': TEXT, 'source_id': TEXT,
                        'decision': {'enum': ['supported_as_stated', 'revise', 'insufficient']}, 'rationale': TEXT})),
+                   'evidence_review': items(EVIDENCE_REVIEW),
                    'analysis_requests': STRINGS, 'limitations': STRINGS}),
 }
 
@@ -93,15 +98,47 @@ INSTRUCTIONS = {
     'critic': 'Audit every claim against the same frozen observations, knowledge and quoted literature. Check quotation relevance, '
               'species/disease/model/assay/outcome fit, contradictions, independence, causal overstatement and experiment falsifiability. '
               'Review every claim/source literature pair. A valid quote only proves text identity, not semantic support. '
+              'Independently review counterevidence and negative results for every claim. The supplied counterevidence candidates are '
+              'deterministic registry rows for the entities each claim cites: omit none and do not substitute rows. Treat selected=false, '
+              'not_estimable, unavailable, missing and opposite-direction rows as evidence-weighted results, never as absent data. '
+              'Return exactly one evidence_review per claim: reviewed_evidence_ids must equal exactly that claim evidence_ids, '
+              'counterevidence_ids must equal exactly all supplied candidates, negative_result_ids must include every supplied negative '
+              'result ID, and assessment must be consistent, concern or insufficient with a rationale. Never truncate or omit candidates; '
+              'if the supplied review set is excessive, block instead of reviewing a subset. Accept only when every evidence review is '
+              'consistent. '
               'Accept only with zero unresolved issues; missing hypotheses alone is not a failure. '
               'Requesting new analysis creates a proposal requiring a new approved plan; no tool can execute it here.',
 }
+
+UNAVAILABLE_STATUSES = frozenset({'not_estimable', 'unavailable', 'missing'})
+MAX_COUNTEREVIDENCE_CANDIDATES = 600
+MAX_FOCUS_TERMS = 32
+FOCUS_TOKEN = re.compile(r'[A-Za-z][A-Za-z0-9_.\-]{2,}|[\u3400-\u9fff]{2,}')
+FOCUS_STOPWORDS = frozenset({'the', 'and', 'for', 'with', 'from', 'that', 'this', 'these', 'those',
+    'are', 'was', 'were', 'has', 'have', 'had', 'into', 'than', 'then', 'but', 'not', 'may',
+    'might', 'could', 'would', 'should', 'can', 'our', 'their', 'its', 'any', 'all', 'each',
+    'per', 'via', 'using', 'use', 'explain', 'describe', 'compare', 'between', 'among', 'about',
+    'which', 'what', 'when', 'where', 'why', 'how', 'does', 'did', 'is', 'of', 'in', 'on', 'to',
+    'at', 'as', 'by', 'or', 'an', 'a'})
+# Significance prose may only cite rows whose frozen selection contract verified them.
+SIGNIFICANCE_LANGUAGE = re.compile(r'significan|显著|\bfdr\b|\bp\s*[<≤]', re.I)
 
 
 def public_context(context):
     value = context.to_dict()
     return {k: value[k] for k in ('question', 'disease', 'species', 'tissue', 'analysis_unit',
                                 'cohort_id', 'contrast', 'limitations')}
+
+
+def _result_category(record):
+    """Deterministic selected/unselected/unavailable classification for one row."""
+    observation = record['observation']
+    if (observation.get('status') in UNAVAILABLE_STATUSES
+            or observation.get('adjusted_p') is None):
+        return 'unavailable'
+    if observation.get('selected') is True:
+        return 'selected'
+    return 'unselected'
 
 
 def qualitative_records(context, limit=120):
@@ -114,13 +151,10 @@ def qualitative_records(context, limit=120):
         raise ValueError('Evidence context limit must be a positive integer')
     strata = defaultdict(lambda: defaultdict(list))
     for record in context.evidence:
-        source, obs = record['source'], record['observation']
+        source = record['source']
         key = tuple(str(source.get(k, 'unknown')) for k in
                     ('omics', 'evidence_layer', 'evidence_context', 'cohort'))
-        category = ('unavailable' if obs.get('status') in {'unavailable', 'not_estimable', 'missing'}
-                    or obs.get('adjusted_p') is None else
-                    'selected' if obs.get('selected') is True else 'unselected')
-        strata[key][category].append(record)
+        strata[key][_result_category(record)].append(record)
     queues = []
     for key in sorted(strata):
         groups = [deque(sorted(strata[key][category], key=lambda r: (
@@ -159,12 +193,278 @@ def evidence_coverage(context, records):
                        for key, value in sorted(counts.items())]}
 
 
+def registry_summary(context):
+    """Complete counts over the frozen registry; never a ranking or evidence grade."""
+    dimensions = {name: defaultdict(int) for name in
+                  ('omics', 'evidence_layer', 'evidence_context', 'cohort', 'entity_type')}
+    summary = {'total': len(context.evidence), 'selected': 0, 'unselected': 0, 'unavailable': 0}
+    for record in context.evidence:
+        source, entity = record['source'], record['biological_entity']
+        summary[_result_category(record)] += 1
+        for name in ('omics', 'evidence_layer', 'evidence_context', 'cohort'):
+            dimensions[name][str(source.get(name, 'unknown'))] += 1
+        dimensions['entity_type'][str(entity.get('entity_type', 'unknown'))] += 1
+    summary.update({name: dict(sorted(values.items())) for name, values in dimensions.items()})
+    return summary
+
+
+def _search_values(record):
+    """Field projection searched by search_evidence; no model inference."""
+    entity, observation, source = (record['biological_entity'], record['observation'],
+                                   record['source'])
+    values = [str(record['evidence_id'])]
+    for name in ('entity_id', 'symbol', 'entity_type', 'namespace', 'pathway', 'cell_type'):
+        value = entity.get(name)
+        if value is not None:
+            values.append(str(value))
+    for name in ('status', 'direction', 'effect_scale'):
+        value = observation.get(name)
+        if value is not None:
+            values.append(str(value))
+    for name in ('omics', 'evidence_layer', 'evidence_context', 'cohort', 'analysis_unit',
+                 'assay', 'analysis'):
+        value = source.get(name)
+        if value is not None:
+            values.append(str(value))
+    measured = source.get('measured_omics')
+    if isinstance(measured, (list, tuple)):
+        values.extend(str(value) for value in measured)
+    return values
+
+
+def _full_record(record):
+    """Full observation row for a targeted review; the display stays bounded."""
+    return {'evidence_id': record['evidence_id'],
+            'source': copy.deepcopy(record['source']),
+            'biological_entity': copy.deepcopy(record['biological_entity']),
+            'observation': copy.deepcopy(record['observation'])}
+
+
+def _normalize_terms(terms):
+    if terms is None:
+        return []
+    if isinstance(terms, str):
+        terms = [terms]
+    if not isinstance(terms, (list, tuple, set, frozenset)):
+        raise ValueError('Evidence query terms must be a string or collection of strings')
+    if isinstance(terms, (set, frozenset)):
+        terms = sorted(terms)  # Stable query order independent of hash iteration.
+    normalized, seen = [], set()
+    for term in terms:
+        if not isinstance(term, str) or not term.strip():
+            raise ValueError('Evidence query terms must be nonempty strings')
+        value = term.strip()
+        if value.casefold() not in seen:
+            seen.add(value.casefold())
+            normalized.append(value)
+    return normalized
+
+
+def search_evidence(context, terms, limit=600):
+    """Deterministic substring search over entity, namespace, status, direction and source fields.
+
+    Returns full observation rows, not the bounded qualitative projection, with an
+    explicit `truncated` flag; ranking is never inferred from a model call. An empty
+    query matches nothing rather than dumping the registry.
+    """
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise ValueError('Evidence search limit must be a positive integer')
+    query_terms = _normalize_terms(terms)
+    folded = [term.casefold() for term in query_terms]
+    matched = []
+    if folded:
+        for record in context.evidence:
+            haystack = ' \x1f '.join(_search_values(record)).casefold()
+            if any(term in haystack for term in folded):
+                matched.append(record)
+    rows = [_full_record(record) for record in matched[:limit]]
+    return {'query_terms': query_terms, 'matched': len(matched), 'returned': len(rows),
+            'limit': limit, 'truncated': len(matched) > limit, 'observations': rows}
+
+
+def derive_focus_terms(context, cited_evidence_ids=(), extra_text=''):
+    """Deterministic targeted-retrieval terms; no model, threshold or ranking.
+
+    Administrative design fields (cohort, analysis unit) are excluded because every
+    row shares them and they would turn targeted retrieval into a registry dump.
+    """
+    terms, seen = [], set()
+
+    def add(value):
+        if value is None or len(terms) >= MAX_FOCUS_TERMS:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        key = text.casefold()
+        if key in seen or key in {'unknown', 'none', 'null', 'na', 'n/a'}:
+            return
+        seen.add(key)
+        terms.append(text)
+
+    def add_text(text):
+        for token in FOCUS_TOKEN.findall(str(text or '')):
+            token = token.strip('.-_')
+            if token and token.casefold() not in FOCUS_STOPWORDS:
+                add(token)
+
+    add_text(extra_text)
+    for name in ('question', 'disease', 'species', 'tissue'):
+        add_text(getattr(context, name, ''))
+    contrast = getattr(context, 'contrast', {})
+    if isinstance(contrast, dict):
+        for name in ('numerator', 'denominator'):
+            add_text(contrast.get(name, ''))
+    by_id = {record['evidence_id']: record for record in context.evidence}
+    for evidence_id in cited_evidence_ids:
+        record = by_id.get(evidence_id)
+        if record is None:
+            continue
+        entity = record['biological_entity']
+        for name in ('entity_id', 'symbol', 'pathway', 'cell_type'):
+            add(entity.get(name))
+    return terms
+
+
+def phase_evidence(context, focus_terms=None, *, observation_limit=120, targeted_limit=600):
+    """Bounded display + full-registry counts + full rows targeted by focus terms.
+
+    `coverage.complete` keeps its original meaning (display covers the registry).
+    `coverage.targeted_complete` only holds when the targeted query returned every
+    match, so a truncated targeted review is never reported as complete.
+    """
+    if not isinstance(observation_limit, int) or isinstance(observation_limit, bool) or observation_limit < 1:
+        raise ValueError('Evidence context limit must be a positive integer')
+    if not isinstance(targeted_limit, int) or isinstance(targeted_limit, bool) or targeted_limit < 1:
+        raise ValueError('Evidence targeted limit must be a positive integer')
+    terms = _normalize_terms(focus_terms if focus_terms is not None
+                             else derive_focus_terms(context))
+    observations = qualitative_records(context, limit=observation_limit)
+    targeted = search_evidence(context, terms, limit=targeted_limit)
+    coverage = evidence_coverage(context, observations)
+    coverage.update({'display_truncated': len(observations) < len(context.evidence),
+                     'targeted_matched': targeted['matched'],
+                     'targeted_shown': targeted['returned'],
+                     'targeted_truncated': targeted['truncated'],
+                     'targeted_complete': bool(terms) and not targeted['truncated'],
+                     'registry_complete': len(observations) == len(context.evidence)})
+    return {'observations': observations,
+            'targeted_observations': targeted['observations'],
+            'registry_summary': registry_summary(context),
+            'coverage': coverage, 'query_terms': targeted['query_terms'],
+            'targeted_matched': targeted['matched'],
+            'targeted_truncated': targeted['truncated']}
+
+
+def _analyst_cited_ids(analyst_outputs):
+    ids = []
+    if isinstance(analyst_outputs, dict):
+        for claim in analyst_outputs.get('interpretations') or []:
+            if isinstance(claim, dict):
+                ids.extend(claim.get('evidence_ids') or [])
+    return ids
+
+
+def _cluster_cited_ids(clusters):
+    ids = []
+    if isinstance(clusters, dict):
+        for cluster in clusters.get('clusters') or []:
+            if isinstance(cluster, dict):
+                ids.extend(cluster.get('supporting_evidence_ids') or [])
+                ids.extend(cluster.get('counterevidence_ids') or [])
+    return ids
+
+
+def _is_negative_result(record):
+    """Negative/non-significant/unavailable rows a Critic must not silently drop."""
+    observation = record['observation']
+    return (str(observation.get('status') or '').casefold() in UNAVAILABLE_STATUSES
+            or observation.get('adjusted_p') is None
+            or observation.get('selected') is not True)
+
+
+def _claim_cited_ids(claim):
+    ids = list(claim.get('evidence_ids') or [])
+    ids.extend(claim.get('counterevidence_ids') or [])
+    return ids
+
+
+def _entity_keys(record):
+    """Cross-namespace keys so a symbol/pathway/cell-type link is not missed."""
+    entity = record.get('biological_entity') or {}
+    keys = set()
+    for field in ('entity_id', 'symbol', 'pathway', 'cell_type'):
+        value = str(entity.get(field) or '').strip().casefold()
+        if value and value not in {'unknown', 'na', 'not_applicable', 'none'}:
+            keys.add((field, value))
+    return keys
+
+
+def counterevidence_candidates(context, claims):
+    """Deterministically derive per-claim counterevidence; refuse to truncate."""
+    by_id = {record['evidence_id']: record for record in context.evidence}
+    keys_by_id = {record['evidence_id']: _entity_keys(record) for record in context.evidence}
+    basis = {}
+    for claim in claims:
+        claim_id = claim['id']
+        cited = set(claim.get('evidence_ids') or [])
+        keys = set()
+        for evidence_id in _claim_cited_ids(claim):
+            keys |= keys_by_id.get(evidence_id, set())
+        candidates = [record for record in context.evidence
+                      if keys_by_id.get(record['evidence_id'], set()) & keys
+                      and record['evidence_id'] not in cited]
+        if len(candidates) > MAX_COUNTEREVIDENCE_CANDIDATES:
+            raise ValueError(
+                'Counterevidence candidates for claim ' + str(claim_id) + ' exceed the review budget ('
+                + str(len(candidates)) + ' > ' + str(MAX_COUNTEREVIDENCE_CANDIDATES)
+                + '); refusing to truncate and blocking instead')
+        basis[claim_id] = {
+            'reviewed_evidence_ids': list(claim.get('evidence_ids') or []),
+            'counterevidence_ids': [record['evidence_id'] for record in candidates],
+            'negative_result_ids': [record['evidence_id'] for record in candidates
+                                    if _is_negative_result(record)],
+            'candidates': candidates}
+    return basis
+
+
+def _validate_evidence_review(entries, claims, basis):
+    claim_by_id = {claim['id']: claim for claim in claims}
+    seen = set()
+    for entry in entries:
+        claim_id = entry['claim_id']
+        if claim_id in seen:
+            raise ValueError('Critic evidence review repeats a claim: ' + claim_id)
+        seen.add(claim_id)
+        if claim_id not in claim_by_id:
+            raise ValueError('Critic evidence review references unknown claim: ' + claim_id)
+    if seen != set(claim_by_id):
+        raise ValueError('Critic must review counterevidence and negative results for every claim exactly once')
+    for claim_id, claim in claim_by_id.items():
+        entry = next(item for item in entries if item['claim_id'] == claim_id)
+        if sorted(entry['reviewed_evidence_ids']) != sorted(claim.get('evidence_ids') or []):
+            raise ValueError('Critic evidence review must cite exactly the claim evidence IDs: ' + claim_id)
+        candidates = basis[claim_id]['counterevidence_ids']
+        if sorted(entry['counterevidence_ids']) != sorted(candidates):
+            raise ValueError('Critic evidence review must include every deterministic counterevidence candidate '
+                             'exactly once: ' + claim_id)
+        negatives = entry['negative_result_ids']
+        if len(negatives) != len(set(negatives)):
+            raise ValueError('Critic negative result review contains duplicate ids: ' + claim_id)
+        if not set(negatives) <= set(candidates):
+            raise ValueError('Critic negative result ids must be reviewed counterevidence candidates: ' + claim_id)
+        if not set(basis[claim_id]['negative_result_ids']) <= set(negatives):
+            raise ValueError('Critic negative result review omits negative or unavailable candidates: ' + claim_id)
+    return True
+
+
 # Identifiers and exact quotations are verified by references/source checks.
 # Numeric prose is never promoted to statistical fact. Non-narrative fields
 # must not trip the prose check merely because a DOI or digest contains digits.
 IDENTIFIER_FIELDS = {'id', 'claim_id', 'hypothesis_id', 'source_id', 'evidence_ids',
-                     'supporting_evidence_ids', 'counterevidence_ids', 'knowledge_ids',
-                     'source_ids', 'locator', 'quote', 'queries', 'context_match'}
+                     'reviewed_evidence_ids', 'supporting_evidence_ids', 'counterevidence_ids',
+                     'negative_result_ids', 'knowledge_ids', 'source_ids', 'locator', 'quote',
+                     'queries', 'context_match'}
 QUANTITY = re.compile(r'(?<![A-Za-z0-9_])\d+(?:\.\d+)?|'
     r'\b(?:n|dose|duration)\s*[:=]\s*\d+|'
     r'\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:biological|technical|independent|paired)\s+)*(?:samples?|replicates?|fold|days?|hours?|minutes?|mice|patients?)\b|'
@@ -174,6 +474,11 @@ CAUSAL = re.compile(r'导致|驱动|介导|调控|证明|证实|'
     r'regulat(?:e|es|ed|ing)|prov(?:e|es|ed|en)|demonstrat(?:e|es|ed)|establish(?:es|ed)?)\b', re.I)
 HEDGE = re.compile(r'可能|提示|推测|假设|候选|潜在|未验证|待验证|尚未|不证明|不能|不构成|'
     r'\b(?:may|might|could|suggests?|candidate|hypothes(?:is|ized|ised)|putative|not|no|cannot|uncertain)\b', re.I)
+# Correlation does not license flux, enzyme activity, uptake/secretion or cell-of-origin claims.
+OVERREACH = re.compile(r'代谢通量|通量|酶活性|催化活性|摄取率|分泌率|生成速率|'
+    r'\b(?:metabolic\s+)?flux\b|\benzyme\s+activity\b|\bcatalytic\s+activity\b|'
+    r'\buptake\s+rate\b|\bsecretion\s+rate\b|\bproduction\s+rate\b|'
+    r'细胞来源|来源细胞|\bcell[- ]of[- ]origin\b|\blineage\s+origin\b', re.I)
 
 
 def _literal_terms(session):
@@ -204,12 +509,22 @@ def _narrative_numbers(value, path=(), protected_terms=()):
             raise ValueError('Model-authored quantity in narrative field: ' + '.'.join(map(str, path)))
 
 
+def _clauses(text):
+    return re.split(r'[。.!?！？;；,，\n]+|\b(?:but|however|whereas)\b', text, flags=re.I)
+
+
 def _assertion_language(text):
     # A hedge in an adjacent sentence or contrasting clause is insufficient.
-    clauses = re.split(r'[。.!?！？;；,，\n]+|\b(?:but|however|whereas)\b', text, flags=re.I)
-    for clause in clauses:
+    for clause in _clauses(text):
         if CAUSAL.search(clause) and not HEDGE.search(clause):
             raise ValueError('Unqualified causal assertion in observational interpretation')
+
+
+def _overreach_language(text):
+    """Flux, enzyme activity, uptake/secretion and cell-of-origin need a same-clause hedge."""
+    for clause in _clauses(text):
+        if OVERREACH.search(clause) and not HEDGE.search(clause):
+            raise ValueError('Unqualified flux, activity, uptake or cell-of-origin overreach')
 
 
 def _is_retracted(record):
@@ -256,11 +571,35 @@ def _knowledge_refs(session, values):
         raise ValueError('Unknown knowledge entry reference')
 
 
+def _selection_guard(session, claim):
+    """Significance prose requires a verified, selected frozen observation.
+
+    The selection contract is absent in older/direct fixtures; those are tolerated,
+    but whenever an observation carries the contract it must verify the claim.
+    """
+    by_id = {record['evidence_id']: record for record in session.context.evidence}
+    for evidence_id in claim['evidence_ids']:
+        record = by_id.get(evidence_id)
+        if record is None:
+            continue
+        observation = record['observation']
+        selection = observation.get('selection')
+        if not isinstance(selection, dict):
+            continue
+        if selection.get('verified') is not True or observation.get('selected') is not True:
+            raise ValueError('Significance language requires verified selected evidence: ' + evidence_id)
+
+
 def _claim_guard(session, claim):
     _references(session, claim['evidence_ids'])
     _knowledge_refs(session, claim['knowledge_ids'])
     if claim['kind'] == 'biological_inference' and not claim['evidence_ids']:
         raise ValueError('Biological inference requires local evidence')
+    if SIGNIFICANCE_LANGUAGE.search(claim['statement']):
+        _selection_guard(session, claim)
+    # Hypotheses stay hypothetical: flux/activity/origin still need same-clause hedging.
+    if claim['kind'] in {'biological_inference', 'hypothesis'}:
+        _overreach_language(claim['statement'])
     # A qualifier in another sentence cannot excuse a causal assertion.
     if claim['kind'] == 'biological_inference':
         _assertion_language(claim['statement'])
@@ -268,9 +607,11 @@ def _claim_guard(session, claim):
 
 def analysts_and_librarian(session):
     context = public_context(session.context)
-    records = qualitative_records(session.context)
-    content = {'context': context, 'observations': records,
-               'coverage': evidence_coverage(session.context, records),
+    evidence = phase_evidence(session.context)
+    content = {'context': context, 'observations': evidence['observations'],
+               'targeted_observations': evidence['targeted_observations'],
+               'registry_summary': evidence['registry_summary'],
+               'coverage': evidence['coverage'], 'query_terms': evidence['query_terms'],
                'reviewed_knowledge': session.knowledge_context}
     def validate(value):
         for claim in value['interpretations']:
@@ -287,7 +628,12 @@ def analysts_and_librarian(session):
     query_context = {'disease': session.context.disease, 'species': session.context.species,
                      'private_ids': session.context.private_ids}
     try:
-        query_proposal = _call(session, 'librarian', {'context': context, 'observations': records,
+        query_proposal = _call(session, 'librarian', {'context': context,
+                              'observations': evidence['observations'],
+                              'targeted_observations': evidence['targeted_observations'],
+                              'registry_summary': evidence['registry_summary'],
+                              'coverage': evidence['coverage'],
+                              'query_terms': evidence['query_terms'],
                               'retrieval_limits': {'max_queries': query_limit}},
                               lambda value: _public_queries(value['queries'], query_context, query_limit))
     except (PrivacyViolation, LLMBudgetExceeded, LLMNonRetryableValidationError):
@@ -312,10 +658,14 @@ def integrate(session, analyst_outputs, active_ids=(), lookup_results=()):
             if set(cluster['supporting_evidence_ids']) & set(cluster['counterevidence_ids']):
                 raise ValueError('A cluster cannot label the same evidence both supporting and counterevidence')
             _assertion_language(cluster['interpretation'])
-    records = qualitative_records(session.context)
+    focus = derive_focus_terms(session.context,
+                               list(active_ids) + _analyst_cited_ids(analyst_outputs))
+    evidence = phase_evidence(session.context, focus)
     return _call(session, 'integrator', {'context': public_context(session.context),
-        'analyst_outputs': analyst_outputs, 'observations': records,
-        'coverage': evidence_coverage(session.context, records),
+        'analyst_outputs': analyst_outputs, 'observations': evidence['observations'],
+        'targeted_observations': evidence['targeted_observations'],
+        'registry_summary': evidence['registry_summary'],
+        'coverage': evidence['coverage'], 'query_terms': evidence['query_terms'],
         'reviewed_knowledge': session.knowledge_context}, validate)
 
 
@@ -401,9 +751,13 @@ def validate_draft(session, value):
 
 
 def reason(session, clusters, prior_review=None):
-    records = qualitative_records(session.context)
+    focus = derive_focus_terms(session.context, _cluster_cited_ids(clusters))
+    evidence = phase_evidence(session.context, focus)
     raw = _call(session, 'reasoner', {'context': public_context(session.context), 'clusters': clusters,
-        'observations': records, 'coverage': evidence_coverage(session.context, records),
+        'observations': evidence['observations'],
+        'targeted_observations': evidence['targeted_observations'],
+        'registry_summary': evidence['registry_summary'],
+        'coverage': evidence['coverage'], 'query_terms': evidence['query_terms'],
         'reviewed_knowledge': session.knowledge_context,
         'literature': literature_view(session), 'prior_review': prior_review},
         lambda value: validate_draft(session, value))
@@ -422,12 +776,19 @@ def reason(session, clusters, prior_review=None):
 def critic(session, synthesis, rejected):
     known = {c['id'] for c in synthesis['interpretations'] + synthesis['hypotheses']} | {'overall'}
     expected = {(r['claim_id'], r['source_id']) for r in synthesis['literature_claims']}
+    claims = synthesis['interpretations'] + synthesis['hypotheses']
+    # Deterministic review set; an excessive set blocks here, before any model call.
+    basis = counterevidence_candidates(session.context, claims)
     def validate(value):
         if any(issue['claim_id'] not in known for issue in value['issues']):
             raise ValueError('Critic references unknown claim')
         reviewed = {(r['claim_id'], r['source_id']) for r in value['literature_review']}
         if reviewed != expected or len(reviewed) != len(value['literature_review']):
             raise ValueError('Critic must review every literature claim/source pair exactly once')
+        _validate_evidence_review(value['evidence_review'], claims, basis)
+        if value['decision'] == 'accept' and any(
+                review['assessment'] != 'consistent' for review in value['evidence_review']):
+            raise ValueError('Critic accept requires every claim evidence review to be consistent')
         if value['decision'] == 'accept' and (value['issues'] or value['analysis_requests'] or
                 any(r['decision'] != 'supported_as_stated' for r in value['literature_review'])):
             raise ValueError('Critic accept has unresolved issues')
@@ -436,8 +797,31 @@ def critic(session, synthesis, rejected):
         if value['decision'] in {'block', 'revise_reasoning'} and not value['issues'] and not any(
                 r['decision'] != 'supported_as_stated' for r in value['literature_review']):
             raise ValueError('Critic rejection/revision requires a concrete unresolved issue')
+    by_id = {record['evidence_id']: record for record in session.context.evidence}
     records = qualitative_records(session.context)
+    coverage = evidence_coverage(session.context, records)
+    coverage['display_truncated'] = len(records) < len(session.context.evidence)
+    focus = derive_focus_terms(session.context, [evidence_id for claim in claims
+                                                 for evidence_id in claim.get('evidence_ids') or []])
+    targeted, seen = [], set()
+    for claim in claims:
+        for evidence_id in claim.get('evidence_ids') or []:
+            record = by_id.get(evidence_id)
+            if record is not None and evidence_id not in seen:
+                seen.add(evidence_id)
+                targeted.append(_full_record(record))
+    for entry in basis.values():
+        for record in entry['candidates']:
+            if record['evidence_id'] not in seen:
+                seen.add(record['evidence_id'])
+                targeted.append(_full_record(record))
     return _call(session, 'critic', {'context': public_context(session.context), 'draft': synthesis,
-        'observations': records, 'coverage': evidence_coverage(session.context, records),
+        'observations': records, 'coverage': coverage,
+        'registry_summary': registry_summary(session.context),
+        'targeted_observations': targeted, 'query_terms': focus,
+        'counterevidence_candidates': {claim_id: [_full_record(record) for record in entry['candidates']]
+                                      for claim_id, entry in basis.items()},
+        'negative_result_ids': {claim_id: entry['negative_result_ids']
+                                for claim_id, entry in basis.items()},
         'reviewed_knowledge': session.knowledge_context,
         'literature': literature_view(session), 'rejected': rejected}, validate)

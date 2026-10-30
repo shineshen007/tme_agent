@@ -208,6 +208,30 @@ pipeline and per-file md5 checksums are recorded in `dataset.json`
 (`provenance_status: recorded`). Only protein-coding genes ship, so TPM column sums are below the
 full-transcriptome 1e6 — never rescale them or merge them with another TPM dataset.
 
+### Pathway scoring trigger
+
+A request that names a gene-set scoring method — `GSVA`, `ssGSEA`, `PLAGE`, `ZSCORE`,
+"pathway score", "gene set score", 通路评分, 通路得分 or 基因集评分 — and asks for gene-set
+scores switches the plan into a frozen protocol. The plan preview then shows the trigger words,
+the methods, the adjusted-p threshold with its source, the group test, the cross-method consensus
+rule and what the scores do and do not mean; confirm once and it runs.
+
+- Four methods run by default (`ssgsea`, `plage`, `zscore`, `gsva`) through the GSVA
+  parameter-object API. Name exactly one method in the request to run only that one.
+- Each method is judged on its own BH-adjusted p at one frozen threshold (0.05 from
+  `analysis.pathway_scoring.adjusted_p_max`, or the value you state in the request). Cross-method
+  agreement is reported as a count; scores are never averaged or rank-combined across methods.
+- Outputs are five files under `analysis/<task-id>/`: sample-level scores, per-method group
+  tests, a significant-pathway table with the consistency count, a gene-set audit, and a protocol
+  report with versions, seed and dropped features.
+- Before the task completes, an independent verifier recomputes every rank test, every BH
+  correction, every selection flag and every consistency count from the sample-level scores, and
+  fails the task on any mismatch. It cannot prove the scores came from the named GSVA method —
+  that is checked separately on synthetic data by `scripts/32_gsva_multimethod_reference.R`.
+  Passing these checks is engineering verification, not scientific validation.
+
+Details, field definitions and limits: `docs/PATHWAY_SCORING.md`.
+
 Natural-language tasks are the public entry point. Historical fixed study pipelines need a
 separate cohort configuration and cannot be restored from the public template. Model-generated
 explanations and code are **not** independent validation — confirm the statistical unit,

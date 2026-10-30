@@ -150,15 +150,31 @@ def test_invalid_or_ambiguous_rows_are_not_silently_reinterpreted(tmp_path, tabl
         adapter.load()
 
 
-def test_explicit_selection_only_and_unknown_scale_no_direction(tmp_path):
+def test_explicit_selection_requires_frozen_thresholds_and_unknown_scale_no_direction(tmp_path):
     spec = research_spec()
     spec["evidence_outputs"][0]["columns"]["selected"] = "selected"
+    spec["evidence_outputs"][0]["columns"]["status"] = "status"
     spec["evidence_outputs"][0]["effect_scale"] = "unknown"
-    adapter, _, _, _ = completed_task(tmp_path, research=spec, table="gene,log2FC,p,padj,n,selected\nA,-1,0.001,0.01,5,FALSE\n")
+    spec["evidence_outputs"][0]["selection"] = {"adjusted_p_max": 0.05}
+    adapter, _, _, _ = completed_task(tmp_path, research=spec, table="gene,log2FC,p,padj,n,selected,status\nA,-1,0.001,0.01,5,TRUE,tested\n")
     context = adapter.load()
-    assert context.evidence[0]["observation"]["selected"] is False
+    assert context.evidence[0]["observation"]["selected"] is True
+    assert context.evidence[0]["observation"]["selection"]["verified"] is True
     assert context.evidence[0]["observation"]["direction"] == "unknown"
     assert build_context_evidence_graph(context)["edges"] == []
+
+
+def test_selected_without_thresholds_is_never_promoted_to_significance(tmp_path):
+    spec = research_spec()
+    spec["evidence_outputs"][0]["columns"]["selected"] = "selected"
+    adapter, _, _, _ = completed_task(tmp_path, research=spec,
+                                      table="gene,log2FC,p,padj,n,selected\nA,-1,0.001,0.01,5,TRUE\n")
+    context = adapter.load()
+    observation = context.evidence[0]["observation"]
+    assert observation["selected"] is None
+    assert observation["selection"]["status"] == "not_verifiable"
+    assert observation["selection"]["raw_selected"] is True
+    assert "no_frozen_selection_thresholds" in observation["selection"]["reasons"]
 
 
 def test_source_verifier_rejects_fabricated_observation(tmp_path):
@@ -268,3 +284,94 @@ def test_legacy_rejects_incomplete_source_freeze(tmp_path):
     write_json(path, payload)
     with pytest.raises(ValueError, match="does not cover"):
         LegacyResearchAdapter(tmp_path, run, {}).load()
+
+
+def selection_spec(**selection):
+    spec = research_spec()
+    output = spec["evidence_outputs"][0]
+    output["columns"].update({"selected": "selected", "status": "status"})
+    output["selection"] = {"adjusted_p_max": 0.05, **selection}
+    return spec
+
+
+def test_frozen_selection_accepts_consistent_rows(tmp_path):
+    adapter, _, _, _ = completed_task(
+        tmp_path, research=selection_spec(),
+        table="gene,log2FC,p,padj,n,selected,status\n"
+              "A,-1.2,0.001,0.01,20,TRUE,tested\n"
+              "B,0.1,0.8,0.9,20,FALSE,tested\n")
+    context = adapter.load()
+    first, second = context.evidence
+    assert first["observation"]["selected"] is True
+    assert first["observation"]["selection"]["status"] == "verified_selected"
+    assert second["observation"]["selected"] is False
+    assert second["observation"]["selection"]["status"] == "verified_not_selected"
+
+
+@pytest.mark.parametrize("table,error", [
+    ("gene,log2FC,p,padj,n,selected,status\nA,-1,0.001,0.01,20,FALSE,tested\n",
+     "disagrees with frozen"),
+    ("gene,log2FC,p,padj,n,selected,status\nA,-1,0.5,0.5,20,TRUE,tested\n",
+     "disagrees with frozen"),
+    ("gene,log2FC,p,padj,n,selected,status\nA,-1,NA,NA,20,TRUE,not_estimable\n",
+     "inconsistent with frozen"),
+    ("gene,log2FC,p,padj,n,selected,status\nA,-1,0.001,0.01,2,TRUE,tested\n",
+     "fewer_than_three"),
+    ("gene,log2FC,p,padj,n,selected,status\nA,-1,0.001,0.0001,20,TRUE,tested\n",
+     "adjusted_p is smaller"),
+])
+def test_inconsistent_frozen_selection_is_rejected(tmp_path, table, error):
+    adapter, _, _, _ = completed_task(tmp_path, research=selection_spec(), table=table)
+    with pytest.raises(ValueError, match=error):
+        adapter.load()
+
+
+def test_effect_threshold_and_analysis_unit_count_are_enforced(tmp_path):
+    spec = selection_spec(effect_min=1.0, analysis_unit_count=20)
+    adapter, _, _, _ = completed_task(
+        tmp_path / "effect", research=spec,
+        table="gene,log2FC,p,padj,n,selected,status\nA,0.5,0.001,0.01,20,TRUE,tested\n")
+    with pytest.raises(ValueError, match="disagrees with frozen"):
+        adapter.load()
+    adapter, _, _, _ = completed_task(
+        tmp_path / "units", research=selection_spec(analysis_unit_count=19),
+        table="gene,log2FC,p,padj,n,selected,status\nA,1.2,0.001,0.01,20,TRUE,tested\n")
+    with pytest.raises(ValueError, match="analysis_unit_count_mismatch"):
+        adapter.load()
+
+
+def test_require_selection_rejects_unfrozen_selected_column():
+    spec = research_spec()
+    spec["evidence_outputs"][0]["columns"]["selected"] = "selected"
+    with pytest.raises(ValueError, match="selected column requires frozen"):
+        validate_research_plan(spec, ["tables/de.csv"], "patient", require_selection=True)
+    spec["evidence_outputs"][0]["selection"] = {"adjusted_p_max": 0.05}
+    validate_research_plan(spec, ["tables/de.csv"], "patient", require_selection=True)
+
+
+def test_selection_threshold_without_adjusted_p_binding_is_rejected():
+    spec = research_spec()
+    spec["evidence_outputs"][0]["columns"].pop("adjusted_p")
+    spec["evidence_outputs"][0]["selection"] = {"adjusted_p_max": 0.05}
+    with pytest.raises(ValueError, match="adjusted_p column"):
+        validate_research_plan(spec, ["tables/de.csv"], "patient")
+
+
+def test_source_verifier_rejects_reclassified_selection(tmp_path):
+    adapter, _, _, _ = completed_task(tmp_path, research=selection_spec(),
+                                      table="gene,log2FC,p,padj,n,selected,status\nA,-1.2,0.001,0.01,20,TRUE,tested\n")
+    context = adapter.load()
+    context.evidence[0]["observation"]["selected"] = False
+    with pytest.raises(ValueError, match="selection selected differs"):
+        verify_context_sources(tmp_path, context)
+
+
+def test_selection_thresholds_must_come_from_user_or_config_parameters():
+    from multiomics_tui.task_planner import _validate_selection_sources
+    research = {"evidence_outputs": [{"selection": {"adjusted_p_max": 0.05}}]}
+    with pytest.raises(ValueError, match="user/config"):
+        _validate_selection_sources(research, [])
+    _validate_selection_sources(research, [{"name": "fdr", "value": "0.05", "source": "user"}])
+    _validate_selection_sources(research, [{"name": "fdr", "value": "0.05", "source": "config:analysis.de.padj"}])
+    with pytest.raises(ValueError, match="user/config"):
+        _validate_selection_sources(research, [{"name": "fdr", "value": "0.10", "source": "user"}])

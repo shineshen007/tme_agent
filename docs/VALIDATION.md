@@ -2,6 +2,40 @@
 
 完成标记：`LOCAL_PUBLIC_RELEASE_VALIDATED_NATIVE_PENDING`。当前发布状态见 `CURRENT_STATE.md`；本文件保留历次本地验收记录。
 
+## 2026-10-28 修复规划被隐私误判阻断（未发布）
+
+- 现象：请求“计算TCGA-LIHC中KEGG通路gsva score”在规划阶段 `Planning blocked`，错误为 `PrivacyViolation: Outbound payload contains private or clinical content (contact)`。
+- 根因：规划输入选择提示把 `catalog()` 全量清单发给模型，`data/raw/_gdc_cache/` 的 UUID 目录名（如 `1e1587e8-8938-4578-8529-…`）中 `8938-4578-8529` 命中电话正则。清单 160 条中 159 条来自该缓存。
+- 修复：`CONTACT` 改为要求电话语义（标签 / `+` 国际格式 / 独立 3-3-4 分组），两侧 lookaround 排除 UUID 片段；`catalog()` 跳过 `_`/`.` 开头路径；`/cd` 对已有工作区补 `seed_datasets()`；无基因集资源时规划提示要求向用户索取。
+- 验证：`tests/test_privacy.py` 39 项、`test_builtin_datasets.py` 23 项、`test_task_planner_portable.py` 31 项、`test_cd_workspace.py` 全通过；完整回归 **689 passed / 8 skipped / 1 warning**（316.50 s）；`public_release audit` 224 项通过。
+- 真实复现确认：同一 selector 提示现通过隐私守卫（fixture key 时载荷到达 transport）；`catalog()` 在本工作区只返回 2 条 examples，无 `_gdc_cache` 条目。
+- 保持拦截：`+86 138 0013 8000`、`138-0013-8000`、`contact: 555-123-4567`、`555 123 4567`、`555.123.4567`、`jane.doe@example.org`、`Tel 010-12345678`、`cell 5551234567`、`联系电话：…` 仍全部阻断；其余 8 类模式未改动。
+- 未做：未清理 2.0 GB `data/raw/_gdc_cache/`（本地构建缓存，可能仍需复用），只是不再进入模型可见清单；未自动下载 KEGG/MSigDB 基因集。
+
+## 2026-10-28 GSVA 多方法通路评分协议（未发布）
+
+- 范围：可配置触发关键词、本地冻结的四方法 GSVA 协议（`ssgsea`/`plage`/`zscore`/`gsva`，走 `*Param()` 参数对象）、每方法独立 BH 判定、跨方法一致性计数、五张输出表与 Lead-owned 独立校验器；新增 `orchestrator/pathway_scoring.py`、`scripts/32_gsva_multimethod_reference.R`、`tests/test_pathway_scoring.py`、`docs/PATHWAY_SCORING.md`。
+- 触发与协议：关键词来自 `analysis.pathway_scoring.trigger`（默认含中英文 9 个词），命中且计划声明评分才冻结协议；命中但计划不评分时只加一条可见限制。阈值来源顺序为请求引用 → 配置 `adjusted_p_max` → 失败（不静默默认）。`-log10FDR` 等图形标注不会被误判为阈值；`FDR 5%` 视为 0.05。
+- 新增测试 `tests/test_pathway_scoring.py`：**53 项通过**（离线 50 项 + 真实 R 3 项），真实 R 部分 46.9 s。离线覆盖触发/方法选择/阈值来源/协议冻结/计划闸门/预览披露/校验器逐项篡改拒绝（padj、selected、pvalue、status、methods_tested、consensus、删通路、删样本、改报告字段、改阈值、越界词表、缺协议）；真实 R 覆盖四方法产出五表 → 校验器通过、`32_gsva_multimethod_reference.R` 逐方法重算 `max_abs_error ≤ 1e-8`、篡改得分表被参考脚本拒绝。
+- 真实 R 实测（本机 R 4.5.2 + 项目库 `.runtime/r-library` GSVA 2.4.9）：四方法在 40 基因 × 8 样本合成矩阵上全部成功，参考脚本 `max_abs_error`：`ssgsea` 5.0e-16、`plage` 5.0e-16、`zscore` 4.7e-15、`gsva` 5.0e-16；零方差特征 2 个被剔除并记入 `dropped_features`；全零配对差值通路被标 `not_estimable/zero_difference` 且保留。
+- 原生验收探针：`native_dist/v8_acceptance.py` 改为依次执行四个参数对象并逐方法记录 `gsva_methods`，实测 `ssgsea/plage/zscore/gsva` 全部 `ok`；保留 `plageParam` 与 `method="plage"` 回退路径。
+- 计划 schema 升至 `tui_task_plan_v7`（提示内容变化导致缓存身份变化），同步更新 4 处既有断言。
+- 发行审计：`python -m native_dist.public_release audit` **224 项通过**（新增 4 个文件已声明）；未 bump VERSION、未创建 tag。
+- 真实 TCGA-LIHC 结构冒烟（非科学结论）：用 `datasets/TCGA-LIHC/expression/counts_paired.rds`（19,938 × 100，50 对）+ `metadata/samples_paired.csv` + 6 个从真实基因符号随机抽取的合成基因集（25/40/60/80/120/200 个成员）跑四方法。零方差特征 670 个被剔除（19,268 × 100 参与评分）；四方法耗时 ssgsea 0.68 s、plage 0.37 s、zscore 0.32 s、gsva 1.52 s；`verify_outputs` 通过（6 基因集 × 4 方法 = 24 行 tested，20 行 selected，n_units=50，not_estimable 0）；`scripts/32_gsva_multimethod_reference.R` 在同一真实矩阵上重算，`max_abs_error` ssgsea 5.6e-16、plage 5.0e-16、zscore 4.4e-14、gsva 5.0e-16。
+- 该冒烟暴露的正确行为：6 个随机基因集全部 `selected=TRUE`，但 `direction_consistent=FALSE`，因此 `consensus=0` —— 显著性不等于跨方法方向一致，协议如实区分二者而不是把显著当共识。
+- 已知限制：运行期校验器只能证明表内自洽与统计规则正确，**不能**证明得分矩阵由点名方法产生（方法真实性靠合成数据参考脚本）；四种方法量纲不同，故不合并分数；msigdbr 在本机离线不可用，基因集必须由用户提供 GMT/RDS 并经输入探测；无真实模型外发授权，未做真实队列科学结论。
+
+## 2026-10-28 科学性与统计正确性修复（未发布）
+
+- 范围：冻结选择阈值与证据一致性、完整 Evidence Registry 检索与 Critic 反证、Cox 家族内 BH 与不可估计状态、scRNA signature matrix/pseudobulk/参考审计、模型/文献/Wiki 隐私阻断、数值一致性、合成与真实结构 benchmark。
+- 完整回归：**618 passed / 8 skipped / 1 warning**，281.95 s。无失败；未通过削弱断言取得绿色。跳过项：6 项模拟去卷积 benchmark 为 `NOT_EVALUABLE`（本机 R 缺 nnls/limma/Seurat，未安装任何包），其余为既有平台条件跳过。
+- 真实 R 执行：合成 `06_prognosis.R` 运行通过，输出 `family/padj/selected`，`validate_prognosis_outputs` 独立重算 family BH 通过；合成分离模型被标为 `not_estimable` 而非 `tested`。`tests/test_prognosis_r.py` 9 项、`test_prognosis_validation.py` 32 项通过。
+- scRNA：`signature_matrix()` 隔离执行测试通过（union marker 全量 CPM，无 forced-zero；对旧实现可检出 12/18 个 forced-zero 条目）；`validate_scrna_outputs` 26 项通过。完整 05 R 管线因缺 Seurat/presto/nnls/limma 未执行，保持 `NOT_EVALUABLE`。
+- 隐私：模型/文献/Wiki 外发阻断测试通过；本地统计任务状态保持 succeeded。
+- 科学 benchmark：`scripts/90_scientific_benchmark.py` 合成 guard 用例全部 passed，TCGA-LIHC 真实结构检查通过（100 样本/50 对）；`scientific_validation_status=NOT_EVALUABLE`。真实模型、真实多组学、真实去卷积和人工审阅仍未验收。
+- 发行审计：`python -m native_dist.public_release audit` 220 项通过；未 bump VERSION、未创建 tag。
+- 已知限制：本机无 Seurat/presto/nnls/limma，05 全流程只能做可解析数学单测和跳过；没有真实模型外发授权；没有真实多组学输入。
+
 ## 2026-10-27 v8.3.0 源码交付验证
 
 - VERSION 升至 8.3.0，包含此前未打标签的 GDC 数据改动与科研专家首版。

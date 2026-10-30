@@ -454,7 +454,8 @@ def build_context_evidence_graph(context):
             'source_artifacts': copy_records(context.artifacts),
             'measured_omics': sorted(measured),
             'limitations': ['Modality coverage is not independent replication or causal evidence.',
-                            'An edge records an estimate; selected=null means no approved selection binding.']}
+                            'An edge records an estimate; selected=null means no approved selection binding.',
+                            'A selected call is deterministic evidence only when selection.verified=true from frozen plan thresholds.']}
 
 
 def copy_records(records):

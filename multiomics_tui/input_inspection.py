@@ -8,7 +8,7 @@ import sys
 import uuid
 from pathlib import Path
 
-VERSION = 'input_probe_v1'
+VERSION = 'input_probe_v2'
 SUPPORTED = {'.csv', '.tsv', '.rds', '.gmt'}
 
 

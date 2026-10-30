@@ -754,7 +754,7 @@ class MultiomicsApp(App):
         if status in {"failed", "killed", "blocked"}:
             lines = [self._say(f"Task {status}.", "任务未完成：" + {"failed": "失败", "killed": "已停止", "blocked": "受阻"}[status])]
             stage = state.get("failure_stage")
-            labels = {"generation":"代码生成", "preflight":"预检", "execution":"分析执行", "verification":"产物验证"}
+            labels = {"generation":"代码生成", "preflight":"预检", "execution":"分析执行", "verification":"产物验证", "start":"任务启动"}
             lines.append(self._say("Failure stage: " + (stage or "unknown"), "失败阶段：" + labels.get(stage,"未知")))
             if state.get("failed_step"):
                 lines.append(self._say("Step: ", "步骤：") + state["failed_step"])
@@ -779,17 +779,23 @@ class MultiomicsApp(App):
         manifest_path = task_dir / "result_manifest.json"
         report_path = task_dir / "reports/task_report.md"
         try:
+            from .task_runner import file_hash
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if (manifest.get("task_id") != task_id or
                     manifest.get("plan_hash") != state.get("approved_hash") or
-                    not report_path.is_file() or not isinstance(manifest.get("outputs"), list)):
+                    report_path.is_symlink() or
+                    not report_path.is_file() or
+                    not report_path.resolve().is_relative_to(task_dir) or
+                    not isinstance(manifest.get("outputs"), list)):
                 raise ValueError("result manifest or report does not match the approved task")
             outputs = manifest["outputs"]
             for item in outputs:
                 relative = Path(item["path"])
+                target = task_dir / relative
                 if (relative.is_absolute() or ".." in relative.parts or
-                        not (task_dir / relative).is_file() or
-                        (task_dir / relative).stat().st_size != item["bytes"]):
+                        target.is_symlink() or not target.is_file() or
+                        target.stat().st_size != item["bytes"] or
+                        file_hash(target) != item.get("sha256")):
                     raise ValueError(f"output is missing or changed: {relative}")
             plan = self.session.tasks.plan(task_id)
         except (OSError, ValueError, KeyError, TypeError) as exc:

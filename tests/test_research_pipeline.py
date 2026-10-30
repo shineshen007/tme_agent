@@ -37,9 +37,10 @@ def completed_task(root, omics=("transcriptomics",), question=None):
     for assay in omics:
         specs.append({"path": f"tables/{assay}.csv", "layer": "de", "omics": assay,
             "entity_type": "protein" if assay == "proteomics" else "gene", "namespace": "fixture.symbol",
-            "columns": {"entity_id": "entity", "effect": "effect", "p_value": "p", "adjusted_p": "padj", "n": "n", "selected": "selected"},
+            "columns": {"entity_id": "entity", "effect": "effect", "p_value": "p", "adjusted_p": "padj", "n": "n",
+                        "selected": "selected", "status": "status"},
             "effect_scale": "log2_fold_change", "row_key": ["entity"], "measured_omics": [assay],
-            "evidence_context": "measured_evidence"})
+            "evidence_context": "measured_evidence", "selection": {"adjusted_p_max": 0.05}})
     outputs = [s["path"] for s in specs] + ["reports/analysis.txt"]
     context = {"question": question or "Explain expression changes and possible mechanism in colorectal cancer",
                "disease": "colorectal cancer", "species": "Homo sapiens", "tissue": "colon",
@@ -59,7 +60,7 @@ def completed_task(root, omics=("transcriptomics",), question=None):
     for name in ("scripts", "tables", "reports"):
         (folder / name).mkdir(parents=True)
     for spec in specs:
-        (folder / spec["path"]).write_text("entity,effect,p,padj,n,selected\nGENE_A,-1.2,0.001,0.01,20,TRUE\nGENE_B,0.1,0.8,0.9,20,FALSE\nGENE_C,NA,NA,NA,NA,FALSE\n")
+        (folder / spec["path"]).write_text("entity,effect,p,padj,n,selected,status\nGENE_A,-1.2,0.001,0.01,20,TRUE,tested\nGENE_B,0.1,0.8,0.9,20,FALSE,tested\nGENE_C,NA,NA,NA,NA,FALSE,not_estimable\n")
     (folder / "reports/analysis.txt").write_text("All synthetic results including negative and NA rows.\n")
     script = folder / "scripts/step_01.py"
     script.write_text("# approved synthetic fixture, never executed\n")
@@ -147,10 +148,22 @@ class StubClient:
                     "locator": "abstract:1", "rationale": "This motivates a competing explanation only.",
                     "context_match": {k: "unknown" for k in ("species", "disease", "tissue", "model", "assay", "outcome")}}]
         elif role == "critic":
+            claims = content["draft"]["interpretations"] + content["draft"]["hypotheses"]
+            candidates = content.get("counterevidence_candidates", {})
+            negatives = content.get("negative_result_ids", {})
+            evidence_review = [{
+                "claim_id": claim["id"],
+                "reviewed_evidence_ids": list(claim["evidence_ids"]),
+                "counterevidence_ids": [row["evidence_id"] for row in candidates.get(claim["id"], [])],
+                "negative_result_ids": list(negatives.get(claim["id"], [])),
+                "assessment": "consistent",
+                "rationale": "Fixture reviewed every supplied counterevidence and negative result."
+            } for claim in claims]
             result = {"decision": self.critic_decision, "issues": [], "analysis_requests": [], "limitations": [],
                       "literature_review": [{"claim_id": r["claim_id"], "source_id": r["source_id"],
                          "decision": "supported_as_stated", "rationale": "Indirect contextual support only."}
-                        for r in content["draft"]["literature_claims"]]}
+                        for r in content["draft"]["literature_claims"]],
+                      "evidence_review": evidence_review}
             if self.critic_decision == "request_analysis":
                 result["analysis_requests"] = ["Assess composition with an explicitly approved additional analysis."]
             elif self.critic_decision in {"block", "revise_reasoning"}:
@@ -322,5 +335,21 @@ def test_private_context_is_blocked_before_model_or_literature_calls(tmp_path):
     client, literature = StubClient(), StubLiterature()
     result = run(tmp_path, task_id, client, literature)
     assert result["research_status"] == "blocked", result
-    assert "private identifier" in result["error"]
+    assert "private" in result["error"]
     assert client.calls == literature.calls == []
+
+
+def test_research_refuses_a_symlinked_research_directory(tmp_path):
+    store, task_id, folder = completed_task(tmp_path)
+    external = tmp_path / "external_research"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_text("ORIGINAL_SENTINEL", encoding="utf-8")
+    (folder / "research").symlink_to(external)
+    with pytest.raises(ValueError, match="symbolic link"):
+        run_task_research(tmp_path, task_id, cfg=CFG, client=object())
+    assert sentinel.read_text(encoding="utf-8") == "ORIGINAL_SENTINEL"
+    assert not any(path.is_dir() for path in external.iterdir())
+    state = store.get(task_id)
+    assert state["research_status"] == "blocked"
+    assert state["scientific_status"] == "NOT_EVALUABLE"

@@ -18,7 +18,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .privacy import redact_credentials, sensitive_matches
+
 LOG = logging.getLogger(__name__)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward an authenticated request to another origin or a downgrade."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class LLMError(RuntimeError):
@@ -89,7 +98,8 @@ class LLMClient:
         self.run = Path(run)
         self.cfg = cfg['llm']
         self.transport = transport or self._http_post
-        self.private = private_id_pattern(registry_ids or [])
+        self.private_ids = [str(i) for i in (registry_ids or []) if str(i)]
+        self.private = private_id_pattern(self.private_ids)
         self.audit_dir = Path(audit_dir) if audit_dir else self.run / 'report/agent/calls'
         self.cache_dir = self.root / '.cache/llm'
         self.seq = 0
@@ -100,7 +110,9 @@ class LLMClient:
     # ---------- transport ----------
     def _http_post(self, url, headers, body, timeout):
         request = urllib.request.Request(url, data=body, headers=headers, method='POST')
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # A redirect is an error: credentials must never cross origins. Both the
+        # base client and CompatibleClient inherit this transport.
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
             return response.status, response.read().decode('utf-8')
 
     def _endpoint(self):
@@ -108,10 +120,17 @@ class LLMClient:
         return f'{base}/chat/completions'
 
     def _guard(self, text):
-        if self.private is not None:
-            hit = self.private.search(text)
-            if hit:
-                raise PrivacyViolation(f'Outbound payload contains a cohort identifier: {hit.group(1)}')
+        try:
+            credential = self._api_key_for_request()
+        except LLMError:
+            credential = ''
+        if credential and credential in text:
+            raise LLMConfigError('Outbound payload contains the configured credential; remove it and retry.')
+        hits = sensitive_matches(text, self.private_ids, channel='model')
+        if hits:
+            # Never echo the sensitive value into an error, log or audit record.
+            kinds = ", ".join(sorted({kind for kind, _ in hits}))
+            raise PrivacyViolation(f'Outbound payload contains private or clinical content ({kinds})')
         return text
 
     # ---------- caching ----------
@@ -279,8 +298,9 @@ class LLMClient:
             request_body['thinking'] = {'type': mode}
         body = json.dumps(request_body).encode()
         self._guard(body.decode('utf-8'))
+        credential = self._api_key_for_request()
         headers = {'Content-Type': 'application/json',
-                   'Authorization': f'Bearer {self._api_key_for_request()}'}
+                   'Authorization': f'Bearer {credential}'}
         timeout = self.cfg.get('timeout_seconds', 120)
         last = None
         for attempt in range(int(self.cfg.get('max_retries', 2)) + 1):
@@ -297,12 +317,16 @@ class LLMClient:
                 latency = round(time.time() - started, 2)
                 entry.update(http_status=status, latency_s=latency)
                 if status >= 400:
-                    entry['error'] = f'HTTP {status}: {text[:400]}'
+                    detail = redact_credentials(text[:400], [credential])
+                    entry['error'] = f'HTTP {status}: {detail}'
                     if status in {429, 500, 502, 503, 504}:
-                        last = LLMTransportError(f'HTTP {status}: {text[:200]}')
+                        last = LLMTransportError(f'HTTP {status}: {detail[:200]}')
                         time.sleep(min(2 ** attempt, 8))
                         continue
                     raise LLMTransportError(entry['error'])
+                if (credential and credential in text) or redact_credentials(text, [credential]) != text:
+                    raise LLMValidationError(
+                        'Service response echoed a credential; refusing to cache or audit it.')
                 payload = json.loads(text)
                 choice = payload['choices'][0]
                 finish = choice.get('finish_reason')
@@ -313,7 +337,8 @@ class LLMClient:
                 completion = usage.get('completion_tokens')
                 answer = completion - reasoning if isinstance(completion, int) and isinstance(reasoning, int) else None
                 entry.update(finish_reason=finish, usage=usage, reasoning_tokens=reasoning,
-                             answer_tokens=answer, content_characters=len(content), response_content=content)
+                             answer_tokens=answer, content_characters=len(content),
+                             response_content=redact_credentials(content, [credential]))
                 # Charge once before checking length/JSON; failed replies still cost tokens.
                 self._charge(usage)
                 if finish == 'length':
@@ -327,7 +352,11 @@ class LLMClient:
                     raise LLMValidationError(f'Model did not return valid JSON: {exc}') from exc
                 return parsed, usage, latency, attempt
             except urllib.error.HTTPError as exc:
-                detail = exc.read().decode('utf-8', 'replace')[:200] if hasattr(exc, 'read') else str(exc)
+                try:
+                    detail = exc.read().decode('utf-8', 'replace')[:200]
+                except Exception:
+                    detail = str(exc)
+                detail = redact_credentials(detail, [credential])
                 entry.update(http_status=exc.code, error=f'HTTP {exc.code}: {detail}',
                              latency_s=round(time.time() - started, 2))
                 if exc.code in {429, 500, 502, 503, 504}:
@@ -336,18 +365,18 @@ class LLMClient:
                     continue
                 raise LLMTransportError(entry['error']) from exc
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                last = LLMTransportError(f'network error: {exc}')
+                last = LLMTransportError(redact_credentials(f'network error: {exc}', [credential]))
                 entry.update(error=str(last), latency_s=round(time.time() - started, 2))
                 time.sleep(min(2 ** attempt, 8))
                 continue
             except Exception as exc:
-                entry['error'] = str(exc)
+                entry['error'] = redact_credentials(str(exc), [credential])
                 raise
             finally:
                 if entry['latency_s'] is None:
                     entry['latency_s'] = round(time.time() - started, 2)
                 entry['tokens_used_after'] = self.tokens_used
-        raise LLMTransportError(str(last))
+        raise LLMTransportError(redact_credentials(str(last), [credential]))
 
     def _api_key_for_request(self):
         return read_api_key({'llm': self.cfg})
@@ -372,9 +401,18 @@ class LLMClient:
         # call's responses, rather than differences in the shared budget counter.
         record['charged_tokens'] = record['total_usage']['total_tokens']
         record['total_latency_s'] = round(sum(entry.get('latency_s', 0) or 0 for entry in attempts), 2)
+        try:
+            credential = self._api_key_for_request()
+        except LLMError:
+            credential = ''
+        # Provider bodies, successful content and request messages may all echo
+        # a credential. Redact the complete record before it reaches disk or the
+        # in-memory call summary.
+        text = redact_credentials(json.dumps(record, ensure_ascii=False, indent=1), [credential])
+        record = json.loads(text)
         self.audit_dir.mkdir(parents=True, exist_ok=True)
         path = self.audit_dir / f'{record["call"]:03d}_{record["role"]}.json'
-        path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding='utf-8')
+        path.write_text(text, encoding='utf-8')
         self.calls.append({k: record.get(k) for k in
                            ['call', 'role', 'schema', 'cache_hit', 'latency_s', 'retries', 'validation', 'usage', 'error']})
         LOG.info('LLM call %s role=%s cache_hit=%s', record['call'], record['role'], record['cache_hit'])

@@ -34,13 +34,29 @@
     },
     "observation": {
       "type": "object", "additionalProperties": false,
-      "required": ["effect", "p_value", "adjusted_p", "n", "selected", "status", "effect_scale", "claim_type", "direction", "missing_fields"],
+      "required": ["effect", "p_value", "adjusted_p", "n", "selected", "selection", "status", "effect_scale", "claim_type", "direction", "missing_fields"],
       "properties": {
         "effect": {"type": ["number", "null"]},
         "p_value": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
         "adjusted_p": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
         "n": {"type": ["integer", "null"], "minimum": 0},
         "selected": {"type": ["boolean", "null"]},
+        "selection": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "verified", "raw_selected", "selected", "adjusted_p_max",
+                       "effect_min", "effect_max", "analysis_unit_count", "reasons"],
+          "properties": {
+            "status": {"enum": ["verified_selected", "verified_not_selected", "not_verifiable", "not_applicable"]},
+            "verified": {"type": "boolean"},
+            "raw_selected": {"type": ["boolean", "null"]},
+            "selected": {"type": ["boolean", "null"]},
+            "adjusted_p_max": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "effect_min": {"type": ["number", "null"]},
+            "effect_max": {"type": ["number", "null"]},
+            "analysis_unit_count": {"type": ["integer", "null"], "minimum": 3},
+            "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          }
+        },
         "status": {"type": "string"}, "effect_scale": {"type": "string"},
         "claim_type": {"const": "statistical_fact"},
         "direction": {"type": "string"},

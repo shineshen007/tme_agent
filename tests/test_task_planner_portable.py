@@ -94,7 +94,7 @@ def test_screenshot_parameters_use_original_quotes(project_root, stub_cfg):
     generate_plan(client, project_root, REQUEST, stub_cfg, language="zh")
     system, request, schema = client.requests[-1]
     assert "exact, contiguous quotation" in system and "split compound parameters" in PLANNER
-    assert request == REQUEST and schema == "tui_task_plan_v6"
+    assert request == REQUEST and schema == "tui_task_plan_v7"
 
 
 def test_all_parameter_source_errors_are_reported(project_root, stub_cfg):
@@ -130,6 +130,28 @@ def test_invalid_inputs_still_rejected(project_root, stub_cfg, path):
         validate_plan(project_root, raw, REQUEST, stub_cfg)
 
 
+def test_catalog_hides_build_caches_and_hidden_files(tmp_path):
+    """A download cache is not an analyzable input and must not reach the prompt."""
+    from multiomics_tui.task_planner import catalog
+    cache = tmp_path / "data/raw/_gdc_cache/extract/1e1587e8-8938-4578-8529-0831573a9fe1"
+    cache.mkdir(parents=True)
+    (cache / "3f6cc934-a895-4155-9257-7b09d36ac917.rna_seq.tsv").write_text("gene\tcount\n")
+    (tmp_path / "data/raw/.DS_Store").write_text("\x00")
+    (tmp_path / "data/raw/real_input.csv").write_text("sample,value\na,1\n")
+    (tmp_path / "data/signature").mkdir(parents=True)
+    (tmp_path / "data/signature/sets.gmt").write_text("SET_A\tdesc\tGENE1\tGENE2\n")
+    assert [item["path"] for item in catalog(tmp_path)] == [
+        "data/raw/real_input.csv", "data/signature/sets.gmt"]
+
+
+def test_gene_set_resources_are_reported_only_when_inspected():
+    from multiomics_tui.task_planner import _gene_set_resources
+    assert _gene_set_resources(None) == []
+    assert _gene_set_resources({"profiles": [{"path": "data/raw/expr.rds"},
+                                             {"path": "data/signature/sets.rds", "gene_sets": {}}]}) \
+        == ["data/signature/sets.rds"]
+
+
 def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v6(project_root, stub_cfg):
     inputs(project_root)
     # 复用 stub_cfg 的 runtime（含本机 R 库），规划需要真实执行输入结构探测。
@@ -154,9 +176,9 @@ def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v6(project_ro
     assert len(bodies) == 3
     messages = bodies[0]["messages"]
     assert client._cache_key("tui_task_plan", messages, "tui_task_plan_v3") != client._cache_key(
-        "tui_task_plan", messages, "tui_task_plan_v6")
+        "tui_task_plan", messages, "tui_task_plan_v7")
     records = [json.loads(p.read_text()) for p in (project_root / "audit").rglob("*task_plan.json")]
-    assert records and all(r["schema"] == "tui_task_plan_v6" for r in records)
+    assert records and all(r["schema"] == "tui_task_plan_v7" for r in records)
 
 
 @pytest.mark.parametrize("error,kind", [

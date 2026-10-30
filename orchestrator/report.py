@@ -12,6 +12,7 @@ def render_report(run, state):
     scrna=state.get('scrna_result')
     agent=state.get('agent_result')
     literature=state.get('literature_result')
+    prognosis_status=(state.get('prognosis_result') or {}).get('status','absent')
     scientific_status='blocked' if (agent or {}).get('status')=='blocked' else 'review_only'
     lines=['# HCC 配对多组学分析报告','',
            f'本报告为观察性 bulk 组织分析，科学状态为 **{scientific_status}**。结果用于候选发现，不构成机制、细胞来源或通量验证。','',
@@ -52,12 +53,14 @@ def render_report(run, state):
     if (run/'prognosis/statistics.json').exists():
         prog=read_json(run/'prognosis/statistics.json')
         axis_label=(state.get('prognosis_result') or {}).get('axis','catecholamine-3mt')
+        families=[str(f) for f in (prog.get('families') or [])]
         lines.extend(['','## 预注册候选轴追踪：预后与 T 细胞相关（review_only）','',
                       f'- 轴：`{axis_label}`（`origin=existing_candidate`）。暴露为**肿瘤组织值**，效应按每 SD 报告；特征面板与阈值在运行前冻结，本分支为候选轴追踪而非发现性筛选。',
-                      f'- triple109：OS 事件 {prog.get("n_events_os_triple109")}、RFS 事件 {prog.get("n_events_rfs_triple109")}；Cox 模型 {prog.get("n_cox_rows")} 行（tested {prog.get("n_cox_tested")}，not-estimable {prog.get("n_not_estimable")} 全部保留）。',
+                      f'- triple109：OS 事件 {prog.get("n_events_os_triple109")}、RFS 事件 {prog.get("n_events_rfs_triple109")}；Cox 模型 {prog.get("n_cox_rows")} 行（tested {prog.get("n_cox_tested")}，padj 可计算 {prog.get("n_cox_padj")}，FDR 入选 {prog.get("n_cox_selected")}，not-estimable {prog.get("n_not_estimable")} 全部保留）。',
                       f'- 代谢特征的额外灵敏度队列为同批次 {prog.get("n_patients_same_batch108")} 人。',
+                      f'- 多重检验：在预先声明的 队列×结局×模型 家族内进行 Benjamini-Hochberg (BH) 校正（{len(families)} 个家族：{", ".join(families)}），冻结阈值 fdr = {prog.get("fdr")}；`selected` 仅当 `status=tested` 且 `padj<=fdr`，not-estimable 行保留且 `padj=NA`。',
                       f'- T 细胞读数：外部图谱 NNLS 估计比例（主面板 pancancer，hcc_reference/top50 为敏感性）与 RNA 同源 ssGSEA 评分（签名状态：{prog.get("signature_status")}）；二者均为估计/同源读数，不是实测细胞比例。',
-                      '- `integration/prognosis_association.csv`：全部预后检验，FDR 按 队列×结局×模型 家族校正；`ph_p` 为比例风险诊断，仅记录、不切换模型。',
+                      '- `integration/prognosis_association.csv`：全部预后检验（含 not-estimable 行）；直接复用 R 端的 `family` 与家族内 BH `padj`，整合层不重复校正；`ph_p` 为比例风险诊断，仅记录、不切换模型。',
                       '- `integration/tcell_correlation.csv`：特征×T 细胞读数关联，FDR 按 面板×读数类型×调整模式 家族校正；`purity_adjusted` 为预先声明的敏感性。',
                       '- 边界：单队列观察性关联，不建立因果、酶活性、通量或细胞来源；3MT 峰身份仍为歧义；RFS 未使用竞争风险模型。'])
     elif prognosis_status == 'failed':
@@ -129,7 +132,6 @@ def render_report(run, state):
     (run/'report/summary.md').write_text('\n'.join(lines),encoding='utf-8')
     failures={k:v for k,v in state.get('pathway_status',{}).items() if v['status']!='complete'}
     scrna_status=scrna['status'] if scrna is not None else 'absent'
-    prognosis_status=(state.get('prognosis_result') or {}).get('status','absent')
     agent_status=(agent or {}).get('status','absent')
     integration=state.get('integration_status',{}) or {}
     dossier_ok=dossier_status in {'complete','disabled','absent','skipped_no_targets'}

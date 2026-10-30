@@ -109,7 +109,7 @@ def test_full_long_prompt_reaches_session_and_model_once(project_root, stub_cfg,
             await settle(pilot, session, app)
             assert len(client.requests) == 2
             system, user, schema = client.requests[-1]
-            assert user == LONG and LONG in system and schema == "tui_task_plan_v6"
+            assert user == LONG and LONG in system and schema == "tui_task_plan_v7"
             assert session.tasks.user_text(session.active_task) == LONG
             assert session.tasks.get(session.active_task)["status"] == "awaiting_approval"
             assert editor.text == ""

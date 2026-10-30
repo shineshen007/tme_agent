@@ -6,7 +6,31 @@ from pathlib import Path
 import jsonschema
 import numpy as np
 import pandas as pd
+from scipy import stats as scipy_stats
 from .io import sha256
+
+
+def _bh_within_families(frame, pcolumn, family_column='family'):
+    """Return BH-adjusted p-values within each declared family, mature implementation."""
+    adjusted = pd.Series(np.nan, index=frame.index, dtype=float)
+    for _, group in frame.groupby(family_column, dropna=False, sort=False):
+        pvalues = group[pcolumn]
+        usable = pvalues.notna() & np.isfinite(pvalues.to_numpy(dtype=float))
+        if usable.any():
+            adjusted.loc[group.index[usable]] = scipy_stats.false_discovery_control(
+                pvalues.loc[usable].to_numpy(dtype=float), method='bh')
+    return adjusted
+
+
+def _assert_bh_matches(frame, pcolumn, padjcolumn, family_column='family', atol=1e-8):
+    expected = _bh_within_families(frame, pcolumn, family_column)
+    observed = frame[padjcolumn].astype(float)
+    if not np.allclose(observed, expected, atol=atol, equal_nan=True):
+        raise ValueError(f'{padjcolumn} is not BH-adjusted within {family_column}')
+    if (observed.notna() & ~np.isfinite(observed)).any():
+        raise ValueError(f'Nonfinite {padjcolumn}')
+    if (observed < 0).any() or (observed > 1).any():
+        raise ValueError(f'{padjcolumn} outside [0,1]')
 
 def check_spoke_output(result: dict, schema_path: str) -> tuple[bool, list]:
     with open(schema_path) as f:
@@ -90,6 +114,9 @@ def validate_de(path):
     for column in ['pvalue','padj']:
         if not d[column].dropna().between(0,1).all():
             raise ValueError(f'Invalid {column}')
+    both = d.pvalue.notna() & d.padj.notna()
+    if (d.loc[both, 'padj'] + 1e-12 < d.loc[both, 'pvalue']).any():
+        raise ValueError('Adjusted p-value is smaller than raw p-value')
     if not d.n_pairs.ge(3).all() or not d.contrast.eq('tumor_vs_adjacent').all():
         raise ValueError('Invalid cohort or contrast')
     estimated=d.effect.notna()
@@ -125,40 +152,114 @@ def validate_hypotheses(payload, registry, schema):
                 raise ValueError('scRNA context must not cite bulk evidence IDs')
 
 
+PROGNOSIS_NOT_ESTIMABLE_REASONS = {
+    'insufficient_n_or_events', 'zero_variance', 'coxph_failed', 'exposure_not_estimable',
+    'separation_or_nonconvergence', 'nonfinite_estimate'}
+
+
 def validate_prognosis_outputs(prognosis_dir, stats):
     """Structural and numeric contract for the pre-registered candidate-axis prognosis branch.
 
     Every tested feature must be present, including not-estimable models: the branch is
     cohort tracking with frozen thresholds, so completeness is the contract, not significance.
+    The Python checker independently recomputes BH within every declared family; the method
+    declaration in statistics.json must match what R actually calculated.
     """
     prognosis_dir = Path(prognosis_dir)
     if stats.get('status') != 'complete':
         raise ValueError('Prognosis tool did not report complete status')
+    try:
+        fdr = float(stats['fdr'])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError('Prognosis statistics.json lacks a numeric frozen fdr') from exc
+    if not 0 < fdr < 1:
+        raise ValueError('Prognosis fdr must be between zero and one')
+    method = str(stats.get('method', '')) + ' ' + str(stats.get('multiple_testing', ''))
+    if not ('BH' in method.upper() or 'BENJAMINI' in method.upper()) or 'FAMIL' not in method.upper():
+        raise ValueError('Prognosis method declaration must state BH within predeclared families')
     cox = pd.read_csv(prognosis_dir / 'cox_models.csv')
     required = ['cohort', 'outcome', 'model_type', 'feature_id', 'omics', 'entity', 'axis',
-                'effect_scale', 'n', 'n_events', 'hr', 'ci_low', 'ci_high', 'pvalue', 'status']
+                'effect_scale', 'n', 'n_events', 'coef', 'se', 'hr', 'ci_low', 'ci_high',
+                'pvalue', 'ph_p', 'status', 'reason', 'family', 'padj', 'selected']
     for column in required:
         if column not in cox.columns:
             raise ValueError(f'cox_models.csv missing column: {column}')
+    if cox.duplicated(['cohort', 'outcome', 'model_type', 'feature_id', 'omics', 'axis']).any():
+        raise ValueError('Duplicate Cox model rows')
     if not cox.status.isin(['tested', 'not_estimable']).all():
         raise ValueError('Unexpected Cox model status value')
+    if not cox.selected.isin([True, False]).all() or cox.selected.isna().any():
+        raise ValueError('Cox selected must be an explicit boolean for every row')
     if not cox.outcome.isin(['os', 'rfs']).all() or not cox.model_type.isin(['univariable', 'adjusted']).all():
         raise ValueError('Unexpected Cox model outcome or model_type')
+    if not cox.cohort.isin(['triple109', 'same_batch108']).all():
+        raise ValueError('Unexpected Cox cohort')
     if not cox.effect_scale.eq('hazard_ratio_per_sd_tumor_value').all():
         raise ValueError('Cox models must report hazard ratios per SD of tumor values')
-    if not cox.n.ge(0).all() or not cox.n_events.ge(0).all():
+    expected_family = ['prognosis_' + str(row.cohort) + '_' + str(row.outcome) + '_' + str(row.model_type)
+                       for row in cox.itertuples()]
+    if cox.family.astype(str).tolist() != expected_family:
+        raise ValueError('Cox family does not match cohort/outcome/model_type')
+    if not cox.n.ge(0).all() or not cox.n_events.ge(0).all() or not (cox.n_events <= cox.n).all():
         raise ValueError('Invalid model sample or event counts')
     tested = cox.status.eq('tested')
     if tested.any():
-        for column in ['pvalue', 'ci_low', 'ci_high', 'hr']:
-            if not cox.loc[tested, column].notna().all():
-                raise ValueError(f'Tested Cox model is missing {column}')
+        for column in ['coef', 'se', 'hr', 'ci_low', 'ci_high', 'pvalue', 'padj']:
+            values = cox.loc[tested, column].astype(float)
+            if not values.notna().all() or not np.isfinite(values.to_numpy()).all():
+                raise ValueError(f'Tested Cox model has missing or nonfinite {column}')
+        if not cox.loc[tested, 'se'].gt(0).all():
+            raise ValueError('Tested Cox model standard error must be positive')
         if not cox.loc[tested, 'pvalue'].between(0, 1).all():
             raise ValueError('Invalid Cox p-value')
-        if not cox.loc[tested, 'hr'].gt(0).all():
-            raise ValueError('Hazard ratio must be positive')
-        if not ((cox.loc[tested, 'ci_low'] <= cox.loc[tested, 'hr']) & (cox.loc[tested, 'hr'] <= cox.loc[tested, 'ci_high'])).all():
+        if not cox.loc[tested, 'padj'].between(0, 1).all():
+            raise ValueError('Invalid Cox adjusted p-value')
+        if (cox.loc[tested, 'padj'] + 1e-12 < cox.loc[tested, 'pvalue']).any():
+            raise ValueError('Cox adjusted p-value is smaller than raw p-value')
+        z = scipy_stats.norm.ppf(0.975)
+        coef = cox.loc[tested, 'coef'].astype(float)
+        se = cox.loc[tested, 'se'].astype(float)
+        if not np.allclose(cox.loc[tested, 'hr'].astype(float), np.exp(coef), rtol=1e-9, atol=1e-12):
+            raise ValueError('Cox hazard ratio is not exp(coef)')
+        if not np.allclose(cox.loc[tested, 'ci_low'].astype(float), np.exp(coef - z * se), rtol=1e-8, atol=1e-12):
+            raise ValueError('Cox lower confidence bound is inconsistent with coef/se')
+        if not np.allclose(cox.loc[tested, 'ci_high'].astype(float), np.exp(coef + z * se), rtol=1e-8, atol=1e-12):
+            raise ValueError('Cox upper confidence bound is inconsistent with coef/se')
+        if not cox.loc[tested, 'hr'].gt(0).all() or not cox.loc[tested, 'ci_low'].gt(0).all():
+            raise ValueError('Hazard ratio and lower confidence bound must be positive')
+        if not ((cox.loc[tested, 'ci_low'] <= cox.loc[tested, 'hr']) &
+                (cox.loc[tested, 'hr'] <= cox.loc[tested, 'ci_high'])).all():
             raise ValueError('Hazard ratio outside confidence interval')
+        reasons = cox.loc[tested, 'reason']
+        if reasons.notna().any() and reasons.dropna().astype(str).str.strip().ne('').any():
+            raise ValueError('Tested Cox model must not carry a not-estimable reason')
+    if (~tested).any():
+        estimates = ['coef', 'se', 'hr', 'ci_low', 'ci_high', 'pvalue', 'padj']
+        if cox.loc[~tested, estimates].notna().any().any():
+            raise ValueError('Not-estimable Cox model must retain NA estimates')
+        if cox.loc[~tested, 'selected'].any():
+            raise ValueError('Not-estimable Cox model cannot be selected')
+        reasons = cox.loc[~tested, 'reason'].fillna('').astype(str)
+        if not reasons.isin(PROGNOSIS_NOT_ESTIMABLE_REASONS).all():
+            raise ValueError('Not-estimable Cox model lacks a recognized reason')
+    _assert_bh_matches(cox, 'pvalue', 'padj', 'family')
+    ph = cox.loc[tested, 'ph_p'].dropna()
+    if len(ph) and (not ph.between(0, 1).all() or not np.isfinite(ph.to_numpy(dtype=float)).all()):
+        raise ValueError('Invalid Cox proportional-hazards diagnostic p-value')
+    selected_expected = tested & cox.padj.notna() & (cox.padj <= fdr)
+    if not cox.selected.astype(bool).equals(selected_expected.astype(bool)):
+        raise ValueError('Cox selected is inconsistent with tested status and frozen FDR')
+    for key, value in (('n_cox_rows', len(cox)), ('n_cox_tested', int(tested.sum())),
+                       ('n_cox_padj', int(cox.padj.notna().sum())),
+                       ('n_cox_selected', int(cox.selected.astype(bool).sum())),
+                       ('n_not_estimable', int((~tested).sum()))):
+        try:
+            if int(stats[key]) != value:
+                raise ValueError(f'Prognosis statistics {key} disagrees with cox_models.csv')
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f'Prognosis statistics lacks a valid {key}') from exc
+    if set(stats.get('families') or []) != set(cox.family.astype(str)):
+        raise ValueError('Prognosis statistics families disagree with cox_models.csv')
     clinical = pd.read_csv(prognosis_dir / 'patient_clinical.csv')
     for column in ['patient_id', 'os_months', 'os_event', 'rfs_months', 'rfs_event', 'tnm_ordinal']:
         if column not in clinical.columns:
@@ -180,45 +281,140 @@ def validate_prognosis_outputs(prognosis_dir, stats):
             'n_patients': int(clinical.patient_id.nunique()), 'n_feature_rows': len(features)}
 
 
+SCRNA_PROPORTION_METADATA = frozenset(
+    {'biospecimen_id', 'patient_id', 'tissue', 'panel', 'claim_type', 'method', 'reference_panel'})
+
+
 def validate_scrna_outputs(scrna_dir, stats):
     """Structural and numeric contract for the external atlas branch outputs."""
-    scrna_dir=Path(scrna_dir)
-    if stats.get('status')!='complete':
+    scrna_dir = Path(scrna_dir)
+    if stats.get('status') != 'complete':
         raise ValueError('scRNA tool did not report complete status')
-    analyses={a['name']:a for a in stats.get('analyses',[])}
-    for name in ['inventory','axis_localization','deconvolution']:
-        if name not in analyses:
-            raise ValueError(f'Missing scRNA analysis section: {name}')
-    loc=pd.read_csv(scrna_dir/'axis_localization.csv')
-    for column in ['gene','celltype','status','claim_type','cohort_id','donor_pvalue','donor_padj']:
+    if stats.get('method_version') != 2:
+        raise ValueError('scRNA outputs lack corrected method_version=2')
+    for key in ('pseudobulk_units', 'marker_methods', 'reference_methods', 'estimate_boundary'):
+        if not stats.get(key):
+            raise ValueError(f'scRNA statistics.json lacks {key}')
+    analyses = {a['name']: a for a in stats.get('analyses', [])}
+    for name in ['inventory', 'axis_localization', 'deconvolution', 'reference_audit',
+                 'signature_matrix_audit', 'reference_sensitivity']:
+        if name not in analyses or analyses[name].get('status') != 'complete':
+            raise ValueError(f'Missing or incomplete scRNA analysis section: {name}')
+    loc = pd.read_csv(scrna_dir / 'axis_localization.csv')
+    for column in ['gene', 'celltype', 'status', 'claim_type', 'cohort_id', 'donor_pvalue',
+                   'donor_padj', 'family_donor', 'pseudobulk_mean_cpm',
+                   'pseudobulk_mean_logcpm', 'n_pseudobulk_samples']:
         if column not in loc.columns:
             raise ValueError(f'axis_localization.csv missing column: {column}')
     if not loc.claim_type.eq('external_context').all() or not loc.cohort_id.eq('external_atlas').all():
         raise ValueError('scRNA localization rows must be labeled external_context/external_atlas')
-    if loc.duplicated(['gene','celltype']).any():
+    if loc.duplicated(['gene', 'celltype']).any():
         raise ValueError('Duplicate gene x celltype localization tests')
-    for column in ['donor_pvalue','donor_padj','cell_level_pvalue','cell_level_padj']:
-        if column in loc and not loc[column].dropna().between(0,1).all():
+    for column in ['donor_pvalue', 'donor_padj', 'cell_level_pvalue', 'cell_level_padj']:
+        if column in loc and not loc[column].dropna().between(0, 1).all():
             raise ValueError(f'Invalid {column} in axis_localization')
-    paired=pd.read_csv(scrna_dir/'deconvolution/deconvolution_paired.csv')
-    if not {'panel','celltype','effect','pvalue','padj','n_pairs','claim_type'} <= set(paired.columns):
+    if loc.n_pseudobulk_samples.isna().any() or not loc.n_pseudobulk_samples.ge(0).all():
+        raise ValueError('Invalid pseudobulk sample count in axis_localization')
+    if not np.equal(loc.n_pseudobulk_samples, np.floor(loc.n_pseudobulk_samples)).all():
+        raise ValueError('Pseudobulk sample count must be an integer')
+    for column in ['pseudobulk_mean_cpm', 'pseudobulk_mean_logcpm']:
+        values = loc[column].dropna().to_numpy(dtype=float)
+        if not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError(f'Invalid {column} in axis_localization')
+    both = loc.pseudobulk_mean_cpm.notna() & loc.pseudobulk_mean_logcpm.notna()
+    if not (loc.loc[both, 'pseudobulk_mean_logcpm'].to_numpy() <=
+            np.log1p(loc.loc[both, 'pseudobulk_mean_cpm'].to_numpy()) + 1e-9).all():
+        raise ValueError('pseudobulk_mean_logcpm is inconsistent with mean CPM (Jensen bound)')
+    _assert_bh_matches(loc, 'donor_pvalue', 'donor_padj', 'family_donor')
+    if 'family_cell' in loc and 'cell_level_pvalue' in loc:
+        _assert_bh_matches(loc, 'cell_level_pvalue', 'cell_level_padj', 'family_cell')
+
+    paired = pd.read_csv(scrna_dir / 'deconvolution/deconvolution_paired.csv')
+    if not {'panel', 'celltype', 'effect', 'pvalue', 'padj', 'n_pairs', 'claim_type',
+            'method', 'reference_panel', 'family'} <= set(paired.columns):
         raise ValueError('deconvolution_paired.csv missing required columns')
     if not paired.claim_type.eq('estimate_not_measured_fraction').all():
         raise ValueError('Deconvolution rows must be labeled as estimates')
-    if not paired.pvalue.dropna().between(0,1).all() or not paired.padj.dropna().between(0,1).all():
+    for column in ('method', 'reference_panel'):
+        values = paired[column]
+        if values.isna().any() or values.astype(str).str.strip().eq('').any():
+            raise ValueError(f'Deconvolution rows require non-empty {column} labels')
+    if not paired.pvalue.dropna().between(0, 1).all() or not paired.padj.dropna().between(0, 1).all():
         raise ValueError('Invalid deconvolution p-values')
-    for panel_file in (scrna_dir/'deconvolution').glob('cell_proportions_*.csv'):
-        props=pd.read_csv(panel_file)
-        celltypes=[c for c in props.columns if c not in {'biospecimen_id','patient_id','tissue','panel'}]
-        values=props[celltypes].to_numpy(dtype=float)
-        finite_rows=np.isfinite(values).all(axis=1)
-        if finite_rows.any():
-            v=values[finite_rows]
-            if (v<-1e-9).any():
-                raise ValueError(f'Negative proportions in {panel_file.name}')
-            if not np.allclose(v.sum(axis=1),1,atol=1e-6):
-                raise ValueError(f'Proportions do not sum to 1 in {panel_file.name}')
-    return {'n_localization_rows':len(loc),'n_paired_rows':len(paired)}
+    if not paired.n_pairs.ge(0).all():
+        raise ValueError('Invalid deconvolution pair count')
+    _assert_bh_matches(paired, 'pvalue', 'padj', 'family')
+    if set(paired.celltype.astype(str)) & SCRNA_PROPORTION_METADATA:
+        raise ValueError('Deconvolution paired table treats metadata columns as cell types')
+
+    deconv = scrna_dir / 'deconvolution'
+    proportion_files = sorted(deconv.glob('cell_proportions_*.csv'))
+    if not proportion_files:
+        raise ValueError('Missing cell proportion tables')
+    for panel_file in proportion_files:
+        props = pd.read_csv(panel_file)
+        if 'claim_type' not in props or not props.claim_type.eq('estimate_not_measured_fraction').all():
+            raise ValueError(f'{panel_file.name} must label proportions as estimates')
+        for column in ('method', 'reference_panel'):
+            if (column not in props or props[column].isna().any() or
+                    props[column].astype(str).str.strip().eq('').any()):
+                raise ValueError(f'{panel_file.name} lacks {column}')
+        celltypes = [c for c in props.columns if c not in SCRNA_PROPORTION_METADATA]
+        if not celltypes:
+            raise ValueError(f'No cell type columns in {panel_file.name}')
+        values = props[celltypes].to_numpy(dtype=float)
+        if not np.isfinite(values).all():
+            raise ValueError(f'Nonfinite proportions in {panel_file.name}')
+        if (values < -1e-9).any():
+            raise ValueError(f'Negative proportions in {panel_file.name}')
+        if not np.allclose(values.sum(axis=1), 1, atol=1e-6):
+            raise ValueError(f'Proportions do not sum to 1 in {panel_file.name}')
+
+    matrices = ['signature_matrix_pancancer.csv', 'signature_matrix_hcc_reference.csv',
+                'signature_matrix_pancancer_top50.csv']
+    optional_matrix = 'signature_matrix_pancancer_limma_sensitivity.csv'
+    for name in matrices + ([optional_matrix] if (deconv / optional_matrix).exists() else []):
+        frame = pd.read_csv(deconv / name)
+        if 'gene' not in frame.columns or len(frame.columns) < 2:
+            raise ValueError(f'{name} lacks gene/celltype columns')
+        values = frame[[c for c in frame.columns if c != 'gene']].to_numpy(dtype=float)
+        if not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError(f'{name} contains nonfinite or negative signature values')
+
+    audit = pd.read_csv(deconv / 'reference_audit.csv')
+    for column in ['panel', 'celltype', 'n_samples', 'n_sources', 'source_composition',
+                   'n_markers', 'marker_method', 'confounding_flags']:
+        if column not in audit.columns:
+            raise ValueError(f'reference_audit.csv missing column: {column}')
+    if audit.empty or audit.duplicated(['panel', 'celltype']).any():
+        raise ValueError('reference_audit.csv must be nonempty and unique per panel x celltype')
+    signature_audit = pd.read_csv(deconv / 'signature_matrix_audit.csv')
+    for column in ['panel', 'n_genes', 'n_markers', 'scale', 'zero_fraction',
+                   'n_forced_zero_entries']:
+        if column not in signature_audit.columns:
+            raise ValueError(f'signature_matrix_audit.csv missing column: {column}')
+    if not signature_audit.scale.eq('cpm').all():
+        raise ValueError('Signature matrix audit must declare CPM scale')
+    if not signature_audit.zero_fraction.between(0, 1).all():
+        raise ValueError('Invalid signature matrix zero fraction')
+    if not signature_audit.n_forced_zero_entries.eq(0).all():
+        raise ValueError('Signature matrix audit reports forced zero entries')
+    sensitivity = pd.read_csv(deconv / 'reference_sensitivity.csv')
+    for column in ['comparison', 'celltype', 'n', 'spearman_rho', 'mean_abs_difference',
+                   'direction_concordance', 'claim_type']:
+        if column not in sensitivity.columns:
+            raise ValueError(f'reference_sensitivity.csv missing column: {column}')
+    if not sensitivity.claim_type.eq('descriptive_reference_comparison').all():
+        raise ValueError('Reference sensitivity must remain descriptive')
+    if not sensitivity.n.ge(0).all() or not sensitivity.mean_abs_difference.ge(0).all():
+        raise ValueError('Invalid reference sensitivity counts/differences')
+    rho = sensitivity.spearman_rho.dropna()
+    if not rho.between(-1, 1).all():
+        raise ValueError('Invalid reference sensitivity correlation')
+    if not sensitivity.direction_concordance.dropna().between(0, 1).all():
+        raise ValueError('Invalid reference sensitivity direction concordance')
+    return {'n_localization_rows': len(loc), 'n_paired_rows': len(paired),
+            'n_proportion_tables': len(proportion_files)}
 
 
 # --------------------------------------------------------------------------------------

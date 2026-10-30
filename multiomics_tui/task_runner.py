@@ -24,10 +24,11 @@ from orchestrator.llm_client import LLMNonRetryableValidationError
 from . import artifacts
 from .jobs import _atomic_json
 from .llm import build_client, key_env_name
+from .safe_fs import open_beneath
 from .task_guard import available as guard_available
 from .actions import rscript_path
 from .r_env import library_paths as r_library_paths
-from .task_planner import CODEGEN, CODEGEN_STEP, validate_plan
+from .task_planner import CODEGEN, CODEGEN_STEP, PATHWAY_SCORING_STEP, validate_plan
 from .task_sessions import TaskStore, canonical_hash, utc
 
 class GeneratedCodeError(ValueError):
@@ -242,6 +243,13 @@ def _codegen(client, plan: dict, on_step=None, validate_code=None, on_generation
                            "so the task is blocked; do not improvise statistical algorithms, change the "
                            "approved method, or install packages.")
         code, contracts = {}, []
+        step_note = ""
+        if isinstance(plan.get("pathway_protocol"), dict):
+            from orchestrator import pathway_scoring
+            protocol = plan["pathway_protocol"]
+            step_note = "\n" + pathway_scoring.prompt_block(protocol) + \
+                PATHWAY_SCORING_STEP.replace(
+                    "{param_api}", ", ".join(protocol["param_api"][m] for m in protocol["methods"]))
         for number, step in enumerate(plan["steps"], 1):
             if on_generation: on_generation(step)
             print(f"Generating step {number}/{len(plan['steps'])}: {step['id']}", flush=True)
@@ -253,8 +261,8 @@ def _codegen(client, plan: dict, on_step=None, validate_code=None, on_generation
                 validate_research_contracts(plan, parsed['output_contracts'], step)
                 if validate_code: validate_code(step, parsed["files"][0]["content"])
             try:
-                result = client.chat_json("tui_task_codegen", system, user, "tui_task_codegen_step_v3",
-                                          validator=validate)
+                result = client.chat_json("tui_task_codegen", system + step_note, user,
+                                          "tui_task_codegen_step_v3", validator=validate)
                 parsed = result["parsed"]
                 _validate_step_reply(parsed, step)
             except Exception as exc:
@@ -353,7 +361,15 @@ def _run(root: Path, task_id: str, client=None) -> int:
     snapshot = store.directory(task_id) / 'model_config.json'
     cfg = load_tui_config(root, snapshot=snapshot if snapshot.is_file() else None)
     request = store.user_text(task_id)
-    validate_plan(root, {**plan, "inputs": [x["path"] for x in plan["inputs"]]}, request, cfg)
+    rechecked = validate_plan(root, {**plan, "inputs": [x["path"] for x in plan["inputs"]]},
+                              request, cfg)
+    if isinstance(plan.get("pathway_protocol"), dict):
+        # The approved protocol is frozen; a configuration change that would now
+        # resolve a different threshold or method set must block, not silently apply.
+        if rechecked.get("pathway_protocol") != plan["pathway_protocol"]:
+            raise ValueError(
+                "The frozen pathway-scoring protocol no longer matches the approved plan "
+                "(configuration or inputs changed); re-plan this task before running it.")
     for item in plan["inputs"]:
         path = (root / item["path"]).resolve()
         if file_hash(path) != item["sha256"]:
@@ -446,7 +462,11 @@ def _run(root: Path, task_id: str, client=None) -> int:
         log_path = task_dir / "logs" / (step["id"] + ".log")
         store.event(task_id, "system", f"Starting step {step['id']}; log {log_path}")
         print(f"Starting step {step['id']}; log {log_path}", flush=True)
-        with log_path.open("wb") as log:
+        # The previous generated step may have replaced logs/ with a link. Open the
+        # final component relative to the task directory so no link is followed.
+        log_fd = open_beneath(task_dir, f"logs/{step['id']}.log",
+                              os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        with os.fdopen(log_fd, "wb") as log:
             result = subprocess.run(argv, cwd=root, env=env, stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=24 * 3600,
                                     check=False, close_fds=True)
@@ -456,6 +476,7 @@ def _run(root: Path, task_id: str, client=None) -> int:
         from .output_contracts import verify_output
         for relative in step["outputs"]:
             record = _output_record(task_dir / relative, task_dir)
+            record["step_id"] = step["id"]
             contract = next((c for c in output_contracts if c["path"]==relative), None)
             if contract and "format" in contract:
                 record["contract_validation"] = verify_output(root, task_dir, relative, contract, env, plan)
@@ -474,6 +495,44 @@ def _run(root: Path, task_id: str, client=None) -> int:
     for item in plan["inputs"]:
         if file_hash((root / item["path"]).resolve()) != item["sha256"]:
             raise ValueError(f"Input changed during execution: {item['path']}")
+    pathway_verification = None
+    if isinstance(plan.get("pathway_protocol"), dict):
+        # Independent recomputation of the frozen protocol from the sample scores.
+        # A mismatch fails the task instead of publishing unverifiable significance.
+        from orchestrator import pathway_scoring
+        pathway_verification = pathway_scoring.verify_outputs(root, task_dir, plan)
+        store.event(task_id, "system",
+                    "Pathway-scoring verification passed: "
+                    + json.dumps(pathway_verification, ensure_ascii=False))
+    # All generated processes have exited. Recompute every declared output and every
+    # frozen script hash now; a later step may have rewritten an earlier artefact.
+    from .output_contracts import verify_output
+    prior = {record["path"]: record for record in outputs}
+    final_outputs = []
+    for step in plan["steps"]:
+        for relative in step["outputs"]:
+            record = _output_record(task_dir / relative, task_dir)
+            contract = next((c for c in output_contracts if c["path"] == relative), None)
+            if contract and "format" in contract:
+                record["contract_validation"] = verify_output(root, task_dir, relative, contract, env, plan)
+            earlier = prior.get(relative)
+            if earlier is None:
+                raise ValueError(f"Output was not recorded after its step: {relative}")
+            for name in ("bytes", "sha256", "rows", "columns", "contract_validation"):
+                if earlier.get(name) != record.get(name):
+                    raise ValueError(
+                        f"Output changed after its step completed: {relative} ({name})")
+            record["step_id"] = earlier.get("step_id", step["id"])
+            final_outputs.append(record)
+    if len(final_outputs) != len(declared_outputs):
+        raise ValueError("Final output inventory does not cover every declared output exactly once")
+    recorded_scripts = {entry["step_id"]: entry for entry in scripts}
+    if set(recorded_scripts) != {step["id"] for step in plan["steps"]}:
+        raise ValueError("Code manifest does not cover every approved step exactly once")
+    for entry in scripts:
+        path = task_dir / entry["path"]
+        if path.is_symlink() or not path.is_file() or file_hash(path) != entry["sha256"]:
+            raise ValueError(f"Approved script changed after preflight: {entry['path']}")
     try:
         r_info = subprocess.run([rscript_path(root), "--vanilla", "-e", "cat(R.version.string)"],
                                 capture_output=True, text=True, timeout=30, check=False)
@@ -481,22 +540,33 @@ def _run(root: Path, task_id: str, client=None) -> int:
     except (OSError, subprocess.TimeoutExpired):
         r_version = "unavailable"
     manifest = {"task_id": task_id, "plan_hash": state["plan_hash"], "completed_at": utc(),
-                "inputs": plan["inputs"], "scripts": scripts, "outputs": outputs,
+                "inputs": plan["inputs"], "scripts": scripts, "outputs": final_outputs,
                 "python": sys.version.split()[0], "python_executable": sys.executable,
                 "r_version": r_version,
+                "final_output_revalidation": {"checked": len(final_outputs),
+                                              "scripts_checked": len(scripts),
+                                              "unchanged": True},
                 "model_connection": {name: cfg['llm'].get(name) for name in
                                      ('provider', 'base_url', 'model', 'auth_mode', 'json_mode')}}
-    _atomic_json(task_dir / "result_manifest.json", manifest)
+    if pathway_verification is not None:
+        manifest["pathway_scoring_verification"] = pathway_verification
     lines = [f"# Task {task_id}", "", f"Goal: {plan['goal']}",
              f"Independent unit: {plan['analysis_unit']}", f"Method: {plan['method']}",
              "", "## Inputs", ""]
     lines += [f"- {item['path']} (SHA256 {item['sha256']})" for item in plan["inputs"]]
     lines += ["", "## Outputs", ""]
     lines += [f"- {item['path']} ({item['bytes']} bytes; SHA256 {item['sha256']}; "
-              f"rows {item.get('rows', 'n/a')}, columns {item.get('columns', 'n/a')})" for item in outputs]
+              f"rows {item.get('rows', 'n/a')}, columns {item.get('columns', 'n/a')})" for item in final_outputs]
     lines += ["", "## Limitations", ""] + [f"- {x}" for x in plan["limitations"]]
     lines += ["", "This report inventories outputs; scientific claims require review of complete tables.", ""]
-    (task_dir / "reports/task_report.md").write_text("\n".join(lines), encoding="utf-8")
+    # Write the human report first, then the machine manifest, then mark the code
+    # manifest succeeded. A crash at any point leaves a failed task, never a stale
+    # succeeded inventory.
+    report_fd = open_beneath(task_dir, "reports/task_report.md",
+                             os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    with os.fdopen(report_fd, "w", encoding="utf-8") as report:
+        report.write("\n".join(lines))
+    _atomic_json(task_dir / "result_manifest.json", manifest)
     save_manifest("succeeded")
     _state(store, task_id, "succeeded", current_stage="complete", current_step=None)
     store.event(task_id, "assistant", f"Task completed. Results: {task_dir / 'reports/task_report.md'}")
@@ -531,10 +601,21 @@ def _record_failure(root, task_id, exc):
     store.event(task_id, "system", f"Task failed at {stage}: {type(exc).__name__}: {exc}")
     task_dir = Path(root)/"analysis"/task_id
     if task_dir.is_dir():
-        (task_dir/"reports").mkdir(exist_ok=True)
-        (task_dir/"reports/failure.txt").write_text(traceback.format_exc(),encoding="utf-8")
+        try:
+            failure_fd = open_beneath(task_dir, "reports/failure.txt",
+                                      os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+            with os.fdopen(failure_fd, "w", encoding="utf-8") as stream:
+                stream.write(traceback.format_exc())
+        except (OSError, ValueError) as write_error:
+            # A generated script may have linked reports/ outside the task. The
+            # failure state and event are already durable; never follow the link.
+            LOG.warning("Could not write failure report safely: %s: %s",
+                        type(write_error).__name__, write_error)
         path=task_dir/"code_manifest.json"
-        manifest=json.loads(path.read_text()) if path.is_file() else {"scripts":[],"attempts":[]}
+        if path.is_symlink() or not path.is_file():
+            manifest={"scripts":[],"attempts":[]}
+        else:
+            manifest=json.loads(path.read_text())
         if stage=="preflight" and manifest.get("attempts") and manifest["attempts"][-1].get("error_kind") in {"syntax","code_validation","dependency","policy","environment"}:
             details["failure_kind"]=manifest["attempts"][-1]["error_kind"]
             state.update(details); store.save(state)

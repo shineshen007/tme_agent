@@ -13,6 +13,10 @@
 
 每条统计证据保留原文件、SHA256、行号、行键和列映射。模型只获得定性观察，报告中的效应、FDR、n 从冻结表注入；缺失值保持未知。负结果与不可估计行保留。RNA 派生评分、富集结果不能作为第二种实测组学，跨组学同向也不自动成为因果、酶活性或代谢通量证据。
 
+证据映射可声明冻结的 `selection` 阈值（`adjusted_p_max`，可选 `effect_min/effect_max/analysis_unit_count`）。新计划若绑定 `selected` 列必须同时声明阈值，且数值必须来自用户或配置参数；适配器逐行重算 `padj/效应/status/n` 与 `selected` 的一致性，不一致直接阻断。没有冻结阈值的旧计划仍可加载，但 `selection.status=not_verifiable`、`observation.selected=null`，不能作为确定性显著性证据。
+
+完整 Evidence Registry 不因 120 条展示上限而丢失。Analyst/Integrator/Reasoner 获得按问题与已引用实体检索的完整相关行；Critic 额外获得每个主张的确定性反证与阴性/不可估计候选，并必须逐条列出 `evidence_review`。遗漏候选、未审阴性结果或 `accept` 时仍有 `concern/insufficient` 都会阻断。报告保存反证审查表，便于人工回查。
+
 文献关系按具体主张记录 `supports/contradicts/unclear` 和 `direct/indirect/unknown`。引文必须在冻结来源中真实存在；Critic 对同一主张及来源复核上下文。语义判断仍是模型审查，需要科研人员复核，不能由字符串匹配证明论文支持机制。创新性限定在已记录检索范围内；失败、零结果和缺少直接证据不等于“首次发现”。
 
 证据不足时可以完成解释并返回空假说集合。实验设计包含模型选择依据、扰动、必要对照、救援或正交验证、主要读数、支持与推翻标准及未知参数。缺少效应量和变异依据时，应提出 pilot 或功效分析需求，不生成样本量。
@@ -96,10 +100,14 @@ research:
 
 缓存位于 `.cache/research_literature/`。`offline: true` 只使用缓存；缓存缺失会显式降级。`refresh: true` 重新请求并建立新任务材料，不修改已冻结 attempt。请勿把患者/样本标识写入研究问题、Wiki 正文或检索词；绑定的样本/患者 ID 在模型和检索出口阻断。
 
+外发隐私检查覆盖模型请求、文献查询和 Wiki 共享：已绑定的患者/样本标识、TCGA barcode、MRN/住院号、姓名/出生日期/电话/邮箱/地址以及绑定元数据中的临床自由文本，都会在发出前触发阻断。模型请求抛 `PrivacyViolation`，文献查询拒绝构造查询，Wiki 发布抛 `KnowledgeError`。阻断只影响该外发操作，本地统计和冻结产物不回滚、不重算；无法读取的非 CSV/TSV 元数据保留“需本地隐私复核”的限制，不会假装已检查。
+
+电话识别要求“电话语义”：带 `phone/tel/手机/联系电话` 等标签、或以 `+` 开头的国际格式、或独立出现的 3-3-4/3-4-4 分组。UUID（如 `1e1587e8-8938-4578-8529-0831573a9fe1`）、日期区间、DOI、版本号和 Ensembl ID 不构成电话，不得因此阻断外发。文件清单同样不暴露下载/构建缓存：`catalog()` 跳过任一路径段以 `_` 或 `.` 开头的条目，`data/raw/_gdc_cache/` 这类中间产物因此既不会挤占模型可见输入，也不会把不透明标识带进提示。
+
 ## 实现与验收边界
 
 复用现有 Evidence Graph、AgentReasoningSession、LangGraph 阶段拓扑、审计客户端和安全执行层。SQLite、标准库 HTTP 和现有 jsonschema 足以支撑第一版，无新增数据库服务。参考 Biomni 的资源选择与 Know-How、llm-wiki-skill 的来源分层和增量关联、ToolUniverse 的连接器契约、BioChatter 的统一上下文、BioCypher 的类型与命名空间；未复制这些项目代码。
 
-离线夹具检验工程边界；内置 TCGA-LIHC 是真实单组学输入，不能用来证明多组学机制推理质量。真实模型、真实多组学案例、人工审阅、目标平台原生隔离的验证结果以 [VALIDATION.md](VALIDATION.md) 为准。任何工程通过均不改变尚未完成的科学验收 `NOT_EVALUABLE`。
+离线夹具检验工程边界；内置 TCGA-LIHC 是真实单组学输入，不能用来证明多组学机制推理质量。真实模型、真实多组学案例、人工审阅、目标平台原生隔离的验证结果以 [VALIDATION.md](VALIDATION.md) 为准。`scripts/90_scientific_benchmark.py` 的合成 guard 用例和真实数据结构检查见 [BENCHMARKS.md](BENCHMARKS.md)；其 `scientific_validation_status` 恒为 `NOT_EVALUABLE`。任何工程通过均不改变尚未完成的科学验收 `NOT_EVALUABLE`。
 
 发行白名单仅包含代码、测试、文档与明确声明的内置开放数据；用户 Wiki、文献缓存、凭据和任务结果不随发行包交付。

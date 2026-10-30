@@ -4,10 +4,13 @@ import csv
 import hashlib
 import json
 import math
+import os
 import subprocess
 import sys
 import uuid
 from pathlib import Path
+
+from .safe_fs import open_beneath
 
 FORMATS={'.csv':{'csv'},'.tsv':{'tsv'},'.rds':{'rds_matrix','rds_table','rds_list'},
          '.pdf':{'pdf'},'.json':{'json'},'.txt':{'text'},'.md':{'text'},'.svg':{'svg'}}
@@ -48,7 +51,7 @@ def validate_contracts(contracts, step, required=False):
                 raise ValueError('binding_index must be a nonnegative integer')
             if fmt=='rds_matrix' and c.get('sample_axis') not in {'rows','columns'}:
                 raise ValueError('Bound matrices require sample_axis')
-            if fmt in {'csv','tsv'} and c.get('sample_key') not in c['columns']:
+            if fmt in {'csv','tsv','rds_table'} and c.get('sample_key') not in c['columns']:
                 raise ValueError('Bound sample tables require sample_key')
             for key in ('group_key','pair_key'):
                 if key in c and c[key] not in c.get('columns',[]): raise ValueError(f'{key} must name a declared column')
@@ -106,11 +109,23 @@ def verify_output(root, task_dir, relative, contract, env, plan):
         return {'status':'passed','rows':count}
     if fmt.startswith('rds_'):
         from .actions import rscript_path
-        folder=task_dir/'tmp'/('verify_'+uuid.uuid4().hex); folder.mkdir()
+        # Generated code may have replaced tmp/ with a link. Open it without
+        # following links, then create an exclusive child directory by descriptor.
+        folder_name = 'verify_'+uuid.uuid4().hex
+        tmp_fd = open_beneath(task_dir, 'tmp', os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.mkdir(folder_name, 0o700, dir_fd=tmp_fd)
+        finally:
+            os.close(tmp_fd)
+        folder=task_dir/'tmp'/folder_name
         script=folder/'probe.R'; script.write_bytes(Path(__file__).with_name('output_probe.R').read_bytes())
         request=folder/'request.json'; result=folder/'result.json'
         payload={'path':str(path),'contract':contract}
-        if bound is not None: payload['sample_hashes']=list(bound)
+        if bound is not None:
+            payload['sample_hashes'] = list(bound)
+            payload['binding'] = {
+                key: [group, hashlib.sha256(str(pair).encode()).hexdigest() if pair is not None else None]
+                for key, (group, pair) in bound.items()}
         request.write_text(json.dumps(payload),encoding='utf-8')
         argv=[sys.executable,str(Path(__file__).with_name('task_guard.py')),str(task_dir),'--',rscript_path(root),'--vanilla',str(script),str(request),str(result)]
         proc=subprocess.run(argv,cwd=root,env=env,capture_output=True,text=True,timeout=60)

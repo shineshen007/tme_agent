@@ -143,7 +143,11 @@ loc <- expand.grid(gene=genes, celltype=ct_levels, stringsAsFactors=FALSE)
 loc$gene_source <- unname(gene_sources[loc$gene])
 loc$n_cells_celltype <- ct_stat$n_cells[match(loc$celltype, ct_stat$celltype)]
 loc$n_samples_tested <- NA_integer_
-loc$pct_cells_expressing <- NA_real_; loc$mean_expr_lognorm <- NA_real_; loc$pseudobulk_mean_logcpm <- NA_real_
+loc$pct_cells_expressing <- NA_real_; loc$mean_expr_lognorm <- NA_real_
+# Pseudobulk units are kept explicit: the linear-scale column is the mean CPM, the log column is
+# the mean of log1p(CPM). The previous release stored mean CPM under a *_logcpm column; both units
+# are now reported separately so no log-scale claim is made from a linear mean.
+loc$pseudobulk_mean_cpm <- NA_real_; loc$pseudobulk_mean_logcpm <- NA_real_; loc$n_pseudobulk_samples <- NA_integer_
 loc$donor_effect_median_diff <- NA_real_; loc$donor_pvalue <- NA_real_; loc$donor_padj <- NA_real_
 loc$cell_level_auc <- NA_real_; loc$cell_level_pct_in <- NA_real_; loc$cell_level_pct_out <- NA_real_
 loc$cell_level_diff_pct <- NA_real_; loc$cell_level_pvalue <- NA_real_; loc$cell_level_padj <- NA_real_
@@ -156,10 +160,13 @@ for(k in ct_levels) {
   pct <- 100*rowSums(det_g[genes_present, gk, drop=FALSE])/max(cells_k,1)
   mex <- rowSums(expr_g[genes_present, gk, drop=FALSE])/max(cells_k,1)
   pbc <- if(length(gk_keep)) rowMeans(pb_cpm[genes_present, gk_keep, drop=FALSE]) else rep(NA_real_, length(genes_present))
+  pbl <- if(length(gk_keep)) rowMeans(pb_log[genes_present, gk_keep, drop=FALSE]) else rep(NA_real_, length(genes_present))
   mi <- match(loc$gene[rows], genes_present)
   loc$pct_cells_expressing[rows] <- pct[mi]
   loc$mean_expr_lognorm[rows] <- mex[mi]
-  loc$pseudobulk_mean_logcpm[rows] <- pbc[mi]
+  loc$pseudobulk_mean_cpm[rows] <- pbc[mi]
+  loc$pseudobulk_mean_logcpm[rows] <- pbl[mi]
+  loc$n_pseudobulk_samples[rows] <- length(gk_keep)
 }
 loc$status[!loc$gene %in% genes_present] <- 'gene_absent_in_atlas'
 
@@ -236,7 +243,11 @@ for(cohort in names(job$rna_de)) {
   if(length(up)>=job$genesets$min_size) { sets[[paste0('rna_up_',cohort)]] <- up; set_cohort[paste0('rna_up_',cohort)] <- cohort }
   if(length(dn)>=job$genesets$min_size) { sets[[paste0('rna_down_',cohort)]] <- dn; set_cohort[paste0('rna_down_',cohort)] <- cohort }
 }
-gs <- NULL; gs_status <- if(length(sets)) 'complete' else 'blocked_no_rna_de'
+gs <- NULL
+# The result schema only allows complete/blocked/failed/skipped for analyses[].status, so the
+# specific degradation reason is carried in the note instead of the status string.
+gs_status <- if(length(sets)) 'complete' else 'blocked'
+gs_note <- if(length(sets)) 'gene_set_scores_from_frozen_bulk_de' else 'blocked_no_frozen_bulk_rna_de'
 if(length(sets)) {
   score_rows <- list()
   for(k in testable) {
@@ -252,7 +263,7 @@ if(length(sets)) {
   }
   scores <- if(length(score_rows)) do.call(rbind, score_rows) else NULL
   if(is.null(scores)) {
-    gs_status <- 'blocked_no_testable_celltypes'
+    gs_status <- 'blocked'; gs_note <- 'blocked_no_testable_celltypes'
     write.csv(data.frame(geneset=character(), cohort=character(), celltype=character(), n_samples=integer(),
       mean_score=numeric(), effect_median_diff=numeric(), pvalue=numeric(), padj=numeric(), family=character(),
       status=character(), claim_type=character(), cohort_id=character()), file.path(out,'geneset_scores.csv'), row.names=FALSE)
@@ -282,7 +293,7 @@ if(length(sets)) {
   }
   gs <- if(length(gs_rows)) do.call(rbind, gs_rows) else NULL
   if(is.null(gs)) {
-    gs_status <- 'blocked_no_testable_celltypes'
+    gs_status <- 'blocked'; gs_note <- 'blocked_no_testable_celltypes'
     write.csv(data.frame(geneset=character(), cohort=character(), celltype=character(), n_samples=integer(),
       mean_score=numeric(), effect_median_diff=numeric(), pvalue=numeric(), padj=numeric(), family=character(),
       status=character(), claim_type=character(), cohort_id=character()), file.path(out,'geneset_celltype.csv'), row.names=FALSE)
@@ -301,6 +312,10 @@ if(length(sets)) {
 }
 
 # ---------- Deconvolution: marker signatures + NNLS on bulk CPM ----------
+# Evidence boundary: NNLS proportions are model estimates of cell-type fractions from bulk
+# expression, not measured cell counts or measured fractions; external atlas donors differ from
+# the bulk cohort. The frozen primary marker selection stays the presto cell-level ranking.
+# Donor-pseudobulk limma ranking and the source-restricted panel are sensitivity analyses only.
 wall <- presto::wilcoxauc(dat, ct)
 wall <- wall[wall$group %in% ct_levels, ]
 wall$diff_pct <- wall$pct_in - wall$pct_out
@@ -313,31 +328,171 @@ pick_markers <- function(top_n) {
 }
 mk_primary <- pick_markers(job$marker_top_n)
 mk_sens <- pick_markers(job$marker_sensitivity_top_n)
-write.csv(mk_primary, file.path(out,'deconvolution/signature_genes.csv'), row.names=FALSE)
+
+# Donor-level consistency audit columns for the primary (cell-level) marker list. Descriptive
+# support only: the frozen primary selection order is unchanged; cells are not inference units.
+add_donor_consistency <- function(markers) {
+  out <- markers
+  out$n_donor_groups <- 0L
+  out$n_donor_expressing <- 0L
+  out$donor_expressing_fraction <- NA_real_
+  out$donor_specificity_fraction <- NA_real_
+  for(k in unique(as.character(out$group))) {
+    rows <- which(as.character(out$group)==k)
+    feats <- as.character(out$feature[rows])
+    gk <- which(g_ct==k & keep_group)
+    if(!length(gk)) next
+    m_k <- pb_cpm[feats, gk, drop=FALSE]
+    out$n_donor_groups[rows] <- length(gk)
+    out$n_donor_expressing[rows] <- as.integer(rowSums(m_k > 0))
+    out$donor_expressing_fraction[rows] <- rowMeans(m_k > 0)
+    # Per donor, a marker is specific when its celltype-k pseudobulk CPM exceeds the donor's mean
+    # over the other celltypes. Fraction = share of donors in which that holds.
+    spec <- matrix(NA_real_, nrow=length(feats), ncol=length(gk), dimnames=list(feats, NULL))
+    for(j in seq_along(gk)) {
+      oth <- which(g_ct!=k & keep_group & g_sample==g_sample[gk[j]])
+      if(!length(oth)) next
+      spec[, j] <- as.numeric(m_k[, j] > rowMeans(pb_cpm[feats, oth, drop=FALSE]))
+    }
+    out$donor_specificity_fraction[rows] <- if(all(is.na(spec))) NA_real_ else rowMeans(spec, na.rm=TRUE)
+  }
+  out
+}
+mk_primary_audited <- add_donor_consistency(mk_primary)
+mk_primary_audited$marker_method <- 'presto_wilcoxauc_cell_level_ranked_top_n_primary'
+mk_primary_audited$claim_type <- 'marker_ranking_descriptive_support_only'
+write.csv(mk_primary_audited, file.path(out,'deconvolution/signature_genes.csv'), row.names=FALSE)
+write.csv(mk_primary_audited[, c('feature','group','n_donor_groups','n_donor_expressing',
+  'donor_expressing_fraction','donor_specificity_fraction','marker_method','claim_type')],
+  file.path(out,'deconvolution/marker_donor_consistency.csv'), row.names=FALSE)
 write.csv(mk_sens, file.path(out,'deconvolution/signature_genes_sensitivity.csv'), row.names=FALSE)
+
+# Sensitivity marker panel only: donor(sample) x celltype pseudobulk limma ranking, celltype vs
+# all other celltypes. Kept donor x celltype pseudobulk groups are the observations (never single
+# cells); labelled sensitivity, not a replacement for the primary presto ranking.
+pick_markers_donor_limma <- function(top_n) {
+  pieces <- list()
+  for(k in ct_levels) {
+    gk <- which(g_ct==k & keep_group); ok <- which(g_ct!=k & keep_group)
+    if(length(gk)<2L || length(ok)<2L) next
+    mat <- pb_log[, c(gk, ok), drop=FALSE]
+    is_k <- factor(c(rep('in', length(gk)), rep('out', length(ok))), levels=c('out','in'))
+    design <- stats::model.matrix(~is_k)
+    fit <- limma::eBayes(limma::lmFit(mat, design))
+    tt <- limma::topTable(fit, coef=2, number=Inf, sort.by='P')
+    if(!nrow(tt)) next
+    mean_cpm_in <- rowMeans(pb_cpm[rownames(tt), gk, drop=FALSE])
+    det_frac <- rowMeans(pb_cpm[rownames(tt), gk, drop=FALSE] > 0)
+    keep <- is.finite(tt$logFC) & tt$logFC > 0 & det_frac >= 0.5
+    tt <- tt[keep, , drop=FALSE]
+    if(!nrow(tt)) next
+    tt <- tt[order(-tt$t, rownames(tt)), , drop=FALSE]
+    tt <- head(tt, top_n)
+    pieces[[k]] <- data.frame(feature=rownames(tt), group=k,
+      logFC=tt$logFC, t=tt$t, pvalue=tt$P.value, padj=tt$adj.P.Val,
+      mean_cpm_in=mean_cpm_in[rownames(tt)], donor_expressing_fraction=det_frac[rownames(tt)],
+      marker_method='donor_pseudobulk_limma_celltype_vs_rest_top_n',
+      panel_role='sensitivity_not_primary', claim_type='descriptive_marker_ranking_sensitivity',
+      stringsAsFactors=FALSE)
+  }
+  if(!length(pieces)) stop('No eligible donor-pseudobulk limma marker genes; sensitivity contract failed')
+  do.call(rbind, pieces)
+}
+mk_limma <- pick_markers_donor_limma(job$marker_top_n)
+write.csv(mk_limma, file.path(out,'deconvolution/signature_genes_limma_sensitivity.csv'), row.names=FALSE)
 
 signature_matrix <- function(markers, restrict_source) {
   ug <- sort(unique(markers$feature)); ug <- ug[ug %in% rownames(pb_cpm)]
+  if(!length(ug)) stop('No signature marker genes are present in pseudobulk')
   cols <- lapply(split(markers$feature, markers$group), unique)
   mats <- list()
   for(k in names(cols)) {
     gk <- which(g_ct==k & keep_group)
     if(!is.null(restrict_source)) gk <- gk[g_src[gk]==restrict_source]
     if(length(gk)==0) next
+    # Every union marker gene receives its real reference mean CPM in every celltype column.
+    # Non-self markers are NOT forced to zero: the previous zero-fill biased NNLS proportions.
     m <- rep(0, length(ug)); names(m) <- ug
-    g_in <- intersect(cols[[k]], ug)
-    m[g_in] <- rowMeans(pb_cpm[g_in, gk, drop=FALSE])
+    m[ug] <- rowMeans(pb_cpm[ug, gk, drop=FALSE])
     mats[[k]] <- m
   }
   if(!length(mats)) stop('No signature columns could be built')
   do.call(cbind, mats)
 }
+
+# Audit: independently recompute every signature entry from pseudobulk CPM. Any non-self marker
+# forced to zero (or any deviation from the real reference mean) would be counted here.
+signature_audit_row <- function(sig, panel, markers, restrict_source, marker_method, panel_role) {
+  ug <- rownames(sig)
+  gk_list <- lapply(colnames(sig), function(k) {
+    gk <- which(g_ct==k & keep_group)
+    if(!is.null(restrict_source)) gk <- gk[g_src[gk]==restrict_source]
+    gk
+  })
+  expected <- vapply(seq_along(gk_list), function(j) rowMeans(pb_cpm[ug, gk_list[[j]], drop=FALSE]),
+                     numeric(length(ug)))
+  expected <- matrix(expected, nrow=length(ug), dimnames=list(ug, colnames(sig)))
+  dev <- abs(sig - expected)
+  data.frame(panel=panel, reference_panel=panel, marker_method=marker_method, panel_role=panel_role,
+    n_genes=length(ug), n_markers=nrow(markers),
+    n_marker_entries=sum(as.character(markers$group) %in% colnames(sig)),
+    n_celltypes=ncol(sig), scale='cpm', n_entries=length(sig),
+    n_zero_entries=sum(sig==0), zero_fraction=mean(sig==0),
+    n_forced_zero_entries=sum(sig==0 & expected>0),
+    max_abs_deviation_from_reference_mean=max(dev, na.rm=TRUE),
+    median_abs_deviation_from_reference_mean=stats::median(dev, na.rm=TRUE),
+    source_restriction=if(is.null(restrict_source)) 'pan_cancer' else as.character(restrict_source),
+    stringsAsFactors=FALSE)
+}
+
+# Panel x celltype reference audit: sample/source composition, marker counts and confounding flags.
+reference_audit_rows <- function(sig, panel, markers, restrict_source, marker_method, panel_role) {
+  panel_sources <- sort(unique(g_src[keep_group]))
+  rows <- lapply(colnames(sig), function(k) {
+    gk <- which(g_ct==k & keep_group)
+    if(!is.null(restrict_source)) gk <- gk[g_src[gk]==restrict_source]
+    comp <- table(factor(g_src[gk], levels=panel_sources)); comp <- comp[comp>0]
+    flags <- character(0)
+    if(length(unique(g_sample[gk]))<2L) flags <- c(flags,'fewer_than_two_donors')
+    if(length(comp)<2L) flags <- c(flags,'single_source_reference')
+    if(length(comp)==1L && length(panel_sources)>1L) flags <- c(flags,'celltype_confounded_with_source')
+    if(length(gk)<job$min_samples_per_celltype) flags <- c(flags,'below_min_samples_per_celltype')
+    data.frame(panel=panel, reference_panel=panel, panel_role=panel_role, celltype=k,
+      n_samples=length(unique(g_sample[gk])), n_groups_kept=length(gk), n_cells=sum(g_ncell[gk]),
+      n_sources=length(comp),
+      source_composition=if(length(comp)) paste(sprintf('%s:%d', names(comp), as.integer(comp)), collapse='|') else 'none',
+      n_markers=sum(as.character(markers$group)==k), marker_method=marker_method,
+      source_restriction=if(is.null(restrict_source)) 'pan_cancer' else as.character(restrict_source),
+      confounding_flags=if(length(flags)) paste(flags, collapse=';') else 'none',
+      stringsAsFactors=FALSE)
+  })
+  do.call(rbind, rows)
+}
+
 sig_pan <- signature_matrix(mk_primary, NULL)
 sig_hcc <- signature_matrix(mk_primary, job$deconvolution$matched_reference_sensitivity)
 sig_pan50 <- signature_matrix(mk_sens, NULL)
-write.csv(data.frame(gene=rownames(sig_pan), sig_pan, check.names=FALSE), file.path(out,'deconvolution/signature_matrix_pancancer.csv'), row.names=FALSE)
-write.csv(data.frame(gene=rownames(sig_hcc), sig_hcc, check.names=FALSE), file.path(out,'deconvolution/signature_matrix_hcc_reference.csv'), row.names=FALSE)
-write.csv(data.frame(gene=rownames(sig_pan50), sig_pan50, check.names=FALSE), file.path(out,'deconvolution/signature_matrix_pancancer_top50.csv'), row.names=FALSE)
+sig_limma <- signature_matrix(mk_limma, NULL)
+panel_defs <- list(
+  list(name='pancancer', sig=sig_pan, markers=mk_primary, restrict=NULL,
+       method='presto_wilcoxauc_cell_level_ranked_top_n_primary', role='primary'),
+  list(name='hcc_reference', sig=sig_hcc, markers=mk_primary,
+       restrict=job$deconvolution$matched_reference_sensitivity,
+       method='presto_wilcoxauc_cell_level_ranked_top_n_primary', role='sensitivity_matched_source'),
+  list(name='pancancer_top50', sig=sig_pan50, markers=mk_sens, restrict=NULL,
+       method=sprintf('presto_wilcoxauc_cell_level_ranked_top%d', job$marker_sensitivity_top_n),
+       role='sensitivity_marker_depth'),
+  list(name='pancancer_limma_sensitivity', sig=sig_limma, markers=mk_limma, restrict=NULL,
+       method='donor_pseudobulk_limma_celltype_vs_rest_top_n',
+       role='sensitivity_marker_method_not_primary'))
+for(d in panel_defs) write.csv(data.frame(gene=rownames(d$sig), d$sig, check.names=FALSE),
+  file.path(out, sprintf('deconvolution/signature_matrix_%s.csv', d$name)), row.names=FALSE)
+reference_audit <- do.call(rbind, lapply(panel_defs, function(d)
+  reference_audit_rows(d$sig, d$name, d$markers, d$restrict, d$method, d$role)))
+sig_audit <- do.call(rbind, lapply(panel_defs, function(d)
+  signature_audit_row(d$sig, d$name, d$markers, d$restrict, d$method, d$role)))
+write.csv(reference_audit, file.path(out,'deconvolution/reference_audit.csv'), row.names=FALSE, na='')
+write.csv(sig_audit, file.path(out,'deconvolution/signature_matrix_audit.csv'), row.names=FALSE, na='')
 
 bulk <- read.csv(job$bulk_counts, row.names=1, check.names=FALSE)
 reg <- read.csv(job$sample_registry, check.names=FALSE)
@@ -369,13 +524,22 @@ deconv_panel <- function(sig, panel_name) {
     s <- sum(fit)
     if(is.finite(s) && s>0) props[j, ] <- fit/s
   }
+  # Estimates must be finite: NNLS with a nonnegative positive-sum bulk profile always yields a
+  # finite normalized fit. A non-finite row would be an estimator failure, not a measured zero.
+  if(any(!is.finite(props))) stop('Non-finite NNLS proportions in panel: ', panel_name)
   pdf <- data.frame(biospecimen_id=reg$biospecimen_id, patient_id=reg$patient_id, tissue=reg$tissue,
                     panel=panel_name, props, check.names=FALSE, stringsAsFactors=FALSE)
+  # Additive provenance columns. These are NOT cell types: every consumer must exclude them
+  # (claim_type/method/reference_panel) before treating columns as estimated proportions.
+  pdf$claim_type <- 'estimate_not_measured_fraction'
+  pdf$method <- sprintf('nnls_nonnegative_least_squares_%s_signature', panel_name)
+  pdf$reference_panel <- panel_name
   write.csv(pdf, file.path(out, sprintf('deconvolution/cell_proportions_%s.csv', panel_name)), row.names=FALSE, na='')
   list(props=pdf, markers_used=length(markers), markers_dropped=length(dropped), celltypes=keep_ct)
 }
-paired_test <- function(pdf, panel_name) {
-  cts <- setdiff(colnames(pdf), c('biospecimen_id','patient_id','tissue','panel'))
+paired_test <- function(pdf, panel_name, panel_role, marker_method) {
+  meta_cols <- c('biospecimen_id','patient_id','tissue','panel','claim_type','method','reference_panel')
+  cts <- setdiff(colnames(pdf), meta_cols)
   pats <- sort(unique(pdf$patient_id))
   key <- paste0(pdf$patient_id,'|',pdf$tissue)
   trow <- match(paste0(pats,'|tumor'), key)
@@ -391,17 +555,77 @@ paired_test <- function(pdf, panel_name) {
     ci_high=fit$coefficients[,1]+qt(.975,fit$df.total)*se,
     n_pairs=ncol(delta), df=fit$df.total, contrast='tumor_vs_adjacent',
     method=sprintf('nnls_deconvolution_paired_limma_%s', panel_name),
-    claim_type='estimate_not_measured_fraction', stringsAsFactors=FALSE)
-  r$padj <- p.adjust(r$pvalue, 'BH')
-  r$family <- paste0('deconvolution_paired_', panel_name)
+    reference_panel=panel_name, panel_role=panel_role, marker_method=marker_method,
+    claim_type='estimate_not_measured_fraction', family=paste0('deconvolution_paired_', panel_name),
+    stringsAsFactors=FALSE)
+  # BH is computed within this panel family over tested finite p-values only; untested rows keep
+  # NA padj so the validator's per-family recomputation matches exactly.
+  ok_p <- is.finite(r$pvalue)
+  r$padj <- NA_real_
+  r$padj[ok_p] <- p.adjust(r$pvalue[ok_p], 'BH')
   r
 }
 pan <- deconv_panel(sig_pan, 'pancancer')
 hcc_panel <- deconv_panel(sig_hcc, 'hcc_reference')
 pan50 <- deconv_panel(sig_pan50, 'pancancer_top50')
-paired <- rbind(paired_test(pan$props, 'pancancer'), paired_test(hcc_panel$props, 'hcc_reference'),
-                paired_test(pan50$props, 'pancancer_top50'))
+limma_panel <- deconv_panel(sig_limma, 'pancancer_limma_sensitivity')
+paired <- rbind(
+  paired_test(pan$props, 'pancancer', 'primary', 'presto_wilcoxauc_cell_level_ranked_top_n_primary'),
+  paired_test(hcc_panel$props, 'hcc_reference', 'sensitivity_matched_source',
+              'presto_wilcoxauc_cell_level_ranked_top_n_primary'),
+  paired_test(pan50$props, 'pancancer_top50', 'sensitivity_marker_depth',
+              sprintf('presto_wilcoxauc_cell_level_ranked_top%d', job$marker_sensitivity_top_n)),
+  paired_test(limma_panel$props, 'pancancer_limma_sensitivity', 'sensitivity_marker_method_not_primary',
+              'donor_pseudobulk_limma_celltype_vs_rest_top_n'))
 write.csv(paired, file.path(out,'deconvolution/deconvolution_paired.csv'), row.names=FALSE, na='')
+
+# Reference sensitivity (descriptive only): compare estimated proportions across reference panels
+# per patient and celltype. Paired patients with finite values; no inferential test is claimed.
+meta_cols <- c('biospecimen_id','patient_id','tissue','panel','claim_type','method','reference_panel')
+props_by_panel <- list(pancancer=pan$props, hcc_reference=hcc_panel$props,
+                       pancancer_top50=pan50$props, pancancer_limma_sensitivity=limma_panel$props)
+ref_sens_rows <- list()
+for(other_panel in c('hcc_reference','pancancer_top50','pancancer_limma_sensitivity')) {
+  props_a <- props_by_panel[['pancancer']]; props_b <- props_by_panel[[other_panel]]
+  if(is.null(props_a) || is.null(props_b)) next
+  cts <- intersect(setdiff(colnames(props_a), meta_cols), setdiff(colnames(props_b), meta_cols))
+  for(k in cts) {
+    tumor_a <- unique(props_a[props_a$tissue=='tumor', c('patient_id', k)]); names(tumor_a)[2] <- 'prop_a'
+    tumor_b <- unique(props_b[props_b$tissue=='tumor', c('patient_id', k)]); names(tumor_b)[2] <- 'prop_b'
+    merged <- merge(tumor_a, tumor_b, by='patient_id')
+    merged <- merged[is.finite(merged$prop_a) & is.finite(merged$prop_b), , drop=FALSE]
+    # Descriptive only: a celltype with no paired patient across the two panels has no comparison
+    # row (its reference coverage is recorded in reference_audit.csv), so no undefined difference
+    # is emitted into a table the validator requires to be nonnegative/finite.
+    if(!nrow(merged)) next
+    adjacent_a <- unique(props_a[props_a$tissue=='adjacent', c('patient_id', k)]); names(adjacent_a)[2] <- 'adj_a'
+    adjacent_b <- unique(props_b[props_b$tissue=='adjacent', c('patient_id', k)]); names(adjacent_b)[2] <- 'adj_b'
+    paired_rows <- merge(merge(merged[, c('patient_id','prop_a')], adjacent_a, by='patient_id'),
+                         merge(merged[, c('patient_id','prop_b')], adjacent_b, by='patient_id'),
+                         by='patient_id')
+    delta_a <- paired_rows$prop_a - paired_rows$adj_a
+    delta_b <- paired_rows$prop_b - paired_rows$adj_b
+    pair_ok <- is.finite(delta_a) & is.finite(delta_b)
+    rho <- NA_real_
+    if(nrow(merged)>=3L && stats::sd(merged$prop_a)>0 && stats::sd(merged$prop_b)>0)
+      rho <- suppressWarnings(stats::cor(merged$prop_a, merged$prop_b, method='spearman'))
+    ref_sens_rows[[length(ref_sens_rows)+1L]] <- data.frame(
+      comparison=paste0('pancancer_vs_', other_panel), panel_a='pancancer', panel_b=other_panel,
+      celltype=k, n=nrow(merged), spearman_rho=rho,
+      mean_abs_difference=mean(abs(merged$prop_a - merged$prop_b)),
+      direction_concordance=if(any(pair_ok)) mean(sign(delta_a[pair_ok])==sign(delta_b[pair_ok])) else NA_real_,
+      n_direction_pairs=sum(pair_ok),
+      claim_type='descriptive_reference_comparison',
+      method='paired_patient_proportion_comparison_across_reference_panels',
+      note='descriptive_reference_sensitivity_not_inferential', stringsAsFactors=FALSE)
+  }
+}
+reference_sensitivity <- if(length(ref_sens_rows)) do.call(rbind, ref_sens_rows) else
+  data.frame(comparison=character(), panel_a=character(), panel_b=character(), celltype=character(),
+    n=integer(), spearman_rho=numeric(), mean_abs_difference=numeric(), direction_concordance=numeric(),
+    n_direction_pairs=integer(), claim_type=character(), method=character(), note=character(),
+    stringsAsFactors=FALSE)
+write.csv(reference_sensitivity, file.path(out,'deconvolution/reference_sensitivity.csv'), row.names=FALSE, na='')
 
 # Purity consistency audit (descriptive only).
 clin <- read.csv(job$clinical, check.names=FALSE)
@@ -422,7 +646,8 @@ if(length(malignant_col)) {
 write.csv(purity_rows, file.path(out,'deconvolution/purity_audit.csv'), row.names=FALSE, na='')
 
 # ---------- UMAP figure source (subsampled, seeded) ----------
-umap_status <- 'skipped_no_umap_reduction'
+umap_status <- 'skipped'
+umap_note <- 'no_umap_reduction_in_atlas'
 if('umap' %in% names(obj@reductions)) {
   emb <- Seurat::Embeddings(obj, 'umap')
   n <- nrow(emb); cap <- job$umap_figure_cell_cap
@@ -431,27 +656,72 @@ if('umap' %in% names(obj@reductions)) {
     celltype=ct[idx], source=src[idx], sample=smp[idx], subsampled=n>cap),
     file.path(out,'umap_source.csv'), row.names=FALSE)
   umap_status <- 'complete'
+  umap_note <- 'seeded_subsample_of_provided_embedding'
 }
 
 elapsed <- round(as.numeric(difftime(Sys.time(), t_start, units='secs')), 1)
-jsonlite::write_json(list(status='complete', n_cells=ncol(obj), n_samples=length(unique(smp)),
+# Method provenance is explicit so downstream validation can reject legacy (v1) results instead of
+# silently relabelling them as corrected. Estimates stay estimates, never measured fractions.
+pseudobulk_units <- list(
+  mean_cpm='rowMeans(pb_cpm[genes, kept sample x celltype pseudobulk groups])',
+  mean_logcpm='rowMeans(log1p(pb_cpm[genes, kept sample x celltype pseudobulk groups]))',
+  n_pseudobulk_samples='number of kept sample x celltype pseudobulk groups used for that celltype',
+  jensen_inequality='pseudobulk_mean_logcpm <= log1p(pseudobulk_mean_cpm)',
+  note='linear and log-scale mean CPM are reported in separate columns; a mean CPM is never labelled logcpm')
+marker_methods <- list(
+  primary='presto::wilcoxauc cell-level ranking (frozen; cell-level statistics are descriptive support only)',
+  sensitivity_marker_depth=sprintf('presto::wilcoxauc cell-level ranking top %d', job$marker_sensitivity_top_n),
+  sensitivity_donor_limma='limma/limma eBayes on donor(sample) x celltype pseudobulk logCPM, celltype vs all other celltypes (sensitivity, not primary)',
+  donor_consistency_audit='per-marker share of donors in which the marker is expressed and exceeds the donor mean over other celltypes')
+reference_methods <- list(
+  signature_scale='cpm',
+  signature_matrix='per panel: union of marker genes; every celltype column uses rowMeans of pseudobulk CPM for ALL union markers (no zero fill of non-self markers)',
+  primary_panel='pan_cancer all celltypes',
+  matched_source_sensitivity=sprintf('source-restricted to %s', job$deconvolution$matched_reference_sensitivity),
+  marker_depth_sensitivity=sprintf('top %d cell-level markers per celltype', job$marker_sensitivity_top_n),
+  donor_limma_sensitivity='donor pseudobulk limma marker ranking (sensitivity only)')
+estimate_boundary <- paste('Deconvolution proportions are NNLS model estimates of cell-type fractions from bulk',
+  'expression; they are not measured cell counts, not measured fractions, and not independent validation.')
+jsonlite::write_json(list(status='complete', method_version=2L,
+  n_cells=ncol(obj), n_samples=length(unique(smp)),
   n_sources=length(unique(src)), n_celltypes=length(ct_levels), n_celltypes_testable=length(testable),
   n_candidate_genes=length(genes), n_genes_present=length(genes_present),
-  deconvolution_markers_used=list(pancancer=pan$markers_used, hcc_reference=hcc_panel$markers_used, pancancer_top50=pan50$markers_used),
-  deconvolution_markers_dropped=list(pancancer=pan$markers_dropped, hcc_reference=hcc_panel$markers_dropped, pancancer_top50=pan50$markers_dropped),
+  n_pseudobulk_groups_total=length(keep_group), n_pseudobulk_groups_kept=sum(keep_group),
+  pseudobulk_units=pseudobulk_units, marker_methods=marker_methods,
+  reference_methods=reference_methods, estimate_boundary=estimate_boundary,
+  deconvolution_markers_used=list(pancancer=pan$markers_used, hcc_reference=hcc_panel$markers_used,
+    pancancer_top50=pan50$markers_used, pancancer_limma_sensitivity=limma_panel$markers_used),
+  deconvolution_markers_dropped=list(pancancer=pan$markers_dropped, hcc_reference=hcc_panel$markers_dropped,
+    pancancer_top50=pan50$markers_dropped, pancancer_limma_sensitivity=limma_panel$markers_dropped),
+  deconvolution_panels=lapply(panel_defs, function(d) list(name=d$name, panel_role=d$role,
+    marker_method=d$method, n_genes=nrow(d$sig), n_celltypes=ncol(d$sig),
+    source_restriction=if(is.null(d$restrict)) 'pan_cancer' else as.character(d$restrict))),
   analyses=list(
     list(name='inventory', status='complete', method='descriptive_no_refiltering'),
     list(name='axis_localization', status='complete', n_rows=nrow(loc),
          method='donor_paired_wilcoxon_on_sample_pseudobulk_logcpm_plus_presto_cell_level_descriptive',
-         note='cells_not_independent_units; cell-level stats are descriptive support'),
+         note='cells_not_independent_units; cell-level stats are descriptive support; pseudobulk_mean_cpm and pseudobulk_mean_logcpm are separate units'),
     list(name='axis_localization_by_source', status='complete', n_rows=nrow(by_source),
          method='descriptive_per_source_pooled_expression', note='axis genes only'),
     list(name='geneset_celltype', status=gs_status, n_rows=if(is.null(gs)) 0L else nrow(gs),
-         method='ssgsea_sample_pseudobulk_donor_paired_wilcoxon'),
+         method='ssgsea_sample_pseudobulk_donor_paired_wilcoxon', note=gs_note),
+    list(name='marker_donor_consistency', status='complete', n_rows=nrow(mk_primary_audited),
+         method='per_primary_marker_donor_expressing_and_specificity_fraction',
+         note='descriptive donor-level consistency audit; primary marker selection unchanged'),
     list(name='deconvolution', status='complete', n_rows=nrow(paired),
-         method='nnls_marker_signature_pancancer_primary_hcc_reference_and_top50_sensitivity',
-         note='estimates_not_measured_fractions; malignant/epithelial transfer to HCC bulk uncertain'),
-    list(name='umap_figure_source', status=umap_status, method='seeded_subsample_of_provided_embedding')),
+         method='nnls_union_marker_signature_no_zero_fill_pancancer_primary_hcc_reference_top50_and_donor_limma_sensitivity',
+         note='estimates_not_measured_fractions; primary panels use presto cell-level markers, donor pseudobulk limma is sensitivity only; malignant/epithelial transfer to HCC bulk uncertain'),
+    list(name='reference_audit', status='complete', n_rows=nrow(reference_audit),
+         method='per_panel_celltype_reference_sample_source_composition_and_marker_audit',
+         note='confounding flags are descriptive; donor is the reference unit'),
+    list(name='signature_matrix_audit', status='complete', n_rows=nrow(sig_audit),
+         method='independent_recomputation_of_every_signature_entry_from_pseudobulk_cpm',
+         note='union markers without zero fill; n_forced_zero_entries must be 0 and scale is cpm'),
+    list(name='reference_sensitivity', status='complete', n_rows=nrow(reference_sensitivity),
+         method='paired_patient_proportion_comparison_across_reference_panels',
+         note='descriptive reference sensitivity; not inferential and not a corrected primary result'),
+    list(name='umap_figure_source', status=umap_status,
+         method='seeded_subsample_of_provided_embedding', note=umap_note)),
   interpretation='External pan-cancer atlas context; donors differ from the bulk cohort; not independent validation',
   seed=job$seed, elapsed_seconds=elapsed),
   file.path(out,'statistics.json'), auto_unbox=TRUE, pretty=TRUE)

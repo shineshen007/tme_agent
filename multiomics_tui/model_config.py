@@ -192,7 +192,8 @@ def redact(value):
     for secret in sorted(secrets, key=len, reverse=True):
         if len(secret) >= 4:
             text = text.replace(secret, '[REDACTED]')
-    return text
+    from orchestrator.privacy import redact_credentials
+    return redact_credentials(text)
 
 
 def worker_environment(cfg):

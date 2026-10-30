@@ -1,43 +1,53 @@
-updated_at: 2026-10-27
+updated_at: 2026-10-30
 
 ## current_goal
-v8.3.0 源码与版本交付；真实模型与真实多组学科学验收继续独立记录。
+A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报告保存在 reports/audit_remediation_20261030_101546/。U01–U04 已完成静态/环境验证并单独记录，未混入已确认缺陷；未验证部分保持 NOT_EVALUABLE。
 
 ## completed
-- VERSION 与 CHANGELOG 更新为 v8.3.0；版本/发行/数据专项 78 passed，公开白名单与数据来源检查通过；源码交付范围仅限 PUBLIC_FILES.json，不包含本地知识、缓存、凭据和任务结果。
-- 通用 ResearchContext、TaskResearchAdapter/LegacyResearchAdapter、EvidenceRecord v3 与差异/富集独立类型；来源行列和输入/脚本/输出哈希绑定，公开入口串联既有科研会话。
-- 项目 SQLite Scientific Wiki 与明确发布的本机共享库；实体命名空间/物种、版本/来源、Know-How、候选质检、人工审查、撤回、共享发布和 JSON/Markdown 导出。
-- 规划、解释、假说和实验设计的知识快照；PubMed/Europe PMC 连接器、完整可得文本、逐主张引文与直接性核验、Critic 同源复核。
-- 独立 research_status/scientific_status；/wiki、/ask、/research；科研重试不重跑统计，新增分析须另建审批计划；代码/schema、查询、文献、提示、配置和逐次响应冻结。
-- 完整回归 481 passed / 2 skipped / 1 warning；最后响应审计修改后相关专项 151 passed（覆盖重叠）。发行白名单 209 项审计与 provenance gate 通过，回归覆盖实际 ZIP 构建/解包/升级。
-- 真实公共连接器首次查询 complete（4 条），缓存重放通过；另一轮 Europe PMC 失败如实记 partial。
-- 保护数据 8/8 个文件哈希不变；已有 v8.2.0 开发改动与科研专家首版合并为 v8.3.0。
+- 基准：审查基准 224 项中仅 CURRENT_STATE.md 变化，155 项受保护文件哈希在修复前后均未变化；当前工作树是修复对象，未从 HEAD 重建。
+- A01：新增 safe_fs.open_beneath；失败报告、下一步骤日志、任务报告、RDS 探针目录和研究续跑目录均拒绝文件/祖先链接；真实 macOS 原生探针 before 覆盖哨兵、after 拒绝且哨兵不变；文件链接、祖先目录链接、竞态和正常流程测试通过。
+- A02：全部步骤结束后重新校验所有声明输出与脚本哈希；后一步空表/等长改写/链接替换/脚本改写均失败且不生成 succeeded 清单；正常链清单与磁盘哈希一致；UI 增加 SHA256 与链接校验。
+- A03：input_probe v2 记录基因集名称哈希和零方差特征哈希；批准协议冻结 gene_set_universe；校验器从可信 inspection 重新派生并对照全集、大小、状态、审计理由和 BH 家族。联合删通路由 before passed 变为 after rejected。
+- A04：06_prognosis.R 使用全部映射表达背景（非签名子集），记录背景/剔除数；真实 R/GSVA 生产测试与全背景参考数值一致（1e-8）；before 返回 1，after 返回 0。
+- A05：批准后启动/快照异常将任务置为 blocked、保留审批哈希、无 job_id；重试重新规划并重新批准；若 job 已实际启动则绑定现有 job；三种失败路径测试通过。
+- A06/A07：基础 LLMClient 与 TUI 共用 NoRedirect；对状态码错误、HTTPError、重试耗尽、成功回显和完整审计记录脱敏；本机 HTTP 301/302/303/307/308 回环及 HTTPS→HTTP 降级原生探针 after 均不转发认证；before 会转发/泄露。
+- A08：rds_table 执行与 CSV 等价的 unique_by/nonmissing/finite/样本/组/配对契约；before RDS passed/CSV rejected，after 两者一致拒绝；正常 RDS 通过。
+- A09：全不可估计时跳过 padj 范围检查，保留完整表并返回 statistical_status=not_estimable；部分不可估计和正常 tested 继续通过。
+- 回归：完整 pytest tests = 729 passed / 8 skipped / 0 failed（737 nodes，357.51s）；batch1 86、batch2 20、batch3 42 项定向回归均通过；8 项 skip 仍为 Windows/Linux 专用或缺少 nnls/limma/Seurat 的 NOT_EVALUABLE。
+- 发行：public_release audit 230 项通过；provenance gate 通过；隔离副本 native doctor 与 v8 acceptance 通过（Python/R 与四种 GSVA 方法）。
+- 保护：未修改 data/、datasets/、config/study_config.yaml、既有 workspace 会话和 reports/full_project_audit_20261029_111024/；未调用真实模型、未安装依赖、未提交/合并/推送/发布。
 
 ## in_progress
-- 最后真实模型 Reasoner/Critic 冻结材料复核待明确外发授权；已准备具体请求预览和哈希。
-- 真实 HCC 新科研入口端到端解释、真实多组学案例与人工科学审阅尚未验收。
+- 无代码修复项；仅剩报告与产物清单最终归档。
 
 ## key_decisions
-- 通用疾病框架，HCC 是首个真实输入；合成工程测试不等于科学验证。
-- 自动候选经人工审查才能入库；共享发布单独确认；批准不改变主张证据等级。
-- 重复队列、RNA 派生评分和丰度关联不能升级为独立组学、因果、活性或通量；无假说是合法结果。
-- 缺少成熟包实现时保持依赖阻塞，不让模型自行重写统计方法。
+- 安全写入采用现有 os.open 的 dir_fd/O_NOFOLLOW 原子路径（safe_fs），Windows 回退为组件检查并明确限制；不新增第三方依赖。
+- A03 协议新增 gene_set_universe 属于 schema 变更：旧版已批准的通路评分任务需重新规划，非通路评分任务不受影响。
+- A06 基础客户端不再自动跟随重定向；依赖 HTTP→HTTPS 跳转的端点会显式失败，这是安全要求。
+- A07 只保留状态码/错误类别，不回显不受控认证正文。
+- U01/U03 静态确认但未修改；U02/U04 依赖缺失，保持 NOT_EVALUABLE；不把 U 项混入 A 项验收。
 
 ## changed_files
-- orchestrator/knowledge.py、knowledge_context.py、research_context.py、research_literature.py、research_phases.py、research_pipeline.py；新增 schema 和科研/Wiki 测试。
-- 既有 agent_loop、loop_graph、evidence_graph、文献核验、llm_client 和 TUI planner/runner/controller/qa 局部接入。
-- docs/RESEARCH_EXPERT.md、docs/VALIDATION.md、README、PROJECT_CONTEXT、CHANGELOG、配置示例、PUBLIC_FILES.json。
+- multiomics_tui/safe_fs.py（新增）、task_runner.py、output_contracts.py、app.py、controller.py、input_inspection.py、input_probe.R、model_client.py、model_config.py、output_probe.R、task_planner.py
+- orchestrator/pathway_scoring.py、privacy.py、prognosis.py、research_pipeline.py、llm_client.py
+- scripts/06_prognosis.R、docs/PATHWAY_SCORING.md、PUBLIC_FILES.json、CURRENT_STATE.md
+- tests/test_task_path_safety.py、test_task_runner_integrity.py、test_task_lifecycle.py、test_output_probe_contracts.py、test_llm_client_security.py（新增）；test_pathway_scoring.py、test_prognosis_r.py、test_research_pipeline.py
+- reports/audit_remediation_20261030_101546/（报告、快照、复现、证据、日志、补丁）
 
 ## latest_outputs
-- v8.3.0：reports/research_expert_upgrade_20261026/v830_commit_tests.log/xml，78 passed；发布标签尚未创建。
-- reports/research_expert_upgrade_20261026/：baseline.json、delivery_regression.log/xml、delivery_audit_fix.log/xml、protected_hashes_final.json、public_audit_final.json。
-- live_literature.json、live_literature_offline_replay.json；live_model_fixture 保留两次失败尝试，live_frozen_replay/result.json 保留预算失败。
-- approval_scope.json、approval_reasoner_request.json：仅 3 条合成证据与 6 条公开文献；私有 ID 检查通过，不含项目 Wiki；具体请求 SHA256 在 scope 中。
+- reports/audit_remediation_20261030_101546/REMEDIATION_REPORT.md、STATUS.json、REPRODUCTION.md
+- reports/audit_remediation_20261030_101546/patches/remediation.diff、remediation_diffstat.txt
+- reports/audit_remediation_20261030_101546/pytest_final.xml、logs/pytest_final.log、batch1/2/3.log、audits/、native/
+- reports/audit_remediation_20261030_101546/repro/A01_*/、A02_*/、A03_A09_*/、A04_*/、A05_*/、A06_*/、A08_*/ result.json 与日志
+- reports/audit_remediation_20261030_101546/protected_hashes_after.json、artifact_manifest.json
 
 ## blockers_or_warnings
-- 真实模型未端到端通过：已观察并修复查询限额、主张 ID 和直接性说明；一次重放消耗 60,176 tokens 后预算阻断。最后真实复核未执行。
-- 自动审批审查拒绝最后复核：读取凭据并向外部端点发送材料的具体范围未明确授权。预览端点 https://api.deepseek.com，模型 deepseek-flash，配置预算 120,000 tokens，仅 Reasoner/Critic，冻结文献、不重新检索或统计。
-- 科学验收仍为 NOT_EVALUABLE；原生跨平台和真实实验可行性需要独立验收。
+- U02/U03：缺 Seurat/presto/nnls/limma，完整 05 生产链未执行；NOT_EVALUABLE。
+- U01/U04：静态确认，未做运行期漂移/安装并发破坏测试；未修改。
+- Windows/Linux 原生隔离、真实 Keychain、真实模型、真实多组学与人工科学审阅未验证，保持 NOT_EVALUABLE。
+- A06 的 HTTPS 降级探针使用本机临时自签证书与回环服务，仅证明传输边界；真实部署端点未测试。
+- A03 新协议需重新规划旧通路评分任务；A06 重定向行为变更见报告。
+- 原审查报告中的 689 passed / 8 skipped 是上一轮参考，本轮以 729 passed / 8 skipped 为准。
 
 ## next_step
-获得对 approval_scope.json 所列 DeepSeek 外发范围的明确同意后，运行冻结材料的 Reasoner/Critic 复核；记录真实结果，再推进 HCC 与真实多组学人工验收。
+阅读 REMEDIATION_REPORT.md 与 STATUS.json；如需继续，优先在获授权目标环境验证 U02/U03/U04、Windows/Linux 原生和真实模型，不再把本轮工程通过视为科学或全面安全验收。

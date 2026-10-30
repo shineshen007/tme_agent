@@ -17,7 +17,8 @@ if __package__ in (None, ''):
 from .agent_loop import AgentReasoningSession
 from .io import sha256
 from .knowledge_context import knowledge_service, knowledge_snapshot
-from .llm_client import private_id_pattern, PrivacyViolation
+from .llm_client import PrivacyViolation
+from .privacy import sensitive_matches
 from .reasoning import write_immutable_json
 from .research_context import TaskResearchAdapter, verify_context_sources
 from .research_literature import LiteratureService
@@ -162,6 +163,9 @@ def _proposals(root, context, draft, literature, attempt, cfg):
             payload = {'title': claim['statement'][:100], 'kind': claim['kind'], 'statement': claim['statement'],
                 'context': {k: getattr(context, k) for k in ('disease', 'species', 'tissue')},
                 'sources': sources, 'entities': [], 'relations': [], 'shareable': False}
+            if sensitive_matches(json.dumps(payload, ensure_ascii=False),
+                                 context.private_ids, channel='model'):
+                raise ValueError('Knowledge candidate contains private or clinical content')
             proposals.append(service.propose(payload))
         except (ValueError, OSError, KeyError, StopIteration) as exc:
             LOG.warning('Knowledge candidate rejected for %s: %s', claim['id'], exc)
@@ -174,13 +178,21 @@ def render_research_report(context, state, literature, proposals):
     scientific_status = 'EXPLORATORY' if state.get('action') in {'accept', 'request_analysis'} else 'NOT_EVALUABLE'
     lines = ['# 科研解释 / Research interpretation', '', f'**Scientific status: {scientific_status}**', '',
              context.question, '', '## 统计事实（由冻结结果注入）', '',
-             '| Evidence | Entity | Effect | Scale | Adjusted p | n | Direction |',
-             '|---|---|---|---|---|---|---|']
+             '| Evidence | Entity | Effect | Scale | Adjusted p | n | Direction | Selection |',
+             '|---|---|---|---|---|---|---|---|']
     for record in context.evidence:
         obs = record['observation']
+        selection = obs.get('selection') or {}
+        selection_label = selection.get('status', 'not_verifiable')
         values = [record['evidence_id'], record['biological_entity']['entity_id'], obs.get('effect'),
-                  obs.get('effect_scale'), obs.get('adjusted_p'), obs.get('n'), obs.get('direction')]
+                  obs.get('effect_scale'), obs.get('adjusted_p'), obs.get('n'), obs.get('direction'),
+                  selection_label]
         lines.append('| ' + ' | '.join('NA' if v is None else str(v).replace('|', '\\|') for v in values) + ' |')
+    unverified = [record['evidence_id'] for record in context.evidence
+                  if (record['observation'].get('selection') or {}).get('verified') is not True]
+    if unverified:
+        lines += ['', '未核验显著性：' + ', '.join(unverified) +
+                  '（没有冻结阈值，selected 不作为确定性证据）。']
     lines += ['', '## 生物学解释与未经验证的假说', '']
     for claim in draft.get('interpretations', []) + draft.get('hypotheses', []):
         lines += [f"### {claim['id']} · {claim['kind']}", '', claim['statement'], '',
@@ -206,6 +218,14 @@ def render_research_report(context, state, literature, proposals):
                   f"{relation['directness']}；定位 {relation['locator']}；{relation['rationale']}"]
     for record in literature.get('records', []):
         lines.append(f"- [{record['source_id']}: {record['title']}]({record['url']})")
+    review = state.get('review') or {}
+    lines += ['', '## 反证与阴性结果审查', '']
+    if review.get('evidence_review'):
+        for item in review['evidence_review']:
+            lines.append(f"- {item['claim_id']}：{item['assessment']}；反证 {len(item['counterevidence_ids'])} 条；"
+                         f"阴性/不可估计 {len(item['negative_result_ids'])} 条；{item['rationale']}")
+    else:
+        lines.append('- 本次没有可用的 Critic 反证审查记录，不能视为反证已排除。')
     lines += ['', '## 创新性（仅限所记录检索范围）', '']
     for novelty in draft.get('novelty', []):
         lines.append(f"- {novelty['claim_id']}: {novelty['assessment']} — {novelty['rationale']}")
@@ -258,12 +278,21 @@ def _run_task_research(root, task_id, *, cfg=None, client=None, literature_servi
     plan = store.plan(task_id)
     if not plan.get('research', {}).get('enabled'):
         return {'research_status': 'not_requested', 'scientific_status': 'NOT_EVALUABLE'}
+    task_dir = root / 'analysis' / task_id
+    if task_dir.is_symlink() or not task_dir.is_dir():
+        raise ValueError('Research task directory is missing or is a symbolic link')
+    research_dir = task_dir / 'research'
+    if research_dir.is_symlink() or (research_dir.exists() and not research_dir.is_dir()):
+        raise ValueError('Research directory is a symbolic link or not a directory')
     model_snapshot = store.directory(task_id) / 'model_config.json'
     cfg = cfg or load_tui_config(root, snapshot=model_snapshot if model_snapshot.is_file() else None)
     # No research folder exists until the approved computation and its manifests verify.
     context = TaskResearchAdapter(root, task_id).load()
-    attempt = root / 'analysis' / task_id / 'research' / ('attempt_' + uuid.uuid4().hex)
-    attempt.mkdir(parents=True, mode=0o700)
+    research_dir.mkdir(mode=0o700, exist_ok=True)
+    attempt = research_dir / ('attempt_' + uuid.uuid4().hex)
+    if attempt.exists() or attempt.is_symlink():
+        raise ValueError('Research attempt path already exists')
+    attempt.mkdir(mode=0o700)
     _state(store, task_id, 'running', scientific_status='EXPLORATORY', research_attempt=str(attempt.relative_to(root)))
     status, scientific_status, error = 'blocked', 'NOT_EVALUABLE', None
     frozen = {}
@@ -306,15 +335,14 @@ def _run_task_research(root, task_id, *, cfg=None, client=None, literature_servi
         save('code_sources.json', code_sources)
         save('code_snapshot.json', code_text)
         frozen.update({p.name: sha256(p) for p in attempt.glob('*.json')})
-        pattern = private_id_pattern(context.private_ids)
         if client is None:
             client = build_client(root, cfg, context.private_ids, audit_dir=attempt / 'calls')
         # Also guard injected/mock clients, and preserve the caller's cumulative budget.
         class GuardedClient:
             def chat_json(self, *args, **kwargs):
                 text = json.dumps([args, {k: v for k, v in kwargs.items() if k != 'validator'}], ensure_ascii=False)
-                if pattern and pattern.search(text):
-                    raise PrivacyViolation('Research context contains a private identifier')
+                if sensitive_matches(text, context.private_ids, channel='model'):
+                    raise PrivacyViolation('Research context contains private or clinical content')
                 return client.chat_json(*args, **kwargs)
         service = literature_service or LiteratureService(root / '.cache/research_literature',
                                                           cfg.get('research', {}).get('literature', {}))

@@ -20,6 +20,8 @@ import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
 
+from .privacy import sensitive_matches
+
 LOG = logging.getLogger(__name__)
 PUBMED = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
 EUROPEPMC = 'https://www.ebi.ac.uk/europepmc/webservices/rest/'
@@ -238,6 +240,8 @@ def _public_queries(queries, context, maximum):
     public_values.extend(context.get('public_terms', []))
     if any(pid.lower() in value.lower() for pid in private for value in public_values):
         raise ValueError('Public research context contains a private identifier')
+    if any(sensitive_matches(value, private, channel='literature') for value in public_values):
+        raise ValueError('Public research context contains patient, sample or clinical free-text identifiers')
     if not isinstance(queries, list) or len(queries) > maximum:
         raise ValueError(f'queries must be a list with at most {maximum} public queries')
     result = []
@@ -247,9 +251,13 @@ def _public_queries(queries, context, maximum):
             raise ValueError('Invalid public literature query')
         query = query.strip()
         if any(pid.lower() in query.lower() for pid in private) or re.search(
-                r'\bTCGA-[A-Z0-9-]+|\b(?:patient|sample|subject|donor)[_:-][A-Za-z0-9_-]+|'
+                r'\bTCGA-[A-Z0-9]{2}-[A-Z0-9]{4}(?:-[A-Z0-9]+)?\b|'
+                r'\b(?:patient|sample|subject|donor)(?:[:=][A-Za-z0-9_-]+|'
+                r'[_ -](?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+)|'
                 r'[\w.+-]+@[\w.-]+\.[A-Za-z]+|(?:/Users/|/home/|[A-Za-z]:\\)|[\t\n\r]', query, re.I):
             raise ValueError('Query contains private identifiers, local paths, or raw data')
+        if sensitive_matches(query, private, channel='literature'):
+            raise ValueError('Query contains patient, sample or clinical free-text identifiers')
         if query not in result:
             result.append(query)
     return result, {k: v for k, v in context.items() if k != 'private_ids'}

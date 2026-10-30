@@ -16,12 +16,18 @@ import re
 
 import jsonschema
 
+from .privacy import metadata_private_values
+
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 MISSING = {"", "na", "nan", "null", "none", "n/a"}
 MEASURED_OMICS = {"transcriptomics", "proteomics", "metabolomics", "epigenomics", "genomics", "scrna", "spatial"}
 COLUMN_KEYS = {"entity_id", "symbol", "effect", "p_value", "adjusted_p", "n", "selected", "status"}
 SCALES = {"log2_fold_change", "log_fold_change", "fold_change", "NES", "odds_ratio", "hazard_ratio", "difference", "unknown"}
+ESTIMABLE_STATUSES = {"tested", "available", "estimated"}
+RATIO_SCALES = {"fold_change", "odds_ratio", "hazard_ratio"}
+SELECTION_KEYS = {"adjusted_p_max", "effect_min", "effect_max", "analysis_unit_count"}
+MIN_ANALYSIS_UNITS = 3
 
 
 def _hash_bytes(content):
@@ -94,7 +100,99 @@ def _context(value, analysis_unit=None):
     return result
 
 
-def validate_research_plan(research, declared_outputs, analysis_unit):
+def _json_number(value, name, low=None, high=None):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"Research selection {name} must be a finite number")
+    value = float(value)
+    if (low is not None and value < low) or (high is not None and value > high):
+        raise ValueError(f"Research selection {name} outside allowed range")
+    return value
+
+
+def _selection_contract(value):
+    """Normalize an optional, already-frozen significance rule.
+
+    The verifier never chooses a threshold. If a plan declares one, it must be
+    explicit and is then applied mechanically to every bound row.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - SELECTION_KEYS:
+        raise ValueError("Research selection requires adjusted_p_max and only optional effect/unit fields")
+    if "adjusted_p_max" not in value:
+        raise ValueError("Research selection requires adjusted_p_max")
+    result = {"adjusted_p_max": _json_number(value["adjusted_p_max"], "adjusted_p_max", 0, 1),
+              "effect_min": None, "effect_max": None, "analysis_unit_count": None}
+    if value.get("effect_min") is not None:
+        result["effect_min"] = _json_number(value["effect_min"], "effect_min")
+    if value.get("effect_max") is not None:
+        result["effect_max"] = _json_number(value["effect_max"], "effect_max")
+    if (result["effect_min"] is not None and result["effect_max"] is not None and
+            result["effect_min"] > result["effect_max"]):
+        raise ValueError("Research selection effect_min exceeds effect_max")
+    if value.get("analysis_unit_count") is not None:
+        count = value["analysis_unit_count"]
+        if isinstance(count, bool) or not isinstance(count, int) or count < MIN_ANALYSIS_UNITS:
+            raise ValueError("Research selection analysis_unit_count must be an integer >= 3")
+        result["analysis_unit_count"] = count
+    return result
+
+
+def _classify_selection(observation, contract, raw_selected):
+    """Apply a frozen threshold rule; return provenance-rich status and verified selection.
+
+    No threshold, no status inference: an unverifiable binding stays unknown rather
+    than being promoted to significance by the model or the adapter.
+    """
+    if contract is None:
+        return {"status": "not_applicable" if raw_selected is None else "not_verifiable",
+                "verified": False, "raw_selected": raw_selected, "selected": None,
+                "adjusted_p_max": None, "effect_min": None, "effect_max": None,
+                "analysis_unit_count": None,
+                "reasons": [] if raw_selected is None else ["no_frozen_selection_thresholds"]}
+    reasons = []
+    status = observation["status"]
+    adjusted_p = observation["adjusted_p"]
+    effect = observation["effect"]
+    n = observation["n"]
+    if status not in ESTIMABLE_STATUSES:
+        reasons.append("test_status_not_estimable")
+    if adjusted_p is None:
+        reasons.append("adjusted_p_missing")
+    if n is None:
+        reasons.append("independent_unit_count_missing")
+    elif n < MIN_ANALYSIS_UNITS:
+        reasons.append("fewer_than_three_independent_units")
+    if contract["analysis_unit_count"] is not None and n is not None and n != contract["analysis_unit_count"]:
+        reasons.append("analysis_unit_count_mismatch")
+    if (contract["effect_min"] is not None or contract["effect_max"] is not None) and effect is None:
+        reasons.append("effect_missing_for_declared_effect_threshold")
+    if reasons:
+        if raw_selected is True:
+            # An explicit positive call that conflicts with the frozen rule is an
+            # error, not something the adapter may silently downgrade.
+            raise ValueError("Research selected=true is inconsistent with frozen thresholds: " + ", ".join(reasons))
+        return {"status": "not_verifiable", "verified": False, "raw_selected": raw_selected,
+                "selected": None, "adjusted_p_max": contract["adjusted_p_max"],
+                "effect_min": contract["effect_min"], "effect_max": contract["effect_max"],
+                "analysis_unit_count": contract["analysis_unit_count"], "reasons": reasons}
+    expected = adjusted_p <= contract["adjusted_p_max"]
+    if contract["effect_min"] is not None:
+        expected = expected and effect >= contract["effect_min"]
+    if contract["effect_max"] is not None:
+        expected = expected and effect <= contract["effect_max"]
+    if raw_selected is not None and raw_selected is not expected:
+        raise ValueError(
+            "Research selected column disagrees with frozen adjusted_p/effect thresholds "
+            f"(recorded={raw_selected}, expected={expected})")
+    return {"status": "verified_selected" if expected else "verified_not_selected",
+            "verified": True, "raw_selected": raw_selected, "selected": expected,
+            "adjusted_p_max": contract["adjusted_p_max"],
+            "effect_min": contract["effect_min"], "effect_max": contract["effect_max"],
+            "analysis_unit_count": contract["analysis_unit_count"], "reasons": []}
+
+
+def validate_research_plan(research, declared_outputs, analysis_unit, *, require_selection=False):
     """Normalize optional research metadata before approval; no I/O or label inference."""
     if research is None:
         return {"enabled": False}
@@ -114,9 +212,11 @@ def validate_research_plan(research, declared_outputs, analysis_unit):
     normalized, seen = [], set()
     required = {"path", "layer", "omics", "entity_type", "namespace", "columns", "effect_scale", "row_key", "measured_omics", "evidence_context"}
     for spec in specs:
-        if not isinstance(spec, dict) or set(spec) != required:
+        accepted = required | ({"selection"} if isinstance(spec, dict) and "selection" in spec else set())
+        if not isinstance(spec, dict) or set(spec) != accepted:
             raise ValueError("Evidence output requires exactly the declared research binding fields")
         item = copy.deepcopy(spec)
+        item["selection"] = _selection_contract(item.get("selection"))
         relative = _relative(item["path"])
         if relative not in allowed or relative in seen or Path(relative).suffix.lower() not in {".csv", ".tsv"}:
             raise ValueError("Research output must be a distinct declared CSV/TSV: " + relative)
@@ -133,6 +233,15 @@ def validate_research_plan(research, declared_outputs, analysis_unit):
                 not all(isinstance(v, str) and v.strip() for v in columns.values()) or
                 len(set(columns.values())) != len(columns)):
             raise ValueError("Evidence columns require explicit distinct semantic bindings")
+        selection = item["selection"]
+        if selection is not None:
+            if "adjusted_p" not in columns:
+                raise ValueError("Frozen selection thresholds require an adjusted_p column binding")
+            if (selection["effect_min"] is not None or selection["effect_max"] is not None) and (
+                    "effect" not in columns or item["effect_scale"] == "unknown"):
+                raise ValueError("Effect thresholds require an effect column and a known effect_scale")
+        elif "selected" in columns and require_selection:
+            raise ValueError("Binding a selected column requires frozen selection thresholds")
         keys = item["row_key"]
         if (not isinstance(keys, list) or not keys or len(set(keys)) != len(keys) or
                 not all(isinstance(v, str) and v.strip() for v in keys)):
@@ -206,11 +315,11 @@ def _selected(value):
 
 
 def _direction(effect, scale, layer, status):
-    if effect is None or scale == "unknown" or status not in {"tested", "unknown"}:
+    if effect is None or scale == "unknown" or status not in ESTIMABLE_STATUSES | {"unknown"}:
         return "unknown"
     if scale == "NES":
         return "positive_enrichment" if effect > 0 else "negative_enrichment" if effect < 0 else "zero_estimate"
-    null = 1 if scale in {"fold_change", "odds_ratio", "hazard_ratio"} else 0
+    null = 1 if scale in RATIO_SCALES else 0
     if effect == null:
         return "zero_estimate"
     return "higher_in_numerator" if effect > null else "lower_in_numerator"
@@ -237,10 +346,21 @@ def _records(content, spec, context, artifact):
             raise ValueError("Missing bound evidence entity ID")
         observation = {name: _numeric(row[columns[name]], name) if name in columns else None
                        for name in ("effect", "p_value", "adjusted_p", "n")}
-        observation.update({"selected": _selected(row[columns["selected"]]) if "selected" in columns else None,
-                            "status": row[columns["status"]].strip() if "status" in columns else "unknown",
-                            "effect_scale": spec["effect_scale"], "claim_type": "statistical_fact"})
-        observation["direction"] = _direction(observation["effect"], spec["effect_scale"], spec["layer"], observation["status"])
+        status = row[columns["status"]].strip() if "status" in columns else "unknown"
+        status = status if status else "unknown"
+        observation.update({"effect_scale": spec["effect_scale"], "status": status,
+                            "claim_type": "statistical_fact"})
+        if (observation["p_value"] is not None and observation["adjusted_p"] is not None and
+                observation["adjusted_p"] + 1e-12 < observation["p_value"]):
+            raise ValueError("Research adjusted_p is smaller than p_value: " + spec["path"])
+        if status == "tested" and observation["p_value"] is None:
+            raise ValueError("Tested research row lacks a p_value: " + spec["path"])
+        if spec["effect_scale"] in RATIO_SCALES and observation["effect"] is not None and observation["effect"] <= 0:
+            raise ValueError("Ratio-scale research effect must be positive: " + spec["path"])
+        observation["direction"] = _direction(observation["effect"], spec["effect_scale"], spec["layer"], status)
+        raw_selected = _selected(row[columns["selected"]]) if "selected" in columns else None
+        observation["selection"] = _classify_selection(observation, spec.get("selection"), raw_selected)
+        observation["selected"] = observation["selection"]["selected"]
         observation["missing_fields"] = [name for name, column in columns.items() if row[column].strip().lower() in MISSING]
         provenance = {"artifact_path": artifact["path"], "sha256": artifact["sha256"], "row_key": key,
                       "row_index": row_index, "columns": dict(columns), "plan_hash": context.plan_hash}
@@ -287,11 +407,14 @@ def _private_identifiers(root, plan):
         for row in reader:
             if None in row or any(v is None for v in row.values()):
                 raise ValueError("Ragged privacy metadata input")
-            identifiers.update(row[key].strip() for key in keys if row[key].strip().lower() not in MISSING)
+            identifiers.update(metadata_private_values(row, keys))
             # Protect complete TCGA barcodes and their participant prefixes.
             for value in row.values():
                 for match in re.finditer(r"\bTCGA-[A-Za-z0-9]{2}-[A-Za-z0-9]{4}(?:-[A-Za-z0-9]+)*\b", value):
                     identifiers.update((match.group(), match.group()[:12]))
+            if len(identifiers) > 20000:
+                limitations.append("Privacy metadata exceeds the local identifier cap; review privacy locally before any external send.")
+                break
     return sorted(identifiers), list(dict.fromkeys(limitations))
 
 
@@ -397,9 +520,29 @@ def verify_context_sources(root, context):
             expected = _numeric(row[columns[name]], name) if name in columns else None
             if observed[name] != expected:
                 raise ValueError(f"Research evidence {name} differs from source")
-        selected = _selected(row[columns["selected"]]) if "selected" in columns else None
-        if observed["selected"] is not selected:
-            raise ValueError("Research evidence selection differs from source")
+        raw_selected = _selected(row[columns["selected"]]) if "selected" in columns else None
+        recorded = observed.get("selection")
+        if recorded is None:
+            # Older v3 evidence has no frozen threshold provenance.
+            if observed["selected"] is not raw_selected:
+                raise ValueError("Research evidence selection differs from source")
+            continue
+        contract = None
+        if recorded.get("adjusted_p_max") is not None:
+            contract = {"adjusted_p_max": recorded["adjusted_p_max"],
+                        "effect_min": recorded.get("effect_min"),
+                        "effect_max": recorded.get("effect_max"),
+                        "analysis_unit_count": recorded.get("analysis_unit_count")}
+        recomputed = _classify_selection(
+            {"effect": observed["effect"], "p_value": observed["p_value"],
+             "adjusted_p": observed["adjusted_p"], "n": observed["n"],
+             "status": observed["status"]}, contract, raw_selected)
+        if observed["selected"] is not recomputed["selected"]:
+            raise ValueError("Research evidence selection selected differs from source")
+        for name in ("status", "verified", "raw_selected", "selected", "adjusted_p_max",
+                     "effect_min", "effect_max", "analysis_unit_count", "reasons"):
+            if recorded.get(name) != recomputed.get(name):
+                raise ValueError(f"Research evidence selection {name} differs from source")
     return True
 
 
@@ -461,6 +604,13 @@ class LegacyResearchAdapter:
                 "biological_entity": {**entity, "namespace": "unknown", "species": context.species},
                 "observation": {"effect": observed["effect"], "p_value": observed["pvalue"], "adjusted_p": observed["padj"],
                                 "n": observed["n_pairs"], "selected": observed["selected"] if isinstance(observed["selected"], bool) else None,
+                                "selection": {"status": "not_verifiable",
+                                              "verified": False,
+                                              "raw_selected": observed["selected"] if isinstance(observed["selected"], bool) else None,
+                                              "selected": observed["selected"] if isinstance(observed["selected"], bool) else None,
+                                              "adjusted_p_max": None, "effect_min": None, "effect_max": None,
+                                              "analysis_unit_count": None,
+                                              "reasons": ["legacy_v2_without_frozen_thresholds"]},
                                 "direction": "unknown" if "unknown" in context.contrast.values() else observed["direction"],
                                 "effect_scale": observed["effect_scale"], "status": "unknown", "claim_type": "statistical_fact", "missing_fields": []},
                 "provenance": {"artifact_path": source_path, "sha256": artifact["sha256"],

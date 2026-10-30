@@ -36,10 +36,20 @@ def candidate_axis_evidence(run, cfg, axes):
     cox_path = run / 'prognosis/cox_models.csv'
     if cox_path.exists():
         cox = pd.read_csv(cox_path)
-        cox['family'] = ['prognosis_' + '_'.join([str(c), str(o), str(m)])
-                         for c, o, m in zip(cox.cohort, cox.outcome, cox.model_type)]
-        cox = adjust(cox, 'family')
-        cox['selected'] = cox.status.eq('tested') & cox.padj.le(alpha)
+        # The R tool already reports the predeclared family and the family-wise BH padj.
+        # Reuse those values verbatim; only legacy outputs without them are adjusted here.
+        if 'family' not in cox.columns or 'padj' not in cox.columns:
+            cox['family'] = ['prognosis_' + '_'.join([str(c), str(o), str(m)])
+                             for c, o, m in zip(cox.cohort, cox.outcome, cox.model_type)]
+            cox = adjust(cox, 'family')
+        else:
+            cox['family'] = cox['family'].astype(str)
+            cox['padj'] = pd.to_numeric(cox['padj'], errors='coerce')
+            tested = cox.status.eq('tested')
+            if tested.any() and not np.isfinite(cox.loc[tested, 'padj']).all():
+                raise ValueError('Prognosis output lacks finite family-wise padj for tested models')
+        cox['selected'] = cox.status.eq('tested') & cox.padj.notna() & cox.padj.le(alpha)
+        cox['cohort_id'] = cox.cohort.astype(str)
         cox['direction'] = np.where(cox.hr.gt(1), 'up', np.where(cox.hr.lt(1), 'down', ''))
         cox.loc[cox.status.ne('tested'), ['direction']] = ''
         cox['evidence_layer'] = 'prognosis'

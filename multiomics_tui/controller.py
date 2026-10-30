@@ -487,6 +487,11 @@ class Session:
         try:
             if not workspace_module.is_workspace(target):
                 created = workspace_module.initialize(target, self.app_root)
+            else:
+                # An existing workspace already has its config, so initialize() is
+                # skipped; built-in datasets would then never arrive. Seeding stays
+                # exclusive, so user copies are preserved.
+                created = workspace_module.seed_datasets(target)
             if self._probe is not None:
                 self._probe(target)
             else:
@@ -762,14 +767,40 @@ class Session:
                 if active is not None:
                     return Response("text", f"Job {active['job_id']} is active. Task {task_id} still awaits approval; use /approve {task_id} later.")
                 self.tasks.approve(task_id, pending["plan_hash"])
-                from .model_config import worker_environment
-                # Freeze exactly this connection. Keys are never part of the snapshot.
-                from .jobs import _atomic_json
-                _atomic_json(self.tasks.directory(task_id) / 'model_config.json', self.cfg['llm'])
-                model_env = worker_environment(self.cfg)
-                job = self.jobs.start("task", [sys.executable, str(Path(__file__).with_name("task_runner.py")),
-                                               str(self.root.resolve()), task_id],
-                                      label="Approved analysis task", run_id=task_id, env_extra=model_env)
+                # Approval is durable before the job exists. If snapshot creation or
+                # admission fails, leave a blocked record with a valid approval hash
+                # instead of an approved task that no recovery path can resume.
+                try:
+                    from .model_config import worker_environment
+                    # Freeze exactly this connection. Keys are never part of the snapshot.
+                    from .jobs import _atomic_json
+                    _atomic_json(self.tasks.directory(task_id) / 'model_config.json', self.cfg['llm'])
+                    model_env = worker_environment(self.cfg)
+                    job = self.jobs.start("task", [sys.executable, str(Path(__file__).with_name("task_runner.py")),
+                                                   str(self.root.resolve()), task_id],
+                                          label="Approved analysis task", run_id=task_id, env_extra=model_env)
+                except Exception as exc:
+                    # A start call may raise after the supervisor record exists. Bind
+                    # that job rather than submitting a duplicate.
+                    started = None
+                    try:
+                        started = self.jobs.active_pipeline()
+                    except Exception:
+                        started = None
+                    state = self.tasks.get(task_id)
+                    if started is not None and started.get("run_id") == task_id:
+                        state["job_id"] = started["job_id"]
+                        self.tasks.save(state)
+                        return Response("job", f"Task {task_id} submitted. Job ID: {started['job_id']}\nLog: {self.root / started['log_path']}", job=started)
+                    if state.get("status") in {"succeeded", "failed", "killed", "blocked"}:
+                        return Response("text", f"Task {task_id} start raised but its current status is {state['status']}: {type(exc).__name__}: {exc}")
+                    state.update(status="blocked", job_id=None, failure_stage="start",
+                                 error=f"Task start failed: {type(exc).__name__}: {exc}")
+                    self.tasks.save(state)
+                    self.tasks.event(task_id, "system",
+                                     f"Task start failed before a job was bound: {type(exc).__name__}: {exc}")
+                    return Response("text", f"Task {task_id} could not start: {type(exc).__name__}: {exc}\n"
+                                            f"No job was bound. Use /retry {task_id} to re-plan and approve again.")
                 state = self.tasks.get(task_id)
                 state["job_id"] = job["job_id"]
                 if job["status"] == "failed" and state["status"] == "approved":

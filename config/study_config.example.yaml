@@ -27,6 +27,18 @@ llm:
 reasoning:
   max_iterations: 2
   max_reasoning_iterations: 2
+analysis:
+  # Pathway-scoring protocol. These values are frozen into the approved plan; the
+  # model never chooses the methods or the significance threshold. A threshold
+  # quoted verbatim in the request overrides adjusted_p_max for that task.
+  pathway_scoring:
+    trigger: [gsva, ssgsea, plage, zscore, 通路评分, 通路得分, 基因集评分, pathway score, gene set score]
+    methods: [ssgsea, plage, zscore, gsva]
+    adjusted_p_max: 0.05
+    consensus_min_methods: 2
+    min_size: 5
+    max_size: 500
+    seed: 2024
 knowledge:
   shared_enabled: true
   # shared_root: optional explicit local curated-library directory
