@@ -1,7 +1,7 @@
 updated_at: 2026-10-30
 
 ## current_goal
-A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报告保存在 reports/audit_remediation_20261030_101546/。U01–U04 已完成静态/环境验证并单独记录，未混入已确认缺陷；未验证部分保持 NOT_EVALUABLE。
+A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报告保存在 reports/audit_remediation_20261030_101546/。当前工作已提交并推送到 GitHub origin/main（2ca739a）。U01–U04 已完成静态/环境验证并单独记录，未混入已确认缺陷；未验证部分保持 NOT_EVALUABLE。
 
 ## completed
 - 基准：审查基准 224 项中仅 CURRENT_STATE.md 变化，155 项受保护文件哈希在修复前后均未变化；当前工作树是修复对象，未从 HEAD 重建。
@@ -15,10 +15,10 @@ A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报�
 - A09：全不可估计时跳过 padj 范围检查，保留完整表并返回 statistical_status=not_estimable；部分不可估计和正常 tested 继续通过。
 - 回归：完整 pytest tests = 729 passed / 8 skipped / 0 failed（737 nodes，357.51s）；batch1 86、batch2 20、batch3 42 项定向回归均通过；8 项 skip 仍为 Windows/Linux 专用或缺少 nnls/limma/Seurat 的 NOT_EVALUABLE。
 - 发行：public_release audit 230 项通过；provenance gate 通过；隔离副本 native doctor 与 v8 acceptance 通过（Python/R 与四种 GSVA 方法）。
-- 保护：未修改 data/、datasets/、config/study_config.yaml、既有 workspace 会话和 reports/full_project_audit_20261029_111024/；未调用真实模型、未安装依赖、未提交/合并/推送/发布。
+- 保护：未修改 data/、datasets/、config/study_config.yaml、既有 workspace 会话和 reports/full_project_audit_20261029_111024/；未调用真实模型、未安装依赖。源码/测试/文档已提交并推送 origin/main（2ca739a），未 force push、未创建 tag/release；本地 reports/ 与 audit/ 审计产物未提交。
 
 ## in_progress
-- 无代码修复项；仅剩报告与产物清单最终归档。
+- 无代码修复项；提交后状态同步。
 
 ## key_decisions
 - 安全写入采用现有 os.open 的 dir_fd/O_NOFOLLOW 原子路径（safe_fs），Windows 回退为组件检查并明确限制；不新增第三方依赖。
@@ -40,6 +40,7 @@ A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报�
 - reports/audit_remediation_20261030_101546/pytest_final.xml、logs/pytest_final.log、batch1/2/3.log、audits/、native/
 - reports/audit_remediation_20261030_101546/repro/A01_*/、A02_*/、A03_A09_*/、A04_*/、A05_*/、A06_*/、A08_*/ result.json 与日志
 - reports/audit_remediation_20261030_101546/protected_hashes_after.json、artifact_manifest.json
+- GitHub commit: https://github.com/shineshen007/tme_agent/commit/2ca739a38ca21fdefd666f5b734d3f73e55e9794
 
 ## blockers_or_warnings
 - U02/U03：缺 Seurat/presto/nnls/limma，完整 05 生产链未执行；NOT_EVALUABLE。
