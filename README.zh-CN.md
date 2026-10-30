@@ -33,7 +33,7 @@
 <p align="center">基于自然语言的终端多组学分析专家。</p>
 
 <p align="center">
-  <img src="assets/logo-lockup.svg" alt="tme_agent" width="100%">
+  <img src="assets/multiagent_architecture.svg" alt="tme_agent 多智能体发现架构" width="100%">
 </p>
 
 tme_agent 把你提供的数据和感兴趣的科研方向，转化为经审核、可执行的计划。它将目标绑定到

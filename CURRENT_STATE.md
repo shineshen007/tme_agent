@@ -18,7 +18,7 @@ A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报�
 - 保护：未修改 data/、datasets/、config/study_config.yaml、既有 workspace 会话和 reports/full_project_audit_20261029_111024/；未调用真实模型、未安装依赖。源码/测试/文档已提交并推送 origin/main（2ca739a），未 force push、未创建 tag/release；本地 reports/ 与 audit/ 审计产物未提交。
 
 ## in_progress
-- 无代码修复项；提交后状态同步。
+- 无代码修复项；README 顶部架构图替换已完成（仅文档与资产变更，未改分析逻辑）。
 
 ## key_decisions
 - 安全写入采用现有 os.open 的 dir_fd/O_NOFOLLOW 原子路径（safe_fs），Windows 回退为组件检查并明确限制；不新增第三方依赖。
@@ -26,6 +26,7 @@ A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报�
 - A06 基础客户端不再自动跟随重定向；依赖 HTTP→HTTPS 跳转的端点会显式失败，这是安全要求。
 - A07 只保留状态码/错误类别，不回显不受控认证正文。
 - U01/U03 静态确认但未修改；U02/U04 依赖缺失，保持 NOT_EVALUABLE；不把 U 项混入 A 项验收。
+- README 架构图由 PDF 转为文字轮廓 + 白色页底：以可编辑文字换取跨字体、深色模式下的稳定渲染，代价是深色主题下呈白底卡片；原始 PDF 保留为源文件。
 
 ## changed_files
 - multiomics_tui/safe_fs.py（新增）、task_runner.py、output_contracts.py、app.py、controller.py、input_inspection.py、input_probe.R、model_client.py、model_config.py、output_probe.R、task_planner.py
@@ -33,6 +34,8 @@ A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报�
 - scripts/06_prognosis.R、docs/PATHWAY_SCORING.md、PUBLIC_FILES.json、CURRENT_STATE.md
 - tests/test_task_path_safety.py、test_task_runner_integrity.py、test_task_lifecycle.py、test_output_probe_contracts.py、test_llm_client_security.py（新增）；test_pathway_scoring.py、test_prognosis_r.py、test_research_pipeline.py
 - reports/audit_remediation_20261030_101546/（报告、快照、复现、证据、日志、补丁）
+- assets/multiagent_architecture.pdf（本地源文件，未纳入发行白名单）、assets/multiagent_architecture.svg（新增）、assets/logo-lockup.svg（删除）
+- README.md、README.zh-CN.md、PUBLIC_FILES.json、CHANGELOG.md、CURRENT_STATE.md
 
 ## latest_outputs
 - reports/audit_remediation_20261030_101546/REMEDIATION_REPORT.md、STATUS.json、REPRODUCTION.md
@@ -41,6 +44,7 @@ A01–A09 已确认缺陷的修复、回归验证与交付已完成；修复报�
 - reports/audit_remediation_20261030_101546/repro/A01_*/、A02_*/、A03_A09_*/、A04_*/、A05_*/、A06_*/、A08_*/ result.json 与日志
 - reports/audit_remediation_20261030_101546/protected_hashes_after.json、artifact_manifest.json
 - GitHub commit: https://github.com/shineshen007/tme_agent/commit/2ca739a38ca21fdefd666f5b734d3f73e55e9794
+- assets/multiagent_architecture.svg：720×405 矢量架构图，README.md 与 README.zh-CN.md 顶部横幅
 
 ## blockers_or_warnings
 - U02/U03：缺 Seurat/presto/nnls/limma，完整 05 生产链未执行；NOT_EVALUABLE。

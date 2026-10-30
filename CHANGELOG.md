@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — README 顶部改用多智能体架构图
+
+### 文档与资产
+
+- 新增 `assets/multiagent_architecture.svg`：由单页 `assets/multiagent_architecture.pdf`（720×405 pt，ReportLab 矢量图，A–D 四联版式）转换而来。文字转为轮廓并补白色页底，避免 GitHub 在缺少 Arial 时回退字体造成换行或溢出。
+- 删除 `assets/logo-lockup.svg`；`README.md` 与 `README.zh-CN.md` 顶部横幅改用架构图，`alt` 同步更新（中文页为“tme_agent 多智能体发现架构”）。
+- `PUBLIC_FILES.json` 白名单以 `assets/multiagent_architecture.svg` 替换旧条目。`assets/multiagent_architecture.pdf` 仅作本地源文件保留，未纳入发行白名单（`native_dist/public_release.py` 的 `assets` 区域只允许 `.svg`），需要时可用 `page.get_svg_image(text_as_path=True)` 重新派生。
+- 未改动分析逻辑、数据与版本号。
+
 ## Unreleased — 修复规划被隐私误判阻断（UUID 当电话）
 
 ### 缺陷

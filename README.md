@@ -33,7 +33,7 @@
 <p align="center">A natural-language multi-omics analysis expert in your terminal.</p>
 
 <p align="center">
-  <img src="assets/logo-lockup.svg" alt="tme_agent" width="100%">
+  <img src="assets/multiagent_architecture.svg" alt="tme_agent multi-agent discovery architecture" width="100%">
 </p>
 
 tme_agent turns the data you provide and the research direction you care about into a reviewed,
