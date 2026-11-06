@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from orchestrator import pathway_scoring
 from orchestrator.llm_client import LLMTransportError
@@ -606,9 +606,9 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
     hits = sensitive_matches(request, getattr(client, 'private_ids', ()))
     if hits and all(kind == 'separated_id' for kind, _ in hits):
         for alias in dict.fromkeys(value for _, value in hits):
-            candidates = [item['path'] for item in inventory if Path(item['path']).stem == alias]
+            candidates = [item['path'] for item in inventory if PurePosixPath(item['path']).stem == alias]
             scoped = [path for path in candidates if path in request or
-                      re.search(r'(?<![A-Za-z0-9_./-])' + re.escape(str(Path(path).parent)) +
+                      re.search(r'(?<![A-Za-z0-9_./-])' + re.escape(PurePosixPath(path).parent.as_posix()) +
                                 r'(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_])', request)]
             candidates = scoped or candidates
             if len(candidates) == 1:

@@ -96,8 +96,12 @@ def test_real_contact_details_are_still_blocked(text):
 
 
 @pytest.mark.parametrize('reference', ['table', 'unknown', 'ambiguous', 'identifier', 'registered', 'explicit', 'plan', 'normalized_quote'])
-def test_planning_prompt_over_a_download_cache_is_not_blocked(tmp_path, monkeypatch, reference):
+@pytest.mark.parametrize("windows_paths", [False, True])
+def test_planning_prompt_over_a_download_cache_is_not_blocked(tmp_path, monkeypatch, reference, windows_paths):
     """The catalog must never turn a local build cache into a privacy violation."""
+    if windows_paths:
+        from pathlib import PureWindowsPath
+        monkeypatch.setattr("multiomics_tui.task_planner.Path", PureWindowsPath)
     from multiomics_tui.task_planner import catalog
     from orchestrator.llm_client import LLMClient
 
