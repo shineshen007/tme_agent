@@ -21,6 +21,8 @@
 
 ### 验证与限制
 
+- 正式 Release 已发布并通过下载验收：三平台 CI 全部通过（Linux/macOS 各 810 passed / 21 skipped，Windows 804 passed / 27 skipped），发布工作流复验 810 passed / 21 skipped。ZIP、manifest、SHA256SUMS 与标签源码一致。
+
 - 发布前本机完整回归：815 passed / 8 skipped / 0 failed，1 条既有 fork 警告；后续 Windows 路径修复的隐私/规划/模型接口回归 172 passed。公开清单与来源门禁通过，远端三平台完整 CI 是打标签前的独立门禁。
 
 - 固定 Git 检出换行符并保持数据文件原始字节，避免 Windows 校验和漂移；科研源码快照保留 CRLF 原文，与磁盘哈希一致。Wiki 测试使用规范相对路径，Windows 父进程路径防护测试使用合成子进程，原生 AppContainer 验收单独记录。
