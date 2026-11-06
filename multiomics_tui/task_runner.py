@@ -159,8 +159,9 @@ def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:
         if key in os.environ:
             env[key] = os.environ[key]
             read_paths.extend(part for part in os.environ[key].split(os.pathsep) if part and Path(part).is_dir())
-    libraries = [str(Path(part).resolve()) for part in r_library_paths(cfg)
-                 if Path(part).is_dir()]
+    library_aliases = [str(Path(part).absolute()) for part in r_library_paths(cfg)
+                       if Path(part).is_dir()]
+    libraries = list(dict.fromkeys(str(Path(part).resolve()) for part in library_aliases))
     if libraries:
         env["R_LIBS_USER"] = os.pathsep.join(libraries)
     read_paths.extend(libraries)
@@ -179,7 +180,7 @@ def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:
         # Keep lexical paths separately from canonical read/map targets. Inputs
         # never enter this channel; only configured libraries and interpreters do.
         runtime_paths = [sys.prefix, sys.base_prefix, sys.executable, rscript_path(root)]
-        runtime_paths.extend(p for p in cfg.get("runtime", {}).get("r_library_paths", []) if Path(p).is_dir())
+        runtime_paths.extend(library_aliases)
         runtime_paths.extend(p for p in cfg.get("runtime", {}).get("python_library_paths", [])
                              if Path(p).is_dir() and Path(p).name in {"site-packages", "dist-packages"})
         runtime_paths.extend(part for key in ("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE")

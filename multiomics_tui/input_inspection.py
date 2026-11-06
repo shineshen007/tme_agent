@@ -8,7 +8,7 @@ import sys
 import uuid
 from pathlib import Path
 
-VERSION = 'input_probe_v2'
+VERSION = 'input_probe_v3'
 SUPPORTED = {'.csv', '.tsv', '.rds', '.gmt'}
 
 
@@ -18,7 +18,7 @@ def _run_guarded(root: Path, folder: Path, argv: list[str], env: dict):
     Named seam: native AppContainer/Landlock/Seatbelt behaviour is exercised by
     bootstrap and native acceptance, while unit tests can substitute this call.
     """
-    return subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=120)
+    return subprocess.run(argv, cwd=folder, env=env, capture_output=True, text=True, timeout=120)
 
 
 def inspect_inputs(root: Path, inputs: list[dict], cfg: dict) -> dict:
@@ -44,9 +44,9 @@ def inspect_inputs(root: Path, inputs: list[dict], cfg: dict) -> dict:
     env = _step_environment(root, folder, cfg, inputs)
     argv = [sys.executable, str(Path(__file__).with_name('task_guard.py')), str(folder), '--',
             rscript_path(root), '--vanilla', str(script), str(request), str(output)]
+    log_path = folder / 'probe.log'
     try:
         proc = _run_guarded(root, folder, argv, env)
-        log_path = folder / 'probe.log'
         log_path.write_text(proc.stdout + proc.stderr, encoding='utf-8')
         if proc.returncode or not output.is_file():
             # CI 的临时目录随运行销毁；把脱敏后的末尾带进错误信息，用户和日志都能看到原因。
@@ -60,11 +60,18 @@ def inspect_inputs(root: Path, inputs: list[dict], cfg: dict) -> dict:
             if detail:
                 message += '\n' + detail
             raise ValueError(message)
+    except (OSError, subprocess.SubprocessError) as exc:
+        from .model_config import redact
+        log_path.write_text(redact(f'{type(exc).__name__}: {exc}'), encoding='utf-8')
+        raise ValueError(f'Input structure inspection could not run; inspect local log {log_path}') from exc
     finally:
         cleanup(root, folder.name, task_dir=folder)
     if any(file_hash(root / i['path']) != i['sha256'] for i in inputs):
         raise ValueError('Input changed during inspection')
-    local = json.loads(output.read_text(encoding='utf-8'))
+    try:
+        local = json.loads(output.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f'Input structure inspection output is unreadable; inspect local log {log_path}') from exc
     for profile in local['profiles']:
         profile['columns'] = profile.get('columns') or {}
     local['version'] = VERSION
@@ -86,6 +93,8 @@ def public_inspection(local: dict) -> dict:
         q = {k: p[k] for k in ('path','sha256','object_class','dimensions','numeric_matrix','matrix_like',
                               'finite','negative_count','zero_rows','constant_rows','gene_sets') if k in p}
         q['columns'] = {name: {k: c[k] for k in ('type','missing','unique','known_levels')} for name,c in (p.get('columns') or {}).items()}
+        q['column_issues'] = [{k: c[k] for k in ('position','type','missing','reason') if k in c}
+                              for c in p.get('column_issues', [])]
         q['axis_keys'] = {k:{f:v[f] for f in ('missing','duplicates')} for k,v in p['keys'].items() if k in {'rows','columns'}}
         profiles.append(q)
     joins = []
@@ -102,7 +111,27 @@ def public_inspection(local: dict) -> dict:
                     if overlap:
                         joins.append({'matrix':a['path'],'axis':axis,'metadata':b['path'],'key':name[7:],
                                       'matched':overlap,'matrix_unique':len(left),'metadata_unique':len(set(_list(right['values'])))})
-    return {'version':VERSION,'profiles':profiles,'joins':joins,'software':local['software'],'apis':local['apis']}
+    # Candidate identifier fields are schema hints only, never inferred roles.
+    # Include zero overlap so a planner cannot offer an impossible exact join.
+    identifier_matches = []
+    for i, a in enumerate(local['profiles']):
+        for b in local['profiles'][i+1:]:
+            for left_name in a.get('columns', {}):
+                if not re.search(r'sample|patient|subject|donor|specimen|(?:^|_)id$', left_name, re.I): continue
+                left = a['keys'].get('column:' + left_name)
+                if not left: continue
+                for right_name in b.get('columns', {}):
+                    if not re.search(r'sample|patient|subject|donor|specimen|(?:^|_)id$', right_name, re.I): continue
+                    right = b['keys'].get('column:' + right_name)
+                    if not right: continue
+                    complete = left.get('missing') == 0 and right.get('missing') == 0
+                    identifier_matches.append({'left_path':a['path'], 'left_field':left_name,
+                        'right_path':b['path'], 'right_field':right_name,
+                        'matched':len(set(_list(left['values'])) & set(_list(right['values']))) if complete else None,
+                        'left_unique':len(set(_list(left['values']))), 'right_unique':len(set(_list(right['values']))),
+                        'complete_keys':complete})
+    return {'version':VERSION,'profiles':profiles,'joins':joins,'identifier_matches':identifier_matches,
+            'software':local['software'],'apis':local['apis']}
 
 
 def validate_bindings(bindings: dict, local: dict, request: str) -> dict:
@@ -117,6 +146,8 @@ def validate_bindings(bindings: dict, local: dict, request: str) -> dict:
         if not isinstance(b,dict) or not required <= b.keys(): raise ValueError('Incomplete matrix input binding')
         p, m = ps.get(b['path']), ps.get(b['metadata_path'])
         if not p or not p.get('numeric_matrix') or not m: raise ValueError('Binding requires numeric expression and inspected metadata')
+        if p.get('column_issues'):
+            raise ValueError('Expression column names are ambiguous; resolve structural issues before binding')
         axis = b['sample_axis']
         if axis not in {'rows','columns'}: raise ValueError('sample_axis must be rows or columns')
         keys = p['keys'][axis]; mk = m['keys'].get('column:'+b['sample_key'])

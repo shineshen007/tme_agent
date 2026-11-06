@@ -27,6 +27,8 @@ def project_libraries() -> list[str]:
             libraries.extend(str(p) for p in runtime.get("r_library_paths") or [] if Path(p).is_dir())
         except (OSError, ValueError):
             pass
+    # setup-r installs CI dependencies in R_LIBS_USER; retain it alongside project libraries.
+    libraries.extend(part for part in os.environ.get("R_LIBS_USER", "").split(os.pathsep) if part)
     system = subprocess.run([RSCRIPT, "--vanilla", "-e", 'cat(.libPaths(), sep="\\n")'],
                             capture_output=True, text=True, timeout=60,
                             env={**os.environ, "R_LIBS_USER": os.pathsep.join(libraries)})
@@ -90,9 +92,21 @@ def test_rds_table_rejects_missing_duplicate_and_nonfinite(tmp_path):
         assert message in process.stderr
 
 
-def test_rds_table_accepts_a_valid_frame(tmp_path):
+def test_rds_table_accepts_a_valid_frame(tmp_path, monkeypatch):
     if RSCRIPT is None:
         pytest.skip("Rscript is unavailable")
+    inherited = project_libraries()
+    ci_library = tmp_path / "CI library"
+    project_library = tmp_path / "project library"
+    ci_library.mkdir(); project_library.mkdir()
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/runtime.local.yaml").write_text(json.dumps(
+        {"runtime": {"r_library_paths": [str(project_library)]}}))
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    monkeypatch.setenv("R_LIBS_USER", os.pathsep.join([str(ci_library), *inherited]))
+    discovered = project_libraries()
+    assert str(ci_library) in discovered and str(project_library) in discovered
+    assert set(inherited).issubset(discovered)
     path = tmp_path / "valid.rds"
     make_rds(path, {"id": ["A", "B"], "value": [1.5, 2.5]})
     contract = {"path": "objects/valid.rds", "format": "rds_table",

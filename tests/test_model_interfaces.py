@@ -2,7 +2,11 @@
 import asyncio
 import copy
 import json
+import os
 import threading
+import urllib.request
+from urllib.parse import urlsplit
+from unittest.mock import Mock
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -60,16 +64,33 @@ def call(model):
     return model.chat_json('fixture', 'Reply with JSON only.', 'Return {"ok": true}.', 'fixture')
 
 
-def test_local_no_key_actual_http(tmp_path, monkeypatch):
+@pytest.mark.parametrize('mode,bypass', [('inherit', False), ('direct', False), ('inherit', True)])
+def test_local_no_key_actual_http(tmp_path, monkeypatch, mode, bypass):
     monkeypatch.delenv('OLLAMA_API_KEY', raising=False)
-    with server() as (url, requests):
-        result = call(client(tmp_path, settings(url)))
+    environment = dict(os.environ)
+    with server() as (proxy_url, proxy_requests), server() as (url, requests):
+        proxy = urlsplit(proxy_url)
+        monkeypatch.setattr(urllib.request, 'getproxies', Mock(return_value={
+            'http': f'http://synthetic-proxy-user:synthetic-proxy-password@{proxy.netloc}'}))
+        monkeypatch.setattr(urllib.request, 'proxy_bypass', Mock(return_value=bypass))
+        result = call(client(tmp_path, settings(url, proxy_mode=mode)))
         assert result['parsed'] == {'ok': True}
-    request = requests[0]
-    assert request['path'] == '/v1/chat/completions'
+        routed = mode == 'inherit' and not bypass
+        assert len(proxy_requests) == int(routed) and len(requests) == int(not routed)
+    request = (proxy_requests if routed else requests)[0]
+    assert request['path'] == (url + '/chat/completions' if routed else '/v1/chat/completions')
     assert 'Authorization' not in request['headers']
     assert request['body']['model'] == 'fixture-model'
     assert request['body']['response_format'] == {'type': 'json_object'}
+    assert dict(os.environ) == environment
+    record = json.loads(next((tmp_path / 'run/report/agent/calls').glob('*.json')).read_text())
+    attempt = record['attempts'][0]
+    assert attempt['proxy_mode'] == mode
+    assert attempt['proxy_host'] == (proxy.hostname if routed else None)
+    assert attempt['proxy_port'] == (proxy.port if routed else None)
+    assert attempt['proxy_bypassed'] == (bypass and mode == 'inherit')
+    assert 'synthetic-proxy-user' not in json.dumps(record)
+    assert 'synthetic-proxy-password' not in json.dumps(record)
 
 
 def test_bearer_and_parameter_compatibility(tmp_path):
@@ -242,8 +263,20 @@ def test_settings_panel_save_cancel_and_local_readiness(project_root):
             app.screen.query_one('#model-provider', Select).value = 'ollama'; await pilot.pause()
             assert app.screen.query_one('#model-url', Input).value == 'http://localhost:11434/v1'
             app.screen.query_one('#model-name', Input).value = 'fixture-local'
+            app.screen.query_one('#model-proxy', Select).value = 'direct'
             app.screen.query_one('#model-save', Button).press(); await pilot.pause()
             assert session.cfg['llm']['auth_mode'] == 'none'
+            assert session.cfg['llm']['proxy_mode'] == 'direct'
+            assert load_tui_config(project_root)['llm']['proxy_mode'] == 'direct'
+            session._model_checked = config.public_settings(session.cfg)
+            assert session.connection_tested()
+            session.save_model({**config.public_settings(session.cfg), 'proxy_mode': 'inherit'})
+            assert not session.connection_tested()
+            assert session._model_checked is None
+            # Saved settings are also carried through the existing worker snapshot.
+            snapshot = project_root / 'worker-model.json'
+            snapshot.write_text(json.dumps(config.public_settings(session.cfg)))
+            assert load_tui_config(project_root, snapshot)['llm']['proxy_mode'] == 'inherit'
             assert session.client is not None
             assert 'ollama/fixture-local' in str(app.query_one('#status-bar', Static).renderable)
             assert '尚未测试' in str(app.query_one('#reply-message', Static).renderable)
@@ -266,7 +299,7 @@ def test_settings_panel_hides_advanced_fields(project_root):
             for ident in ('model-env', 'model-json', 'model-timeout', 'model-tokens',
                           'model-token-field', 'model-temperature'):
                 assert not app.screen.query('#' + ident)
-            for ident in ('model-provider', 'model-url', 'model-name', 'model-auth', 'model-key'):
+            for ident in ('model-provider', 'model-url', 'model-name', 'model-auth', 'model-key', 'model-proxy'):
                 assert app.screen.query('#' + ident)
     asyncio.run(scenario())
 
@@ -321,6 +354,10 @@ def test_default_output_limit_is_32k():
         'provider': 'deepseek', 'base_url': 'https://api.deepseek.com', 'model': 'stub',
     })
     assert value['max_tokens'] == 32000
+    assert value['proxy_mode'] == 'inherit'
+    for mode in ('auto', '', None):
+        with pytest.raises(ValueError, match='proxy_mode'):
+            config.normalize({**value, 'proxy_mode': mode})
 
 
 def test_panel_connection_test_is_explicit_and_does_not_save(project_root):

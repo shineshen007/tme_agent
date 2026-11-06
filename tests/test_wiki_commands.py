@@ -29,7 +29,7 @@ def resource(root, value, name='entries.json'):
     path = root / 'knowledge/resources' / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
-    return str(path.relative_to(root))
+    return path.relative_to(root).as_posix()
 
 
 def accepted(root, settings, value=None):

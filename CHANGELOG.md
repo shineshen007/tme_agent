@@ -1,86 +1,31 @@
 # Changelog
 
-## Unreleased — README 顶部改用多智能体架构图
+## v8.3.1 — 2026-11-06
 
-### 文档与资产
+### 规划可靠性与界面
 
-- 新增 `assets/multiagent_architecture.svg`：由单页 `assets/multiagent_architecture.pdf`（720×405 pt，ReportLab 矢量图，A–D 四联版式）转换而来。文字转为轮廓并补白色页底，避免 GitHub 在缺少 Arial 时回退字体造成换行或溢出。
-- 删除 `assets/logo-lockup.svg`；`README.md` 与 `README.zh-CN.md` 顶部横幅改用架构图，`alt` 同步更新（中文页为“tme_agent 多智能体发现架构”）。
-- `PUBLIC_FILES.json` 白名单以 `assets/multiagent_architecture.svg` 替换旧条目。`assets/multiagent_architecture.pdf` 仅作本地源文件保留，未纳入发行白名单（`native_dist/public_release.py` 的 `assets` 区域只允许 `.svg`），需要时可用 `page.get_svg_image(text_as_path=True)` 重新派生。
-- 未改动分析逻辑、数据与版本号。
+- 输入结构按列位置读取，空名全缺失列保留审计信息；空名非空、重复名称禁止歧义绑定，真正嵌套列明确拒绝。输入检查错误单独分类为 `input_inspection`。
+- 修复沙箱探测工作目录与 R 库路径别名，保持默认拒绝、网络禁用和原始输入只读。
+- HTTP 不完整响应按连接异常有限重试，部分回复不解析或缓存；增加脱敏传输诊断与客户端级 `proxy_mode=inherit|direct` 设置。
+- 新增逐题单选/多选澄清向导、草稿恢复、自填答案和统一提交；只将已提交答案作为用户要求，保持历史会话兼容。
+- 澄清理由上限为 1000 字符，界面预览 180 字符，完整内容继续参与验证、保存和哈希；修复嵌套路径引用误判。
+- 修复有依据的表名简称触发隐私误报；候选答案提前检查，保留原始请求及全局隐私规则。标识字段的聚合匹配包含零值，拒绝零匹配直接连接，不能自动改变用户已选配对设计。
 
-## Unreleased — 修复规划被隐私误判阻断（UUID 当电话）
+### 自上一正式 Release 起的累计能力
 
-### 缺陷
+- 包含 v8.3.0 科研证据流程、知识审阅、命令补全与官方 GDC 开放数据集；数据来源与许可单独记录。
+- 固定显著性选择阈值与多重校正家族，保留不可估计和阴性结果；科研审阅与统计执行分别记录状态。
+- 修正 Cox 和单细胞输出一致性校验；GSVA 多方法协议冻结方法、分组设计与 BH 校正范围，并独立核验结果一致性。
+- 文件目录过滤隐藏缓存；修复 UUID 隐私误报与已有工作区的数据集播种。README 使用矢量架构图。
 
-- 现象：请求“计算TCGA-LIHC中KEGG通路gsva score”在规划阶段被阻断，`Planning failed: PrivacyViolation: Outbound payload contains private or clinical content (contact)`。
-- 根因：规划第一步的输入选择提示把整份文件清单发给模型，而 `catalog()` 未过滤 `data/raw/_gdc_cache/`（2.0 GB GDC 下载缓存，Git 忽略）。UUID 目录名 `1e1587e8-8938-4578-8529-…` 中的 `8938-4578-8529` 命中 `CONTACT` 电话正则，于是在发出前被拒。清单 160 条中 159 条来自该缓存，真正可用的输入只剩 2 条 examples。
-- 连带缺陷：`/cd` 只在 `not is_workspace(target)` 时调 `initialize()`，而 `seed_datasets()` 只在 `initialize()` 内调用，导致**已有工作区永远收不到内置数据集**（本工作区 `data/raw/TCGA-LIHC/`、`data/signature/`、`knowledge/resources/` 均不存在）。
+### 验证与限制
 
-### 修复
+- 发布前本机完整回归：815 passed / 8 skipped / 0 failed，1 条既有 fork 警告；公开清单与来源门禁通过。远端三平台 CI 是打标签前的独立门禁。
 
-- `orchestrator/privacy.py`：`CONTACT` 改为要求电话语义——带 `phone/tel/手机/联系电话` 等标签、或以 `+` 开头的国际格式、或独立出现的 3-3-4/3-4-4 分组；两侧 lookaround 排除紧邻十六进制字符与连字符的片段，因此 UUID 不再误判。顺带修好旧规则漏检的 `cell 5551234567`、`tel: 010-12345678`。其余 8 类模式（TCGA barcode、显式 ID、临床 ID、姓名、DOB、地址、本地路径、凭据）未改动。
-- `multiomics_tui/task_planner.py`：`catalog()` 跳过任一路径段以 `_` 或 `.` 开头的条目，缓存与隐藏文件不再进入模型可见清单；新增 `_gene_set_resources()`，当工作区没有已探测的 GMT/RDS 基因集时，在规划提示中要求向用户索取，而不是自行下载 KEGG/MSigDB。
-- `multiomics_tui/controller.py`：`/cd` 进入已存在的工作区时补调 `seed_datasets()`（`_copy_exclusive` 保证不覆盖用户文件），使内置数据集对老工作区同样可达。
-
-### 测试与文档
-
-- `tests/test_privacy.py`：新增“UUID/日期/DOI/版本不得阻断”与“真实电话必须阻断”两组参数化用例，以及基于真实缓存目录的规划提示回归（断言载荷能到达 transport）。39 项通过。
-- `tests/test_task_planner_portable.py`：新增 `catalog()` 过滤与 `_gene_set_resources()` 用例。
-- `tests/test_builtin_datasets.py`：新增“已有工作区可补 seed”与“`/cd` 到已有工作区会 seed”用例。
-- `docs/RESEARCH_EXPERT.md`：隐私段补充电话语义规则与缓存不进入清单的说明。
-- 已用真实工作区复现并确认修复：同一 selector 提示现在通过隐私守卫（`DS_KEY=fixture` 时载荷到达 transport）。
-
-## Unreleased — GSVA 多方法通路评分触发协议
-
-本段为工作树改动，未发布新版本、未创建 tag。工程校验与科学验证分开记录。
-
-### 触发与协议
-
-- 新增 `orchestrator/pathway_scoring.py`：按 `analysis.pathway_scoring.trigger` 关键词（默认 `GSVA`、`ssGSEA`、`PLAGE`、`ZSCORE`、通路评分、通路得分、基因集评分、pathway score、gene set score）识别通路评分请求；命中且计划声明评分时在本地冻结协议，未命中或计划不评分时只追加可见限制 `pathway_scoring_trigger_not_implemented`。
-- 冻结内容：方法集合（默认四种，请求显式只点名一种时只跑该种）、`minSize/maxSize`、校正 p 阈值及其来源、组间检验（按 `pair_key` 决定配对 Wilcoxon / 非配对 Mann-Whitney）、对比方向、跨方法一致性阈值、种子与必需输出路径，全部进入 `plan_hash`。
-- 阈值只能来自请求中的精确引用或配置 `analysis.pathway_scoring.adjusted_p_max`；两者皆无时规划失败，不再静默取默认值。图形标注 `-log10FDR` 不会被误判为阈值，`FDR 5%` 按 0.05 处理。
-
-### 计划与执行
-
-- `task_planner.py`：命中协议时向规划提示追加确定性协议块；`validate_plan` 先一次性列出全部缺失的协议输出/R 步骤/基因集绑定再报错，随后冻结协议；冻结阈值作为可溯源参数写入计划（用户值用精确引用，配置值用 `config:` 键）。`render_plan` 中英文与 `compact` 模式均披露触发词、方法、阈值来源、检验、方向与一致性规则。schema 升至 `tui_task_plan_v7`。
-- `task_runner.py`：仅在计划含 `pathway_protocol` 时追加代码生成提示（参数对象、零方差过滤、禁止跨方法合并、完整保留阴性/不可估计行）；任务完成前调用独立校验器，结果写入 `result_manifest.json` 的 `pathway_scoring_verification`，不一致即任务失败。
-- `native_dist/v8_acceptance.py`：原生验收探针依次执行四个 `*Param()` 并逐方法记录 `gsva_methods`，缺方法如实记为 `failed`，保留 `plageParam` 与 `method="plage"` 回退。
-
-### 输出与校验
-
-- 五张表：`tables/gsva_scores.csv`、`tables/gsva_group_tests.csv`、`tables/gsva_significant_pathways.csv`、`tables/gsva_gene_set_audit.csv`、`reports/gsva_protocol.json`。
-- `verify_outputs` 从样本级得分独立重算每行秩检验、每方法家族内 BH、`selected`、`methods_tested`、`methods_significant`、`min_padj`、`max_abs_effect`、`direction_consistent`、`consensus`，并校验覆盖完整性、状态词表、`n_units ≥ 3`、CI 包含效应量、协议报告与冻结值一致。可检出改 p 值/padj/selected/status、删通路、删样本、改报告阈值与词表外状态。
-- 新增 `scripts/32_gsva_multimethod_reference.R`：在合成数据上用四个参数对象重算并逐方法比对（容差 `1e-8`），用于方法真实性验真，不进入任务运行路径。
-- 明确边界：校验器只能证明表内自洽与统计规则正确，不能证明得分矩阵来自点名方法；四种方法量纲不同，禁止跨方法平均或排名合并；分数不代表细胞比例、通量、酶活性或因果。
-
-### 配置、文档与测试
-
-- `config/study_config.example.yaml` 新增 `analysis.pathway_scoring`（`adjusted_p_max: 0.05`、四方法、`consensus_min_methods: 2`、`min_size: 5`、`max_size: 500`、`seed: 2024`）；本地 `config/study_config.yaml` 同步补同一段。
-- 新增 `docs/PATHWAY_SCORING.md`、README/README.zh-CN 的"通路评分触发协议"小节、`docs/VALIDATION.md` 验收记录。
-- 新增 `tests/test_pathway_scoring.py` 53 项（离线 50 + 真实 R 3）；适配 `test_task_planner_portable.py`、`test_prompt_editor_portable.py`、`test_research_entrypoints.py`（v6→v7）与 `test_v8_distribution.py`（四方法断言）。`PUBLIC_FILES.json` 220 → 224。
-
-## Unreleased — 科学性与统计正确性修复
-
-本段为工作树修复，未发布新版本、未创建 tag。工程回归与科学验证仍分开记录。
-
-### 统计与证据推理
-
-- `research_context.py`：证据绑定新增冻结 `selection` 阈值（`adjusted_p_max`，可选效应/独立单位阈值）；逐行重算 `padj/effect/status/n` 与 `selected`，不一致直接报错。无阈值旧计划仍可加载，但 `selected=null`、`selection.verified=false`，不再把未核验显著性当作确定性证据。`verify_context_sources` 重新核验选择状态；EvidenceRecord v3 schema 同步。
-- `research_phases.py`：保留 120 条受控展示，新增完整 registry 计数、按基因/通路/细胞类型/机制检索、phase evidence 包；Critic 获得逐主张确定性反证、阴性/不可估计候选，必须逐条 `evidence_review`，遗漏即阻断；新增显著性语言守卫及通量/酶活性/摄取/细胞来源过度推断守卫。
-- `research_pipeline.py`：报告增加 selection 状态、未核验显著性提示和反证/阴性结果审查；知识候选生成前增加隐私扫描。
-
-### Cox 与单细胞
-
-- `06_prognosis.R`：按预声明 `cohort×outcome×model_type` 家族实施 BH，输出 `family/padj/selected`；Cox 分离/不收敛/非有限估计标为 `not_estimable` 并保留；`statistics.json` 声明实际方法、FDR 与计数。Python 验证器独立重算家族 BH、HR/CI 与 selected 一致性；整合层复用 R 结果，避免二次校正。
-- `05_scrna_celltype.R`：修正 signature matrix 将非本细胞类型 marker 强制置零的缺陷，所有 union marker 使用真实 pseudobulk mean CPM；分开输出 `pseudobulk_mean_cpm` 与 `pseudobulk_mean_logcpm`；新增 donor 一致性、参考/签名审计、参考敏感性、marker donor-limma 敏感性面板；比例明确标为估计值，主 marker 方法保持不变。
-- `checkers.py`：新增上述输出的一致性/边界校验，包括 pseudobulk Jensen 界限、家族内 BH、比例、有限 CI、HR=exp(coef) 等。
-
-### 隐私与验证
-
-- 新增 `orchestrator/privacy.py`；模型请求、文献查询和 Wiki 共享统一阻断绑定患者/样本标识、TCGA barcode、MRN/自由文本、电话/邮箱/地址等；阻断只影响外发，不影响本地统计。
-- 新增 `scripts/90_scientific_benchmark.py`、`docs/BENCHMARKS.md` 和合成/真实数据 guard benchmark。真实模型、真实多组学、真实去卷积与人工审阅仍为 `NOT_EVALUABLE`；单元测试通过不升级科学状态。
-- 新增隐私、Cox R 执行、Cox/去卷积验证、数值一致性、signature math、benchmark 测试；`PUBLIC_FILES.json` 纳入新增文件。
+- 固定 Git 检出换行符并保持数据文件原始字节，避免 Windows 校验和漂移；科研源码快照保留 CRLF 原文，与磁盘哈希一致。Wiki 测试使用规范相对路径，Windows 父进程路径防护测试使用合成子进程，原生 AppContainer 验收单独记录。
+- 修复输出探测测试覆盖 CI `R_LIBS_USER` 的问题，合并项目与继承库路径；不跳过有效值、缺失值、重复键、非有限值及分组配对校验。
+- 工程测试和发行检查不代表科研结论获验收。缺少可追溯配对映射时仍阻止分析，不猜测配对、不自动改为非配对设计。
+- 本次发布不追加真实模型请求、不执行差异分析或绘图；跨平台便携测试与原生沙箱验收分别报告。
 
 ## v8.3.0 — 2026-10-27
 

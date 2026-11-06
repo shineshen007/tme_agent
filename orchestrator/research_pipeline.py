@@ -329,7 +329,7 @@ def _run_task_research(root, task_id, *, cfg=None, client=None, literature_servi
         code_files = sorted([*app_root.glob('orchestrator/*.py'),
                              *app_root.glob('multiomics_tui/*.py'), *app_root.glob('native_dist/*.py'),
                              *app_root.glob('schemas/*.json'), app_root / 'requirements.txt'])
-        code_text = {str(p.relative_to(app_root)): p.read_text(encoding='utf-8') for p in code_files}
+        code_text = {str(p.relative_to(app_root)): p.read_bytes().decode('utf-8') for p in code_files}
         code_sources.update({name: hashlib.sha256(content.encode('utf-8')).hexdigest()
                              for name, content in code_text.items()})
         save('code_sources.json', code_sources)

@@ -9,12 +9,16 @@ Design rules enforced here:
 """
 from __future__ import annotations
 import hashlib
+import http.client
 import json
 import logging
 import os
 import re
+import ssl
 import time
+import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -106,14 +110,32 @@ class LLMClient:
         self.tokens_used = 0
         self.calls = []
         self.offline_reason = None
+        self._transport_state = threading.local()
 
     # ---------- transport ----------
     def _http_post(self, url, headers, body, timeout):
         request = urllib.request.Request(url, data=body, headers=headers, method='POST')
+        mode = self.cfg.get('proxy_mode', 'inherit')
+        if mode not in {'inherit', 'direct'}:
+            raise LLMConfigError('proxy_mode must be inherit or direct')
+        proxies = {} if mode == 'direct' else urllib.request.getproxies()
+        parts = urllib.parse.urlsplit(url)
+        bypass = mode == 'inherit' and urllib.request.proxy_bypass(parts.netloc)
+        proxy = proxies.get(parts.scheme) if not bypass else None
+        # Keep only routing facts. Proxy URLs may contain credentials or tokens.
+        route = urllib.parse.urlsplit(proxy if proxy and '://' in proxy else '//' + (proxy or ''))
+        self._transport_state.secrets = [proxy, route.username, route.password,
+            urllib.parse.unquote(route.username or ''), urllib.parse.unquote(route.password or '')]
+        self._transport_state.details = {'proxy_mode': mode, 'proxy_host': route.hostname,
+                                   'proxy_port': route.port, 'proxy_bypassed': bool(bypass),
+                                   'stage': 'connecting'}
         # A redirect is an error: credentials must never cross origins. Both the
         # base client and CompatibleClient inherit this transport.
-        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
-            return response.status, response.read().decode('utf-8')
+        with urllib.request.build_opener(urllib.request.ProxyHandler(proxies), _NoRedirect).open(request, timeout=timeout) as response:
+            self._transport_state.details.update(stage='reading_response', http_status=response.status)
+            body = response.read()
+            self._transport_state.details['stage'] = 'parsing_response'
+            return response.status, body.decode('utf-8')
 
     def _endpoint(self):
         base = self.cfg['base_url'].rstrip('/')
@@ -303,8 +325,14 @@ class LLMClient:
                    'Authorization': f'Bearer {credential}'}
         timeout = self.cfg.get('timeout_seconds', 120)
         last = None
-        for attempt in range(int(self.cfg.get('max_retries', 2)) + 1):
+        retry_limit = int(self.cfg.get('max_retries', 2))
+        for attempt in range(retry_limit + 1):
             started = time.time()
+            # Reset per attempt: a later handshake failure must not inherit a
+            # preceding response's HTTP status or reading stage.
+            self._transport_state.details = {'proxy_mode': self.cfg.get('proxy_mode', 'inherit'),
+                                       'stage': 'transport'}
+            self._transport_state.secrets = []
             entry = {'schema_attempt': schema_attempt, 'transport_attempt': attempt + 1,
                      'max_tokens': self.cfg.get('max_tokens', 32000), 'thinking_mode': self._thinking_mode(),
                      'timeout_seconds': timeout, 'http_status': None, 'finish_reason': None,
@@ -314,17 +342,19 @@ class LLMClient:
                 attempts.append(entry)
             try:
                 status, text = self.transport(self._endpoint(), headers, body, timeout)
+                self._transport_state.details.update(stage='parsing_response', http_status=status)
                 latency = round(time.time() - started, 2)
                 entry.update(http_status=status, latency_s=latency)
                 if status >= 400:
-                    detail = redact_credentials(text[:400], [credential])
+                    detail = redact_credentials(text[:400], [credential, *self._transport_state.secrets])
                     entry['error'] = f'HTTP {status}: {detail}'
                     if status in {429, 500, 502, 503, 504}:
                         last = LLMTransportError(f'HTTP {status}: {detail[:200]}')
-                        time.sleep(min(2 ** attempt, 8))
+                        if attempt < retry_limit:
+                            time.sleep(min(2 ** attempt, 8))
                         continue
                     raise LLMTransportError(entry['error'])
-                if (credential and credential in text) or redact_credentials(text, [credential]) != text:
+                if (credential and credential in text) or redact_credentials(text, [credential, *self._transport_state.secrets]) != text:
                     raise LLMValidationError(
                         'Service response echoed a credential; refusing to cache or audit it.')
                 payload = json.loads(text)
@@ -338,7 +368,7 @@ class LLMClient:
                 answer = completion - reasoning if isinstance(completion, int) and isinstance(reasoning, int) else None
                 entry.update(finish_reason=finish, usage=usage, reasoning_tokens=reasoning,
                              answer_tokens=answer, content_characters=len(content),
-                             response_content=redact_credentials(content, [credential]))
+                             response_content=redact_credentials(content, [credential, *self._transport_state.secrets]))
                 # Charge once before checking length/JSON; failed replies still cost tokens.
                 self._charge(usage)
                 if finish == 'length':
@@ -350,33 +380,49 @@ class LLMClient:
                     parsed = json.loads(content)
                 except json.JSONDecodeError as exc:
                     raise LLMValidationError(f'Model did not return valid JSON: {exc}') from exc
+                self._transport_state.details['stage'] = 'complete'
                 return parsed, usage, latency, attempt
             except urllib.error.HTTPError as exc:
+                self._transport_state.details.update(stage='http_error', http_status=exc.code,
+                                               exception_type=type(exc).__name__)
                 try:
                     detail = exc.read().decode('utf-8', 'replace')[:200]
                 except Exception:
                     detail = str(exc)
-                detail = redact_credentials(detail, [credential])
+                detail = redact_credentials(detail, [credential, *self._transport_state.secrets])
                 entry.update(http_status=exc.code, error=f'HTTP {exc.code}: {detail}',
                              latency_s=round(time.time() - started, 2))
                 if exc.code in {429, 500, 502, 503, 504}:
                     last = LLMTransportError(entry['error'])
-                    time.sleep(min(2 ** attempt, 8))
+                    if attempt < retry_limit:
+                        time.sleep(min(2 ** attempt, 8))
                     continue
                 raise LLMTransportError(entry['error']) from exc
-            except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                last = LLMTransportError(redact_credentials(f'network error: {exc}', [credential]))
+            except (http.client.IncompleteRead, urllib.error.URLError, TimeoutError, OSError) as exc:
+                # IncompleteRead carries partial response bytes: keep only its
+                # safe byte-count summary, never parse or persist exc.partial.
+                last = LLMTransportError(redact_credentials(f'network error: {type(exc).__name__}: {exc}',
+                    [credential, *self._transport_state.secrets]))
+                reason = getattr(exc, 'reason', exc)
+                self._transport_state.details.update(exception_type=type(exc).__name__,
+                    reason_type=type(reason).__name__,
+                    interrupted=isinstance(reason, (http.client.IncompleteRead, ssl.SSLEOFError)))
                 entry.update(error=str(last), latency_s=round(time.time() - started, 2))
-                time.sleep(min(2 ** attempt, 8))
+                if attempt < retry_limit:
+                    time.sleep(min(2 ** attempt, 8))
                 continue
             except Exception as exc:
-                entry['error'] = redact_credentials(str(exc), [credential])
+                self._transport_state.details['exception_type'] = type(exc).__name__
+                entry['error'] = redact_credentials(str(exc), [credential, *self._transport_state.secrets])
                 raise
             finally:
+                entry.update(self._transport_state.details)
                 if entry['latency_s'] is None:
                     entry['latency_s'] = round(time.time() - started, 2)
                 entry['tokens_used_after'] = self.tokens_used
-        raise LLMTransportError(redact_credentials(str(last), [credential]))
+        failure = LLMTransportError(redact_credentials(str(last), [credential, *self._transport_state.secrets]))
+        failure.transport_details = {**self._transport_state.details, 'attempt_count': retry_limit + 1}
+        raise failure
 
     def _api_key_for_request(self):
         return read_api_key({'llm': self.cfg})

@@ -95,7 +95,8 @@ def test_real_contact_details_are_still_blocked(text):
     assert any(kind == "contact" for kind, _ in sensitive_matches(text))
 
 
-def test_planning_prompt_over_a_download_cache_is_not_blocked(tmp_path, monkeypatch):
+@pytest.mark.parametrize('reference', ['table', 'unknown', 'ambiguous', 'identifier', 'registered', 'explicit', 'plan', 'normalized_quote'])
+def test_planning_prompt_over_a_download_cache_is_not_blocked(tmp_path, monkeypatch, reference):
     """The catalog must never turn a local build cache into a privacy violation."""
     from multiomics_tui.task_planner import catalog
     from orchestrator.llm_client import LLMClient
@@ -110,16 +111,104 @@ def test_planning_prompt_over_a_download_cache_is_not_blocked(tmp_path, monkeypa
     prompt = "Available files: " + json.dumps(inventory, ensure_ascii=False)
     assert sensitive_matches(prompt) == []
 
-    monkeypatch.setenv("TEST_PRIVACY_KEY", "fixture-key")
-    calls = []
-    client = LLMClient(tmp_path, tmp_path / "run", llm_cfg(),
-                       transport=lambda *a, **k: calls.append(a) or (200, '{"inputs":[]}'))
-    try:
-        client.chat_json("tui_task_plan_inputs", prompt, "计算通路评分", "tui_task_inputs_v1")
-    except Exception:
-        # A fixture reply may fail schema validation; reaching transport is the point.
-        pass
-    assert calls, "the guarded payload must reach transport once the cache is excluded"
+    from unittest.mock import Mock
+    from multiomics_tui.task_planner import generate_plan, CLARIFICATIONS, PLANNER, validate_plan
+    from multiomics_tui.model_client import CompatibleClient
+    assert sensitive_matches(CLARIFICATIONS) == [] and sensitive_matches(PLANNER) == []
+    source = tmp_path / 'data/raw/all109/Sample_info109.csv'
+    source.parent.mkdir()
+    source.write_text('sample,group\nA,Tumor\nB,Normal\n')
+    (tmp_path / 'data/metadata').mkdir()
+    (tmp_path / 'data/metadata/Sample_info109.csv').write_text(source.read_text())
+    text = 'Use data/raw/all109. Link Sample_info109 rows through Sample_info109$sample.name.'
+    if reference == 'unknown': text = 'Link Sample_unknown109 rows.'
+    if reference == 'ambiguous': text = 'Link Sample_info109 rows.'
+    if reference == 'identifier': text = 'Use data/raw/all109. The sample is Sample_info109.'
+    if reference == 'explicit': text = 'Use data/raw/all109. Patient ID: Sample_info109 rows.'
+    raw = text
+    question = {'questions': [{'id':'method','prompt':'Choose test','mode':'single','options':[
+        {'id':'paired','label':'Paired test','answer':'Use paired Wilcoxon.',
+         'reason':'Needs pairing confirmation','basis':[]}]}]}
+    envelope = json.dumps({'choices':[{'message':{'content':json.dumps(question)},'finish_reason':'stop'}],
+                           'usage':{'total_tokens':1}})
+    transport = Mock(return_value=(200,envelope))
+    cfg = llm_cfg();cfg['llm'].update(provider='ollama',auth_mode='none',base_url='http://localhost:1234/v1')
+    client = CompatibleClient(tmp_path,tmp_path/'run',cfg,transport=transport,
+                              registry_ids=['Sample_info109'] if reference=='registered' else [])
+    if reference in {'plan', 'normalized_quote'}:
+        import hashlib
+        from orchestrator.llm_client import LLMValidationError
+        path = source.relative_to(tmp_path).as_posix()
+        local = {'profiles':[{'path':path,'sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
+                             'keys':{},'columns':{}}], 'software':{},'apis':{},
+                 'audit_path':'.runtime/input_inspections/fixture.json'}
+        audit = tmp_path/local['audit_path'];audit.parent.mkdir(parents=True)
+        audit.write_text(json.dumps(local))
+        monkeypatch.setattr('multiomics_tui.input_inspection.inspect_inputs', Mock(return_value=local))
+        proposal = {'goal':'Inspect file structure','analysis_unit':'input row','method':'inventory',
+                    'inputs':[path], 'input_bindings':{'inventory':True},
+                    'parameters':[{'name':'reference','value':path if reference=='normalized_quote' else 'sample.name',
+                                   'source':'user'}],
+                    'steps':[{'id':'inspect','language':'python','purpose':'Inspect structure',
+                              'outputs':['tables/structure.csv']}], 'limitations':[]}
+        responses=[]
+        for parsed in [{'inputs':[path]},proposal]:
+            responses.append((200,json.dumps({'choices':[{'message':{'content':json.dumps(parsed)},
+                                                        'finish_reason':'stop'}],'usage':{'total_tokens':1}})))
+        transport.side_effect=responses
+        if reference=='normalized_quote':
+            with pytest.raises(LLMValidationError,match='Parameter reference'):
+                generate_plan(client,tmp_path,text,cfg)
+        else:
+            result=generate_plan(client,tmp_path,text,cfg)
+            rechecked=validate_plan(tmp_path,{**result,'inputs':[p['path'] for p in result['inputs']]},raw,cfg)
+            assert rechecked['parameters']==result['parameters']
+        assert transport.call_count==2
+    elif reference == 'table':
+        assert generate_plan(client,tmp_path,text,cfg) == question
+        sent = json.loads(transport.call_args.args[2])['messages'][1]['content']
+        assert 'data/raw/all109/Sample_info109.csv rows' in sent
+        assert 'data/raw/all109/Sample_info109.csv$sample.name' in sent
+        assert sensitive_matches(sent) == []
+    else:
+        with pytest.raises(PrivacyViolation): generate_plan(client,tmp_path,text,cfg)
+        transport.assert_not_called()
+    assert text == raw
+    if reference == 'table':
+        from multiomics_tui.input_inspection import public_inspection
+        field = {'type':['character'],'missing':0,'unique':2,'known_levels':{}}
+        first='data/raw/all109/Sample_info109.csv';second='data/metadata/Sample_info109.csv'
+        local={'profiles':[{'path':first,'columns':{'sample_id':field},
+                            'keys':{'column:sample_id':{'values':['hash_a','hash_b'],'missing':0,'duplicates':0}}},
+                           {'path':second,'columns':{'patient_id':field},
+                            'keys':{'column:patient_id':{'values':['hash_c','hash_d'],'missing':0,'duplicates':0}}}],
+               'software':{},'apis':{}}
+        option=question['questions'][0]['options'][0]
+        option['answer']='Use exact matching between the sample and patient identifier fields.'
+        option['basis']=[{'path':first,'field':'sample_id'},{'path':second,'field':'patient_id'}]
+        public=public_inspection(local)
+        assert public['identifier_matches'][0]['matched']==0
+        assert 'hash_a' not in json.dumps(public)
+        with pytest.raises(ValueError,match='zero observed matches'):
+            validate_plan(tmp_path,question,text,cfg,inspection=local)
+        local['profiles'][1]['keys']['column:patient_id']['values']=['hash_a','hash_b']
+        assert public_inspection(local)['identifier_matches'][0]['matched']==2
+        assert validate_plan(tmp_path,question,text,cfg,inspection=local)==question
+        local['profiles'][1]['keys']['column:patient_id']['missing']=1
+        assert public_inspection(local)['identifier_matches'][0]['matched'] is None
+        option['basis']=[]
+        option['answer']='Provide an explicit patient and sample mapping.'
+        question['questions'][0]['options'].append({'id':'unpaired','label':'Unpaired alternative',
+            'answer':'Use unpaired Wilcoxon because pairing is unavailable.','reason':'Synthetic alternative','basis':[]})
+        checked=validate_plan(tmp_path,question,text+' Use paired Wilcoxon.',cfg,inspection=local)
+        assert len(checked['questions'][0]['options'])==1
+        assert len(question['questions'][0]['options'])==2
+        empty={'questions':[{**question['questions'][0],'options':[]}]}
+        assert validate_plan(tmp_path,empty,text+' Use paired Wilcoxon.',cfg,inspection=local)==empty
+        assert len(validate_plan(tmp_path,question,text+' Change to unpaired Wilcoxon.',cfg,inspection=local)['questions'][0]['options'])==2
+    question['questions'][0]['options'][0]['answer'] = 'Link Sample_info109 rows.'
+    with pytest.raises(ValueError,match='outbound privacy check failed'):
+        validate_plan(tmp_path,question,text,cfg)
 
 
 def test_literature_query_blocks_private_ids_and_paths_but_allows_public_project_id():

@@ -14,7 +14,7 @@ REPOSITORY = 'shineshen007/tme_agent'
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = 'package_manifest.json'
 SUMS = 'PACKAGE_SHA256SUMS.txt'
-TOP = {'LICENSE', 'README.md', 'README.zh-CN.md', 'VERSION', 'PUBLIC_FILES.json', '.gitignore',
+TOP = {'LICENSE', 'README.md', 'README.zh-CN.md', 'VERSION', 'PUBLIC_FILES.json', '.gitignore', '.gitattributes',
        'CURRENT_STATE.md', 'CHANGELOG.md', 'PROJECT_CONTEXT.md', 'requirements.txt',
        'setup_windows.cmd', 'setup_macos.command', 'start_windows.cmd',
        'start_macos.command', 'diagnose_windows.cmd', 'diagnose_macos.command'}

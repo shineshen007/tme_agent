@@ -33,7 +33,7 @@ def substituted_probe(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def substituted_windows_guard(monkeypatch):
+def substituted_windows_guard(monkeypatch, request):
     """Windows 单元测试不经过 AppContainer。
 
     AppContainer 需要 bootstrap 准备的私有运行时与输入快照，而且运行在独立子进程
@@ -44,13 +44,27 @@ def substituted_windows_guard(monkeypatch):
         return
     from multiomics_tui import input_inspection
 
-    def run_without_appcontainer(root, folder, argv, env):
-        # argv = [python, task_guard.py, folder, '--', rscript, ...]
-        return input_inspection.subprocess.run(
-            argv[argv.index("--") + 1:], cwd=root, env=env,
-            capture_output=True, text=True, timeout=120)
+    def run_without_appcontainer(*args, **kwargs):
+        if len(args) == 4:
+            root, folder, argv, env = args
+            return subprocess.run(argv[argv.index("--") + 1:], cwd=folder, env=env,
+                                  capture_output=True, text=True, timeout=120)
+        argv = args[0]
+        if "--" in argv and Path(argv[1]).name == "task_guard.py":
+            argv = argv[argv.index("--") + 1:]
+        return subprocess.run(argv, **kwargs)
 
     monkeypatch.setattr(input_inspection, "_run_guarded", run_without_appcontainer)
+    if request.module.__name__ == "test_task_path_safety":
+        # Exercise trusted-parent link rejection with synthetic child scripts.
+        # Hosted Windows CI has no installed AppContainer runtime; this does not
+        # certify native isolation. Other platforms keep the actual guard.
+        from types import SimpleNamespace
+        from multiomics_tui import task_runner
+        portable_subprocess = SimpleNamespace(**vars(subprocess))
+        portable_subprocess.run = run_without_appcontainer
+        monkeypatch.setattr(task_runner, "subprocess", portable_subprocess)
+
 
 
 @lru_cache(maxsize=1)

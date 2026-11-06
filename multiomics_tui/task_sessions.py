@@ -185,7 +185,9 @@ class TaskStore:
             json.dump(plan, stream, ensure_ascii=False, indent=2)
         state.update(status="awaiting_approval", goal=plan["goal"], plan_version=version,
                      plan_hash=canonical_hash(plan), approved_hash=None, error=None,
-                     planning_failure_kind=None, questions=[])
+                     planning_failure_kind=None, questions=[], clarification_hash=None,
+                     planning_failure_summary=None, planning_transport={},
+                     clarification_draft={}, clarification_step=0, clarification_consumed=False)
         self.save(state)
         return state
 

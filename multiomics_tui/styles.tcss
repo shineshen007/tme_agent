@@ -98,6 +98,24 @@ Screen {
     border-left: solid #2f2f2f;
 }
 #plan-preview { border-left: solid #7ab7ff; }
+#clarification-wizard {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    border-left: solid #7ab7ff;
+}
+#clarification-counter { height: auto; color: #7ab7ff; }
+#clarification-question { height: auto; margin-bottom: 1; text-style: bold; }
+#clarification-single { height: auto; width: 100%; border: none; padding: 0; }
+#clarification-single RadioButton { height: auto; width: 100%; }
+#clarification-single .toggle--label { width: 1fr; }
+#clarification-multiple { height: auto; max-height: 16; min-height: 3; }
+#clarification-custom { width: 100%; margin-top: 1; }
+#clarification-summary, #clarification-error { height: auto; }
+#clarification-error { color: #ffb366; }
+#clarification-navigation { height: auto; layout: grid; grid-size: 2; grid-columns: 1fr 1fr; }
+#clarification-navigation Button { width: 100%; min-width: 8; }
+#clarification-regenerate { height: auto; width: 100%; margin-top: 1; }
 #progress-details { border-left: solid #3d5a80; }
 #result-summary { border-left: solid #3f6b4a; }
 #reply-message { border-left: solid #4a4a4a; }

@@ -68,7 +68,10 @@ class CompatibleClient(LLMClient):
         try:
             return super().chat_json(*args, **kwargs)
         except LLMError as exc:
-            raise type(exc)(redact(str(exc))) from None
+            failure = type(exc)(redact(str(exc)))
+            if hasattr(exc, 'transport_details'):
+                failure.transport_details = json.loads(redact(json.dumps(exc.transport_details)))
+            raise failure from None
 
 
 def test_connection(root, cfg):

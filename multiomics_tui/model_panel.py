@@ -5,7 +5,7 @@ import asyncio
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Select, Static
+from textual.widgets import Button, Collapsible, Input, Select, Static
 
 from .model_config import PRESETS, public_settings, redact
 
@@ -46,6 +46,10 @@ class ModelPanel(ModalScreen):
                 yield Select([('Bearer API key', 'bearer'), ('None / 无认证', 'none')], value=cfg['auth_mode'], allow_blank=False, id='model-auth')
                 yield Static('API key / 仅本进程保存，可留空使用已有密钥')
                 yield Input(password=True, id='model-key')
+                with Collapsible(title='Advanced / 高级设置', collapsed=True):
+                    yield Static('Model request route / 仅影响模型请求')
+                    yield Select([('继承当前代理 / Inherit', 'inherit'), ('直接连接 / Direct', 'direct')],
+                                 value=cfg['proxy_mode'], allow_blank=False, id='model-proxy')
                 yield Static('Advanced parameters stay in config/api.local.yaml. 高级参数仍可在该文件中调整。',
                              id='model-advanced-hint')
             yield Static('Settings only; connection has not been tested. 设置不会自动请求模型。', id='model-notice')
@@ -58,6 +62,9 @@ class ModelPanel(ModalScreen):
         self._loading = False
 
     def on_select_changed(self, event: Select.Changed):
+        if not self._loading and event.select.id == 'model-proxy':
+            self.query_one('#model-notice', Static).update('路由已更改；当前设置尚未测试，保存后生效。')
+            return
         if self._loading or event.select.id != 'model-provider':
             return
         if str(event.value) == self._provider:
@@ -81,6 +88,7 @@ class ModelPanel(ModalScreen):
             'provider': str(self.query_one('#model-provider', Select).value),
             'base_url': text('url'), 'model': text('name'),
             'auth_mode': str(self.query_one('#model-auth', Select).value),
+            'proxy_mode': str(self.query_one('#model-proxy', Select).value),
         })
         return value
 

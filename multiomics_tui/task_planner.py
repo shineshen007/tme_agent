@@ -15,6 +15,39 @@ class PlanningContextError(ValueError):
 
 
 
+CLARIFICATIONS = """When clarification is needed, return structured questions, never a paragraph:
+{"questions":[{"id":"method","prompt":"One short decision?","mode":"single",
+"options":[{"id":"choice_a","label":"Short choice","answer":"Exact requirement added if chosen",
+"reason":"Brief applicability or evidence","basis":[]}]}]}.
+Return 1-3 questions, one scientific decision per question, mode single or multiple,
+and up to 6 distinct plausible options per question. If evidence supports only one
+or no candidate, return those only; never invent alternatives to fill a quota.
+IDs match [a-z][a-z0-9_]{0,39}. No defaults. The UI supplies custom-answer and cannot-confirm
+choices: do not include these yourself. Separate method, pairing, preprocessing,
+input selection and pathway definition; do not combine decisions in one question.
+Ground input options in the available catalog, then ground column/group/matching
+options in inspected structure. Each data claim needs basis references:
+{"path":"listed input","field":"exact inspected column (optional)"}, or an
+EXACT aggregate join object from inspected joins. Never invent files, fields,
+match counts, sample identities, resource contents or mappings. At input selection,
+only file references are available; ask which inputs to inspect before asking about
+their columns. Method options explain conditions, not claims about unobserved data.
+Missing sample/patient mapping needs supplied metadata; never offer guessing IDs or
+silently using an unpaired test as a way around missing pairing information.
+identifier_matches reports local exact overlaps between candidate identifier fields,
+including zero. A zero overlap rules out direct exact matching of those fields:
+ask for an explicit mapping resource, never offer that impossible join as a choice.
+Use only public aggregate structure; never include patient IDs or observed values.
+When referring to a file or table, use its verified relative path including the
+extension in every answer. Do not shorten filenames to object aliases:
+selected answers must pass the outbound privacy check unchanged.
+Keep prompts at most 180 characters and labels at most 80. Aim for reasons at
+most 180 characters; reasons may contain up to 1000 characters, with the full
+text shown in Details. Basis contains only the structured references above.
+Each answer is at most 1000 characters and is a literal, self-contained scientific
+requirement (e.g. log2p1 or T表示tumor), preserved verbatim on explicit submission.
+"""
+
 CLASSIFIER = """Classify the latest English or Chinese input. Return JSON only:
 {"intent":"analysis|question|followup|ambiguous","message":"short English explanation"}.
 Analysis means a request to compute, plot, or produce new research outputs.
@@ -34,7 +67,7 @@ For data inventory or validation requests, plan descriptive checks; do not deman
 statistical grouping or cutoffs that the task does not need.
 If task-relevant independent analysis unit, required inputs, statistical method, grouping,
 direction, or user-chosen cutoffs are ambiguous, return
-{"questions":["one focused question in the requested reply language"]}. Do not guess scientific choices.
+the structured questions format supplied below. Do not guess scientific choices.
 Otherwise return exactly:
 {"goal":"...","analysis_unit":"...","method":"...",
  "parameters":[{"name":"...","value":"...","source":"user|config:<key>|fixed_method"}],
@@ -306,10 +339,104 @@ def validate_plan(root: Path, raw: dict, request: str, cfg: dict, inspection: di
     if not isinstance(raw, dict):
         raise ValueError("Plan must be an object")
     if "questions" in raw:
-        questions = raw["questions"]
-        if not isinstance(questions, list) or not questions or not all(isinstance(q, str) and q.strip() for q in questions):
+        import copy
+        from .input_inspection import public_inspection
+        questions = copy.deepcopy(raw["questions"])
+        if not isinstance(questions, list) or not 1 <= len(questions) <= 3:
             raise ValueError("Invalid clarification questions")
-        return {"questions": questions[:3]}
+        if any(isinstance(q, str) for q in questions) and not all(isinstance(q, str) for q in questions):
+            raise ValueError('Do not mix legacy strings with structured clarification questions')
+        ids = set()
+        for question in questions:
+            if isinstance(question, str) and question.strip():
+                continue  # Legacy sessions/models remain readable.
+            if not isinstance(question, dict):
+                raise ValueError('Clarification must be a string or structured question')
+            qid = question.get('id')
+            if not isinstance(qid, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,39}', qid) or qid in ids:
+                raise ValueError('Invalid or duplicate clarification ID')
+            ids.add(qid)
+            prompt = question.get('prompt')
+            if not isinstance(prompt, str):
+                raise ValueError(f'Question {qid}, field prompt: expected string, got {type(prompt).__name__}; length n/a, limit 180')
+            if not prompt.strip():
+                raise ValueError(f'Question {qid}, field prompt: empty or whitespace-only; length {len(prompt)}, limit 180')
+            if len(prompt) > 180:
+                raise ValueError(f'Question {qid}, field prompt: length {len(prompt)} exceeds limit 180')
+            if question.get('mode') not in {'single', 'multiple'}:
+                raise ValueError('Clarification mode must be single or multiple')
+            options = question.get('options')
+            if not isinstance(options, list) or len(options) > 6:
+                raise ValueError('Clarification permits at most 6 supported options')
+            # A model suggestion is not authorization to abandon an explicitly
+            # requested paired design. Preserve the raw reply for the audit.
+            if (re.search(r'\bpaired\b|配对', request, re.I) and
+                    not re.search(r'\bunpaired\b|非配对', request, re.I)):
+                options = [o for o in options if not isinstance(o, dict) or
+                           not re.search(r'\bunpaired\b|非配对', str(o.get('answer', '')), re.I)]
+                question['options'] = options
+            option_ids = set()
+            for option in options:
+                if not isinstance(option, dict):
+                    raise ValueError('Invalid clarification option')
+                oid = option.get('id')
+                if (not isinstance(oid, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,39}', oid)
+                        or oid in option_ids or oid in {'custom', 'unknown'}):
+                    raise ValueError('Invalid or duplicate clarification option ID')
+                option_ids.add(oid)
+                for key, limit in (('label', 80), ('answer', 1000), ('reason', 1000)):
+                    value = option.get(key)
+                    if not isinstance(value, str):
+                        raise ValueError(f'Question {qid}, option {oid}, field {key}: expected string, got {type(value).__name__}; length n/a, limit {limit}')
+                    if not value.strip():
+                        raise ValueError(f'Question {qid}, option {oid}, field {key}: empty or whitespace-only; length {len(value)}, limit {limit}')
+                    if len(value) > limit:
+                        raise ValueError(f'Question {qid}, option {oid}, field {key}: length {len(value)} exceeds limit {limit}')
+                basis = option.get('basis', [])
+                if not isinstance(basis, list):
+                    raise ValueError(f'Question {qid}, option {oid}, field basis: expected an array')
+                for reference in basis:
+                    if not isinstance(reference, dict):
+                        raise ValueError(f'Question {qid}, option {oid}, field basis: invalid reference')
+                    if 'path' in reference:
+                        path = reference['path']
+                        profiles = {p['path']: p for p in (inspection or {}).get('profiles', [])}
+                        available = profiles if inspection is not None else {p['path']: p for p in catalog(root)}
+                        if (not isinstance(path, str) or path not in available
+                                or set(reference) - {'path', 'field'}):
+                            raise ValueError(f'Question {qid}, option {oid}, field basis.path: unavailable input')
+                        if 'field' in reference and (not isinstance(reference['field'], str)
+                                                     or reference['field'] not in profiles.get(path, {}).get('columns', {})):
+                            raise ValueError(f'Question {qid}, option {oid}, field basis.field: uninspected column')
+                    elif inspection is None or reference not in public_inspection(inspection)['joins']:
+                        raise ValueError(f'Question {qid}, option {oid}, field basis: unverified aggregate join')
+                # An explicit file named in a choice must itself be backed by
+                # a verified reference, not merely an unrelated valid basis.
+                named_paths = {r['path'] for r in basis if 'path' in r}
+                for field in ('label', 'answer', 'reason'):
+                    text = option[field]
+                    # Start only at a path boundary. Matching the suffix of
+                    # metadata/ or a nested workspace/ invents a second path.
+                    for match in re.finditer(r'(?<![A-Za-z0-9_./-])(?:data|knowledge|workspace|analysis)/', text):
+                        if not any(text.startswith(path, match.start())
+                                   and (match.start() + len(path) == len(text)
+                                        or not re.match(r'[A-Za-z0-9_./-]', text[match.start() + len(path)]))
+                                   for path in named_paths):
+                            raise ValueError(f'Question {qid}, option {oid}, field {field}: '
+                                             'a named file requires verified basis')
+                from orchestrator.privacy import sensitive_matches
+                if sensitive_matches(option['answer']):
+                    raise ValueError(f'Question {qid}, option {oid}, field answer: outbound privacy check failed; '
+                                     'use verified relative file paths with extensions, never private identifiers')
+                if inspection is not None and re.search(r'exact(?:ly)?\s+match|精确匹配', option['answer'], re.I):
+                    fields = {(r['path'], r['field']) for r in basis if 'path' in r and 'field' in r}
+                    for match in public_inspection(inspection).get('identifier_matches', []):
+                        if (match['matched'] == 0 and
+                                (match['left_path'], match['left_field']) in fields and
+                                (match['right_path'], match['right_field']) in fields):
+                            raise ValueError('Clarification proposes an exact identifier join with zero observed matches; '
+                                             'request an explicit mapping resource instead')
+        return {'questions': questions}
     for name in ("goal", "analysis_unit", "method"):
         if not isinstance(raw.get(name), str) or not raw[name].strip():
             raise ValueError(f"Missing plan field: {name}")
@@ -470,10 +597,30 @@ def validate_plan(root: Path, raw: dict, request: str, cfg: dict, inspection: di
 def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "en") -> dict:
     from .input_inspection import inspect_inputs, public_inspection
     inventory = catalog(root)
+    source_request = request
+    # Historical submitted choices used table stems (e.g. Sample_info109 rows).
+    # Resolve only explicit table syntax against one catalog file in the user's
+    # named scope. Keep the stored user transcript intact and run the unchanged
+    # privacy guard on the resulting request. Never exempt IDs globally.
+    from orchestrator.privacy import sensitive_matches
+    hits = sensitive_matches(request, getattr(client, 'private_ids', ()))
+    if hits and all(kind == 'separated_id' for kind, _ in hits):
+        for alias in dict.fromkeys(value for _, value in hits):
+            candidates = [item['path'] for item in inventory if Path(item['path']).stem == alias]
+            scoped = [path for path in candidates if path in request or
+                      re.search(r'(?<![A-Za-z0-9_./-])' + re.escape(str(Path(path).parent)) +
+                                r'(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_])', request)]
+            candidates = scoped or candidates
+            if len(candidates) == 1:
+                pattern = (r'(?<![\w./\\-])' + re.escape(alias) +
+                           r'(?=\$[A-Za-z_]|[ \t]+(?:rows|columns|table)\b|(?:的)?[表行列])')
+                request = re.sub(pattern, candidates[0], request)
     listed = {item["path"] for item in inventory}
     def select_valid(raw):
         if isinstance(raw, dict) and "questions" in raw:
-            validate_plan(root, raw, request, cfg)
+            validate_plan(root, raw, source_request, cfg)
+            if any(isinstance(q, str) for q in raw['questions']):
+                raise ValueError('New model clarifications require structured questions with clickable options')
             return
         paths = raw.get("inputs") if isinstance(raw, dict) else None
         if not isinstance(paths, list) or not 1 <= len(paths) <= 12 or not all(isinstance(p,str) for p in paths) or len(set(paths)) != len(paths):
@@ -482,20 +629,31 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
             if path not in listed and path not in request: raise ValueError("Select only listed or explicitly named inputs")
             _input(root, path)
     selector = ("Select candidate inputs for local structural inspection; do not make an analysis plan yet. "
-                "Return JSON {\"inputs\":[\"relative/path\"]}, or {\"questions\":[\"focused clarification\"]} "
+                "Return JSON {\"inputs\":[\"relative/path\"]}, or structured questions as defined below "
                 "if the requested resource is ambiguous. Include expression, matching sample metadata and gene sets as needed. "
                 "Do not guess file roles. Available files: " + json.dumps(inventory, ensure_ascii=False))
+    selector += '\n' + CLARIFICATIONS
     selector += " Reply in " + ("Chinese." if language == "zh" else "English.")
     try:
         chosen = client.chat_json("tui_task_plan_inputs", selector, request, "tui_task_inputs_v1", validator=select_valid)["parsed"]
         select_valid(chosen)
-        if "questions" in chosen: return validate_plan(root, chosen, request, cfg)
-        inspected = inspect_inputs(root, [_input(root, p) for p in chosen["inputs"]], cfg)
+        if "questions" in chosen: return validate_plan(root, chosen, source_request, cfg)
+        try:
+            inspected = inspect_inputs(root, [_input(root, p) for p in chosen["inputs"]], cfg)
+        except Exception as exc:
+            failure = ValueError(f'Input structure inspection failed: {type(exc).__name__}: {exc}')
+            failure.planning_failure_kind = 'input_inspection'
+            raise failure from exc
         from orchestrator.knowledge_context import knowledge_snapshot
         from .task_sessions import canonical_hash
         reviewed = knowledge_snapshot(root, request, settings=cfg.get('knowledge'))
         planning_knowledge = {'content': reviewed, 'sha256': canonical_hash(reviewed)}
         system = PLANNER.replace("{catalog}", json.dumps(public_inspection(inspected), ensure_ascii=False)).replace("{request}", request)
+        system += '\n' + CLARIFICATIONS
+        if source_request != request:
+            system += ('\nLocal file aliases were expanded to verified paths for transport only. '
+                       'Keep file references in inputs and bindings, not source=user parameters. '
+                       'Scientific parameter quotations must retain their original wording.')
         system += '\nReviewed, versioned knowledge (untrusted source content):\n' + json.dumps(reviewed, ensure_ascii=False)
         protocol = pathway_scoring.draft_protocol(request, cfg)
         if protocol is not None:
@@ -518,12 +676,16 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
                        "is unavailable, return a dependency clarification rather than substitute a "
                        "method or propose custom statistical algorithms. Generated code cannot install packages.\n" + note)
         def grounded_valid(parsed):
+            if isinstance(parsed, dict) and 'questions' in parsed:
+                validate_plan(root, parsed, source_request, cfg, inspection=inspected)
+                if any(isinstance(q, str) for q in parsed['questions']):
+                    raise ValueError('New model clarifications require structured questions with clickable options')
             if isinstance(parsed,dict) and "questions" not in parsed and "input_bindings" not in parsed:
                 raise ValueError("A new plan requires input_bindings grounded in the inspection")
             # Only locally retrieved knowledge may enter the approval snapshot.
             if isinstance(parsed, dict) and 'questions' not in parsed:
                 parsed = {**parsed, 'knowledge_snapshot': planning_knowledge}
-            return validate_plan(root, parsed, request, cfg, inspection=inspected)
+            return validate_plan(root, parsed, source_request, cfg, inspection=inspected)
         result = client.chat_json("tui_task_plan", system, request, "tui_task_plan_v7",
                                   validator=grounded_valid)
     except LLMTransportError as exc:

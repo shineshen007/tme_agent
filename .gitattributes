@@ -1,0 +1,6 @@
+# Keep source checkouts reproducible across platforms.
+* text=auto eol=lf
+# Dataset checksums refer to exact committed bytes.
+/datasets/** -text
+*.rds -text
+*.pdf -text

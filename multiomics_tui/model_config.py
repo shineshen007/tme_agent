@@ -15,7 +15,7 @@ PRESETS = {
     "ollama": {"base_url": "http://localhost:11434/v1", "model": "", "auth_mode": "none", "api_key_env": "OLLAMA_API_KEY"},
     "lm_studio": {"base_url": "http://localhost:1234/v1", "model": "", "auth_mode": "none", "api_key_env": "LM_STUDIO_API_KEY"},
 }
-FIELDS = {"provider", "base_url", "model", "auth_mode", "api_key_env", "json_mode", "timeout_seconds", "max_tokens", "temperature", "max_tokens_field"}
+FIELDS = {"provider", "base_url", "model", "auth_mode", "api_key_env", "json_mode", "timeout_seconds", "max_tokens", "temperature", "max_tokens_field", "proxy_mode"}
 WORKER_KEY = "MULTIOMICS_MODEL_API_KEY"
 _keys = {}
 _env_bindings = {}
@@ -52,6 +52,8 @@ def normalize(settings):
             raise ValueError(f"请填写 {name}。")
         value[name] = value[name].strip()
     value['base_url'] = endpoint(value['base_url'])
+    if value.setdefault('proxy_mode', 'inherit') not in {'inherit', 'direct'}:
+        raise ValueError('proxy_mode 必须是 inherit 或 direct。')
     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', value['api_key_env']):
         raise ValueError("密钥环境变量名格式不正确。")
     if value.setdefault('auth_mode', 'bearer') not in {'bearer', 'none'}:

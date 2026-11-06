@@ -16,7 +16,7 @@ from textual.css.query import NoMatches
 from textual.events import Click
 from textual.message import Message
 from textual.suggester import SuggestFromList
-from textual.widgets import Button, Collapsible, Input, RichLog, Static
+from textual.widgets import Button, Collapsible, Input, RadioButton, RadioSet, RichLog, SelectionList, Static
 
 from .prompt_editor import PromptEditor
 from .controller import HELP_TEXT, READONLY_COMMANDS, Response, Session, planning_failure_message
@@ -24,6 +24,7 @@ from . import command_menu
 from .task_planner import render_plan
 from .language import choose
 from .task_sessions import redact_secrets
+from .task_sessions import canonical_hash
 
 # Explicit bitmap fonts keep the name recognizable without a font dependency.
 _GLYPHS = {
@@ -142,6 +143,8 @@ class MultiomicsApp(App):
         self._pending_response: Response | None = None
         self._request_text = ""
         self._view_task = None
+        self._clarification_view = None
+        self._clarification_epoch = 0.0
         self._last_terminal: tuple[str, str] | None = None
         self._home_visible = True
         self._banner_height = 0
@@ -168,6 +171,21 @@ class MultiomicsApp(App):
                 with Vertical(id="main-sections"):
                     yield Static("", id="reply-message")
                     yield Static("", id="plan-preview")
+                    with Vertical(id='clarification-wizard'):
+                        yield Static('', id='clarification-counter', markup=False)
+                        yield Static('', id='clarification-question', markup=False)
+                        with RadioSet(id='clarification-single'):
+                            for index in range(8):
+                                yield RadioButton('', id=f'clarification-choice-{index}')
+                        yield SelectionList(id='clarification-multiple')
+                        yield Input(placeholder='自行填写 / Custom answer', id='clarification-custom')
+                        yield Static('', id='clarification-error', markup=False)
+                        yield Static('', id='clarification-summary', markup=False)
+                        with Horizontal(id='clarification-navigation'):
+                            yield Button('上一步 / Back', id='clarification-back')
+                            yield Button('下一步 / Next', id='clarification-next', variant='primary')
+                            yield Button('提交并继续规划 / Submit', id='clarification-submit', variant='primary')
+                        yield Button('重新生成选项 / Generate options', id='clarification-regenerate')
                     yield Static("", id="progress-details")
                     with Horizontal(id="progress-actions"):
                         yield Button("Stop task", variant="error", id="stop-task")
@@ -211,6 +229,7 @@ class MultiomicsApp(App):
         yield Static("", id="home-bottom-space")
 
     def on_mount(self) -> None:
+        self._show('#clarification-wizard', False)
         self._show("#action-message", False)
         self._show("#action-buttons", False)
         self._show("#key-message", False)
@@ -235,6 +254,7 @@ class MultiomicsApp(App):
             chat_input.focus()
 
     def on_unmount(self) -> None:
+        self._refresh_task_view()
         if self._tick_timer is not None:
             self._tick_timer.stop()
             self._tick_timer = None
@@ -569,6 +589,39 @@ class MultiomicsApp(App):
                 widget.write(escape(line))
 
     def _refresh_task_view(self) -> None:
+        if not self.is_running:
+            return
+        # Persist the visible draft before refreshing or changing task. Never
+        # overwrite newer questions with controls from an earlier round.
+        shown = self._clarification_view
+        if shown is not None:
+            old_id, old_hash, old_step = shown
+            try:
+                old = self.session.tasks.get(old_id)
+            except (OSError, ValueError):
+                old = {}  # The user may have switched workspaces or removed a task.
+            old_questions = old.get('questions') or []
+            if (old.get('status') == 'needs_clarification' and not old.get('clarification_consumed')
+                    and (old.get('clarification_hash') or canonical_hash(old_questions)) == old_hash
+                    and old_step < len(old_questions)):
+                question = old_questions[old_step]
+                qid = question['id'] if isinstance(question, dict) else f'legacy_{old_step}'
+                options = question['options'] if isinstance(question, dict) else []
+                ids = [o['id'] for o in options] + ['custom', 'unknown']
+                if isinstance(question, dict) and question['mode'] == 'multiple':
+                    widget = self._get('#clarification-multiple', SelectionList)
+                    selected = list(widget.selected) if widget is not None else []
+                else:
+                    selected = [oid for index, oid in enumerate(ids)
+                                if self.query_one(f'#clarification-choice-{index}', RadioButton).value]
+                custom_widget = self._get('#clarification-custom', Input)
+                custom = custom_widget.value if custom_widget is not None else ''
+                draft = dict(old.get('clarification_draft') or {})
+                answer = {'selected': selected, 'custom': custom}
+                if draft.get(qid) != answer and redact_secrets(custom) == custom:
+                    draft[qid] = answer
+                    old['clarification_draft'] = draft
+                    self.session.tasks.save(old)
         task_id = self.session.active_task
         if self._view_task != task_id:
             # Invalidate the cached plan view whenever the shown task changes.
@@ -577,6 +630,8 @@ class MultiomicsApp(App):
         modify = self._get("#modify-plan", Button)
         execute = self._get("#execute-plan", Button)
         if not task_id:
+            self._show('#clarification-wizard', False)
+            self._clarification_view = None
             self._update_phase(None, "draft")
             if not self._help_showing():
                 self._update("#stage-title", "")
@@ -598,6 +653,9 @@ class MultiomicsApp(App):
             self._set_stage(self._say("Could not load task", "无法读取任务"), "error")
             return
         status = state["status"]
+        self._show('#clarification-wizard', status == 'needs_clarification' and not self._busy)
+        if status != 'needs_clarification':
+            self._clarification_view = None
         if self._view_task != task_id:
             self._view_task = task_id
             self.selected_job = None
@@ -672,13 +730,91 @@ class MultiomicsApp(App):
                 preview = self._say("Plan cannot be loaded: ", "无法读取计划：") + str(exc)
         elif status == "needs_clarification":
             questions = state.get("questions") or []
-            preview = "\n".join(questions) + self._say("\nReply below to continue.", "\n请在下方补充说明。")
+            preview = ''
+            self._show('#plan-preview', False)
+            digest = state.get('clarification_hash') or canonical_hash(questions)
+            step = min(max(0, state.get('clarification_step', 0)), len(questions))
+            view = (task_id, digest, step)
+            if self._clarification_view != view:
+                self._clarification_view = view
+                self._clarification_epoch = Message().time
+                for selector, en, zh in (('#clarification-back', 'Back', '上一步'),
+                                         ('#clarification-next', 'Next', '下一步'),
+                                         ('#clarification-submit', 'Submit answers', '提交并继续规划'),
+                                         ('#clarification-regenerate', 'Generate choices', '重新生成选项')):
+                    self.query_one(selector, Button).label = self._say(en, zh)
+                self.query_one('#clarification-custom', Input).placeholder = self._say(
+                    'Fill after selecting Custom answer', '选择“自行填写”后在此填写')
+                self._update('#clarification-error', '')
+                summary = step == len(questions)
+                self._show('#clarification-single', not summary)
+                self._show('#clarification-multiple', False)
+                self._show('#clarification-custom', not summary)
+                self._show('#clarification-summary', summary)
+                self._show('#clarification-next', not summary)
+                self._show('#clarification-submit', summary)
+                self._show('#clarification-regenerate', any(isinstance(q, str) for q in questions))
+                self.query_one('#clarification-back', Button).disabled = step == 0
+                draft = state.get('clarification_draft') or {}
+                if summary:
+                    self._update('#clarification-counter', self._say('Review answers', '核对已选答案'))
+                    self._update('#clarification-question', '')
+                    rows = []
+                    for i, q in enumerate(questions):
+                        qid = q['id'] if isinstance(q, dict) else f'legacy_{i}'
+                        answer = draft.get(qid, {})
+                        options = {o['id']: o for o in q['options']} if isinstance(q, dict) else {}
+                        labels = [answer.get('custom', '') if oid == 'custom' else
+                                  self._say('Cannot confirm yet', '暂时无法确认') if oid == 'unknown' else options[oid]['label']
+                                  for oid in answer.get('selected', []) if oid in options or oid in {'custom', 'unknown'}]
+                        rows.append(f"{i + 1}. " + (q['prompt'] if isinstance(q, dict) else self._say('Custom clarification', '补充说明'))
+                                    + '\n' + '；'.join(labels))
+                    self._update('#clarification-summary', '\n\n'.join(rows))
+                else:
+                    question = questions[step]
+                    qid = question['id'] if isinstance(question, dict) else f'legacy_{step}'
+                    options = question['options'] if isinstance(question, dict) else []
+                    multiple = isinstance(question, dict) and question['mode'] == 'multiple'
+                    self._update('#clarification-counter', self._say(f'Question {step + 1}/{len(questions)}', f'第 {step + 1}/{len(questions)} 题'))
+                    self._update('#clarification-question', question['prompt'] if isinstance(question, dict)
+                                 else self._say('Legacy question: see Details; fill an answer or generate choices.', '历史问题详见 Details；可自行填写或重新生成选项。'))
+                    # Preview only: saved questions, hashes and submitted answers
+                    # retain their full text; validation also uses the full reason.
+                    choices = [(o['label'] + ' — ' + o['reason'][:180]
+                                + (self._say('… (full explanation in Details)', '…（完整说明见 Details）')
+                                   if len(o['reason']) > 180 else ''), o['id']) for o in options]
+                    choices += [(self._say('Custom answer (fill below)', '自行填写（在下方填写）'), 'custom'),
+                                (self._say('Cannot confirm yet', '暂时无法确认'), 'unknown')]
+                    answer = draft.get(qid, {})
+                    self._show('#clarification-single', not multiple)
+                    self._show('#clarification-multiple', multiple)
+                    if multiple:
+                        selection = self.query_one('#clarification-multiple', SelectionList)
+                        selection.clear_options().add_options([(Text(label), oid, oid in answer.get('selected', [])) for label, oid in choices])
+                    else:
+                        # Restoring values must not generate toggle-off messages:
+                        # RadioSet intentionally turns an off-click back on.
+                        with self.prevent(RadioButton.Changed):
+                            for i in range(8):
+                                button = self.query_one(f'#clarification-choice-{i}', RadioButton)
+                                button.value = False
+                                button.display = i < len(choices)
+                                button.disabled = i >= len(choices)
+                                if i < len(choices):
+                                    button.label = Text(choices[i][0])
+                        for i, (_, oid) in enumerate(choices):
+                            if oid in answer.get('selected', []):
+                                self.query_one(f'#clarification-choice-{i}', RadioButton).value = True
+                    self.query_one('#clarification-custom', Input).value = answer.get('custom', '')
+            self._update('#technical-details', meta + '\n' + json.dumps(questions, ensure_ascii=False, indent=2))
         elif status == "blocked":
             kind = state.get("planning_failure_kind")
             # Old blocked sessions have no typed failure metadata.
             if not kind and "LLMValidationError" in (state.get("error") or ""):
                 kind = "validation"
-            preview = planning_failure_message(kind, self.session.reply_language())
+            preview = state.get('planning_failure_summary') or planning_failure_message(kind, self.session.reply_language())
+            if state.get('planning_transport'):
+                self._update('#technical-details', meta + '\n' + json.dumps(state['planning_transport'], ensure_ascii=False, indent=2))
         elif status == "draft":
             preview = self._say("Enter the task request to start planning.", "请输入任务要求以开始制定计划。")
         else:
@@ -1231,7 +1367,7 @@ class MultiomicsApp(App):
         if self.session.active_task:
             try:
                 if self.session.tasks.get(self.session.active_task)["status"] == "needs_clarification":
-                    self._reveal("#plan-preview", top=True)
+                    self._reveal("#clarification-wizard", top=True)
             except (OSError, ValueError):
                 pass
 
@@ -1244,6 +1380,57 @@ class MultiomicsApp(App):
             return
         if self._busy:
             return
+        if button_id and button_id.startswith('clarification-'):
+            if event.time < self._clarification_epoch:
+                return  # A queued click belongs to the previous task/question.
+            shown = self._clarification_view
+            if shown is None:
+                return
+            task_id, digest, step = shown
+            state = self.session.tasks.get(task_id)
+            questions = state.get('questions') or []
+            if (self.session.active_task != task_id or state['status'] != 'needs_clarification'
+                    or state.get('clarification_consumed')
+                    or (state.get('clarification_hash') or canonical_hash(questions)) != digest):
+                self._refresh_task_view()
+                return
+            self._refresh_task_view()  # Snapshot the current controls, not model calls.
+            state = self.session.tasks.get(task_id)
+            draft = state.get('clarification_draft') or {}
+            if button_id in {'clarification-back', 'clarification-next'}:
+                if button_id == 'clarification-next' and step < len(questions):
+                    q = questions[step]
+                    qid = q['id'] if isinstance(q, dict) else f'legacy_{step}'
+                    answer = draft.get(qid, {})
+                    selected = answer.get('selected', [])
+                    if not selected or ('custom' in selected and not answer.get('custom', '').strip()):
+                        self._update('#clarification-error', self._say('Choose an answer; fill a custom choice below.', '请选择答案；选择自行填写时需补充内容。'))
+                        return
+                state['clarification_step'] = max(0, min(len(questions), step + (-1 if button_id == 'clarification-back' else 1)))
+                self.session.tasks.save(state)
+                self._refresh_task_view()
+                self._reveal('#clarification-wizard', top=True)
+                return
+            if button_id in {'clarification-submit', 'clarification-regenerate'}:
+                if button_id == 'clarification-submit' and step != len(questions):
+                    return
+                if button_id == 'clarification-submit' and any('unknown' in a.get('selected', []) for a in draft.values()):
+                    self._update('#clarification-error', self._say('Some answers are still unknown; supply information or go back.', '仍有问题暂时无法确认，请返回修改或补充资料。'))
+                    return
+                self._set_busy(True)
+                self._show('#clarification-wizard', False)
+                try:
+                    response = await asyncio.to_thread(self.session.revise_plan, '', task_id,
+                                                      clarification_answers=draft if button_id == 'clarification-submit' else None,
+                                                      expected_clarification_hash=digest,
+                                                      regenerate_options=button_id == 'clarification-regenerate')
+                    await self._render(response)
+                except Exception as exc:
+                    self._message(self._say('Clarification failed: ', '澄清提交失败：') + f'{type(exc).__name__}: {exc}')
+                finally:
+                    self._set_busy(False)
+                    self._refresh_task_view()
+                return
         if button_id == "stop-task":
             self._stop_selected_job()
         elif button_id == "modify-plan":
@@ -1380,6 +1567,7 @@ class MultiomicsApp(App):
         self._toggle_help(False)
 
     def action_quit_app(self) -> None:
+        self._refresh_task_view()
         if self._tick_timer is not None:
             self._tick_timer.stop()
         active = self.session.jobs.active_pipeline()

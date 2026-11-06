@@ -181,7 +181,7 @@ def test_task_report_refuses_reports_directory_link(project_root, monkeypatch):
         "task=Path(os.environ['TASK_DIR'])\n"
         "(task/'tables'/'first.csv').write_text('value\\n42\\n')\n"
         "os.rmdir(task/'reports')\n"
-        f"(task/'reports').symlink_to(Path({str(external)!r}))\n")
+        f"(task/'reports').symlink_to(Path({str(external)!r}), target_is_directory=True)\n")
     install_codegen(monkeypatch, {"step_00": script})
     with pytest.raises((OSError, ValueError)):
         task_runner.run(project_root, state["task_id"], client=object())

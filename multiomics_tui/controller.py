@@ -21,12 +21,16 @@ from .jobs import ACTIVE, JobManager, display_warning
 from .llm import build_client, key_env_name, key_present, set_session_key
 from .task_sessions import TaskStore, redact_secrets
 from .task_planner import PlanningContextError, classify, generate_plan, render_plan
-from orchestrator.llm_client import LLMConfigError, LLMTransportError, LLMValidationError
+from orchestrator.llm_client import LLMConfigError, LLMTransportError, LLMValidationError, PrivacyViolation
 
 
 def planning_failure_message(kind: str | None, language: str) -> str:
     from .language import choose
     messages = {
+        "privacy": ("Planning request blocked by the privacy check; inspect Details and remove private identifiers before /retry.",
+                    "规划请求被隐私检查阻止；请查看 Details，移除私密标识后使用 /retry。"),
+        "input_inspection": ("Input structure inspection failed; inspect Details and the local log before using /retry.",
+                             "输入结构检查失败，请查看 Details 和本地日志，处理后使用 /retry 重试。"),
         "request_size": ("Full request exceeds the model context; original text is preserved. Shorten the request or choose a model with a larger context.",
                          "完整要求超出模型上下文，原文已保留；请精简要求或选择更大上下文的模型。"),
         "validation": ("Model reply failed validation; use /retry to plan again.",
@@ -173,11 +177,13 @@ class Session:
             return False
 
     def save_model(self, settings, key=''):
-        from .model_config import overlay, save_settings, ready
+        from .model_config import overlay, save_settings, ready, public_settings
         if getattr(self, 'model_busy', False) or self.jobs.active_pipeline() is not None:
             raise ValueError('当前请求或后台任务仍在执行，完成后才能保存模型设置。')
         value = overlay(self.cfg['llm'], settings)
         save_settings(self.root, value)
+        if self._model_checked != public_settings({'llm': value}):
+            self._model_checked = None
         self.cfg = {**self.cfg, 'llm': value}
         if key.strip():
             self.set_key(key)
@@ -321,14 +327,16 @@ class Session:
             self.tasks.save(state)
         return self._plan_for_task(state)
 
-    def revise_plan(self, text: str, task_id: str, expected_hash: str | None = None) -> Response:
+    def revise_plan(self, text: str, task_id: str, expected_hash: str | None = None, *,
+                    clarification_answers: dict | None = None,
+                    expected_clarification_hash: str | None = None,
+                    regenerate_options: bool = False) -> Response:
         """Revise the selected unapproved task without intent classification."""
         text = (text or "").strip()
-        if not text:
+        if not text and clarification_answers is None and not regenerate_options:
             return Response("text", "Describe the clarification or plan change.")
         if redact_secrets(text) != text:
             return Response("text", "A credential was detected. Use /key to enter it in the masked prompt.")
-        self.cancel()
         try:
             state = self.tasks.get(task_id)
         except (OSError, ValueError):
@@ -337,6 +345,59 @@ class Session:
             return Response("text", f"Task {task_id} is {state['status']}; start a new task to change the plan.")
         if expected_hash is not None and state.get("plan_hash") != expected_hash:
             return Response("text", "The plan changed. Review the current version before editing.")
+        if clarification_answers is not None or regenerate_options:
+            from .task_sessions import canonical_hash
+            questions = state.get('questions') or []
+            # Admission and consumption are atomic within the existing session lock.
+            with self._pending_lock:
+                state = self.tasks.get(task_id)
+                if (self.active_task != task_id or state['status'] != 'needs_clarification'
+                        or state.get('questions') != questions or not questions
+                        or (state.get('clarification_hash') or canonical_hash(questions)) != expected_clarification_hash
+                        or state.get('clarification_consumed', False)):
+                    return Response('text', '澄清问题已变化或已提交，请查看当前问题。')
+                lines = []
+                if not regenerate_options:
+                    qids = [q['id'] if isinstance(q, dict) else f'legacy_{i}' for i, q in enumerate(questions)]
+                    if not isinstance(clarification_answers, dict) or set(clarification_answers) != set(qids):
+                        return Response('text', '请回答全部澄清问题。')
+                    for qid, question in zip(qids, questions):
+                        answer = clarification_answers[qid]
+                        if not isinstance(answer, dict):
+                            return Response('text', '无效的澄清答案。')
+                        selected = answer.get('selected', [])
+                        custom = answer.get('custom', '')
+                        options = {o['id']: o for o in question['options']} if isinstance(question, dict) else {}
+                        if (not isinstance(selected, list) or not selected
+                                or not all(isinstance(s, str) for s in selected)
+                                or len(set(selected)) != len(selected)
+                                or set(selected) - (set(options) | {'custom', 'unknown'})
+                                or not isinstance(custom, str)
+                                or (isinstance(question, dict) and question['mode'] == 'single' and len(selected) != 1)
+                                or (not isinstance(question, dict) and len(selected) != 1)):
+                            return Response('text', '无效的选项，请重新选择。')
+                        if 'unknown' in selected:
+                            return Response('text', '仍有问题暂时无法确认；请补充资料或更改选择后继续。')
+                        if 'custom' in selected and not custom.strip():
+                            return Response('text', '请填写自定义答案。')
+                        if redact_secrets(custom) != custom:
+                            return Response('text', '自定义答案含凭据，请移除后继续。')
+                        # Only explicit selections become user requirements;
+                        # model-written prompts are never user authorization.
+                        for oid in selected:
+                            lines.append(custom.strip() if oid == 'custom' else options[oid]['answer'])
+                    text = '\n'.join(lines)
+                    if redact_secrets(text) != text:
+                        return Response('text', '澄清答案含凭据，已拒绝提交。')
+                state.update(clarification_consumed=True)
+                self.tasks.save(state)
+                if not regenerate_options:
+                    self.tasks.event(task_id, 'user', text,
+                                     clarification_hash=expected_clarification_hash,
+                                     clarification_selection={qid: a['selected'] for qid, a in clarification_answers.items()})
+            self.cancel()
+            return self._plan_for_task(state)
+        self.cancel()
         self.active_task = task_id
         self.tasks.event(task_id, "user", text)
         if state["status"] == "awaiting_approval":
@@ -356,22 +417,47 @@ class Session:
             plan = generate_plan(self.client, self.root, request, self.cfg, language=language)
         except Exception as exc:
             state = self.tasks.get(task_id)
-            kind = ("request_size" if isinstance(exc, PlanningContextError) else
+            kind = ("input_inspection" if getattr(exc, 'planning_failure_kind', None) == 'input_inspection' else
+                    "privacy" if isinstance(exc, PrivacyViolation) else
+                    "request_size" if isinstance(exc, PlanningContextError) else
                     "configuration" if isinstance(exc, LLMConfigError) else
                     "connection" if isinstance(exc, (LLMTransportError, ConnectionError, TimeoutError)) else
                     "validation" if isinstance(exc, (LLMValidationError, ValueError)) else "internal")
             state.update(status="blocked", error=redact_secrets(f"Planning failed: {type(exc).__name__}: {exc}"),
-                         planning_failure_kind=kind, questions=[], approved_hash=None)
+                         planning_failure_kind=kind, questions=[], approved_hash=None,
+                         clarification_hash=None, clarification_draft={})
+            details = getattr(exc, 'transport_details', {})
+            state['planning_transport'] = details if kind == 'connection' else {}
+            state['planning_failure_summary'] = None
+            if kind == 'connection' and details.get('interrupted') and details.get('attempt_count'):
+                count = details['attempt_count']
+                state['planning_failure_summary'] = choose(language,
+                    f'Response interrupted after {count} attempts; original request and submitted choices are preserved. Use /retry.',
+                    f'响应中断，已尝试 {count} 次；原请求和已提交选择已保留。可使用 /retry 重试。')
             self.tasks.save(state)
-            message = choose(language, "Planning failed; no job started. ", "计划生成失败，尚未执行任务。") + planning_failure_message(kind, language)
+            message = choose(language, "Planning failed; no job started. ", "计划生成失败，尚未执行任务。") + (state['planning_failure_summary'] or planning_failure_message(kind, language))
             self.tasks.event(task_id, "assistant", message)
             return Response("text", message)
         if "questions" in plan:
+            from .task_sessions import canonical_hash
             state = self.tasks.get(task_id)
+            round_number = state.get('clarification_round', 0) + 1
             state.update(status="needs_clarification", error=None, planning_failure_kind=None,
-                         approved_hash=None, questions=plan["questions"])
+                         planning_failure_summary=None, planning_transport={},
+                         approved_hash=None, questions=plan["questions"],
+                         clarification_hash=canonical_hash({'task_id': task_id, 'round': round_number,
+                                                            'questions': plan['questions']}),
+                         clarification_round=round_number,
+                         clarification_draft={}, clarification_step=0, clarification_consumed=False)
             self.tasks.save(state)
-            message = choose(language, "Please clarify:\n", "请补充说明：\n") + "\n".join(plan["questions"])
+            rows = []
+            for question in plan['questions']:
+                if isinstance(question, str):
+                    rows.append(question)
+                else:
+                    rows.append(question['prompt'])
+                    rows.extend(f"  {o['id']}: {o['label']} — {o['reason']}" for o in question['options'])
+            message = choose(language, "Please clarify:\n", "请逐题选择或补充说明：\n") + '\n'.join(rows)
             self.tasks.event(task_id, "assistant", message)
             return Response("text", message)
         state = self.tasks.save_plan(task_id, plan)

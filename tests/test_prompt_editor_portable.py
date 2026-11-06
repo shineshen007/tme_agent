@@ -1,12 +1,13 @@
 """Request input integrity: synthetic text, no external model or scientific run."""
 import asyncio
+import copy
 import json
 import time
-from unittest.mock import Mock
+from unittest.mock import DEFAULT, Mock
 
 import pytest
 from textual.events import Key, Paste
-from textual.widgets import Button
+from textual.widgets import Button, Input, RadioButton, RadioSet, SelectionList, Static
 from textual._xterm_parser import XTermParser
 
 from multiomics_tui.app import MultiomicsApp
@@ -15,6 +16,7 @@ from multiomics_tui.model_client import CompatibleClient
 from multiomics_tui.model_config import normalize
 from multiomics_tui.prompt_editor import PromptEditor
 from multiomics_tui.task_planner import generate_plan
+from test_task_planner_portable import QUESTIONS
 
 
 async def settle(pilot, session, app, *, condition=None, timeout=60.0):
@@ -93,11 +95,125 @@ def test_bracketed_paste_inserts_full_text_once_without_submission(project_root,
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("send", ["enter", "button"])
+@pytest.mark.parametrize("send", ["enter", "button", "wizard", "wizard_legacy", "wizard_long"])
 def test_full_long_prompt_reaches_session_and_model_once(project_root, stub_cfg, send):
     async def scenario():
         session, client = setup_session(project_root, stub_cfg)
         app = MultiomicsApp(session)
+        if send.startswith('wizard'):
+            questions = copy.deepcopy(QUESTIONS)
+            if send == 'wizard_long':
+                questions[0]['options'][0]['reason'] = '详细条件。' * 36 + '单选完整说明尾部，需核实映射才能分析。'
+                questions[1]['options'][0]['reason'] = '输出条件。' * 36 + '多选完整说明尾部，保留全部阴性结果。'
+            replies = [{'parsed': {'questions': questions}}, DEFAULT, DEFAULT]
+            if send == 'wizard_legacy':
+                legacy = session.tasks.create(TAIL)
+                legacy.update(status='needs_clarification', questions=['历史长问题，需要用户说明具体条件。'])
+                session.tasks.save(legacy)
+            client.chat_json = Mock(wraps=client.chat_json, side_effect=replies)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await app._handle_async('/session ' + legacy['task_id'] if send == 'wizard_legacy' else TAIL)
+                if send == 'wizard_legacy':
+                    assert app.query_one('#clarification-regenerate').display
+                    app.query_one('#clarification-regenerate', Button).press()
+                    await settle(pilot, session, app)
+                initial_calls = client.chat_json.call_count
+                task_id = session.active_task
+                question_hash = session.tasks.get(task_id)['clarification_hash']
+                assert app.query_one('#clarification-wizard').display
+                assert not app.query_one('#plan-preview').display
+                assert not any(b.value for b in app.query('#clarification-single RadioButton'))
+                app.query_one('#clarification-next', Button).press()
+                await pilot.pause()
+                assert session.tasks.get(task_id).get('clarification_step', 0) == 0
+                choice = app.query_one('#clarification-choice-0', RadioButton)
+                if send == 'wizard_long':
+                    assert questions[0]['options'][0]['reason'][:180] in choice.label.plain
+                    assert '完整说明见 Details' in choice.label.plain
+                    assert '单选完整说明尾部' not in choice.label.plain
+                    assert questions[0]['options'][0]['reason'] in str(app.query_one('#technical-details', Static).renderable)
+                choice.scroll_visible(animate=False, immediate=True)
+                await pilot.pause()
+                await pilot.click('#clarification-choice-0')
+                assert choice.value
+                await pilot.resize_terminal(50, 24)
+                app._refresh_task_view()
+                await pilot.pause()
+                assert choice.value and client.chat_json.call_count == initial_calls
+                assert session.tasks.get(task_id)['clarification_hash'] == question_hash
+                assert session.tasks.get(task_id)['questions'] == questions
+                app.save_screenshot(filename=f'{send}_narrow.svg', path=str(project_root))
+                # Keyboard selection of the custom choice, then persistence.
+                app.query_one('#clarification-single', RadioSet).focus()
+                await pilot.press('down', 'down', 'space')
+                assert app.query_one('#clarification-choice-2', RadioButton).value
+                app.query_one('#clarification-custom', Input).value = '使用自定义检验说明'
+                app.query_one('#clarification-next', Button).press()
+                await pilot.pause()
+                assert session.tasks.get(task_id)['clarification_step'] == 1
+                old_click = Button.Pressed(app.query_one('#clarification-back', Button))
+                assert app.query_one('#clarification-multiple').display
+                if send == 'wizard_long':
+                    preview = app.query_one('#clarification-multiple', SelectionList).get_option_at_index(0).prompt.plain
+                    assert questions[1]['options'][0]['reason'][:180] in preview
+                    assert '完整说明见 Details' in preview and '多选完整说明尾部' not in preview
+                    assert questions[1]['options'][0]['reason'] in str(app.query_one('#technical-details', Static).renderable)
+                assert not app.query_one('#clarification-multiple', SelectionList).selected
+                app.query_one('#clarification-multiple', SelectionList).select('unknown')
+                app.query_one('#clarification-next', Button).press()
+                await pilot.pause()
+                await app.on_button_pressed(old_click)
+                assert session.tasks.get(task_id)['clarification_step'] == 2
+                app.query_one('#clarification-submit', Button).press()
+                await pilot.pause()
+                assert session.tasks.get(task_id)['status'] == 'needs_clarification'
+                assert client.chat_json.call_count == initial_calls
+                app.query_one('#clarification-back', Button).press()
+                await pilot.pause()
+                app.query_one('#clarification-multiple', SelectionList).deselect_all().select('table').select('plot')
+                app._refresh_task_view()
+                assert session.tasks.user_text(task_id) == TAIL
+                session.jobs.start.assert_not_called()
+            # A new app restores the draft only after selecting the saved task.
+            restored = MultiomicsApp(session)
+            async with restored.run_test(size=(50, 24)) as pilot:
+                await restored._handle_async('/session ' + task_id)
+                await pilot.pause()
+                assert set(restored.query_one('#clarification-multiple', SelectionList).selected) == {'table', 'plot'}
+                assert session.tasks.get(task_id)['clarification_hash'] == question_hash
+                assert session.tasks.get(task_id)['questions'] == questions
+                restored.query_one('#clarification-back', Button).press()
+                await pilot.pause()
+                assert restored.query_one('#clarification-custom', Input).value == '使用自定义检验说明'
+                assert restored.query_one('#clarification-choice-2', RadioButton).value
+                # Changing a restored choice still preserves radio exclusivity.
+                restored.query_one('#clarification-choice-0', RadioButton).value = True
+                await pilot.pause()
+                assert not restored.query_one('#clarification-choice-2', RadioButton).value
+                if send != 'wizard_long':
+                    restored.query_one('#clarification-choice-2', RadioButton).value = True
+                await pilot.pause()
+                restored.query_one('#clarification-next', Button).press()
+                await pilot.pause()
+                restored.query_one('#clarification-next', Button).press()
+                await pilot.pause()
+                restored.query_one('#clarification-submit', Button).press()
+                restored.query_one('#clarification-submit', Button).press()
+                await settle(pilot, session, restored)
+                assert session.tasks.get(task_id)['status'] == 'awaiting_approval'
+                assert session.tasks.get(task_id)['approved_hash'] is None
+                assert client.chat_json.call_count == initial_calls + 2
+                if send == 'wizard_long':
+                    events = [json.loads(line) for line in (session.tasks.directory(task_id) / 'events.jsonl').read_text().splitlines()]
+                    submitted = [event for event in events if event.get('clarification_hash')][-1]
+                    assert submitted['clarification_hash'] == question_hash
+                    assert submitted['clarification_selection']['method'] == ['wilcox']
+                    assert questions[0]['options'][0]['answer'] in submitted['content']
+                    assert '说明尾部' not in submitted['content'] and '完整说明见 Details' not in submitted['content']
+                else:
+                    assert '使用自定义检验说明' in session.tasks.user_text(task_id)
+                session.jobs.start.assert_not_called()
+            return
         async with app.run_test(size=(80, 24)) as pilot:
             app.post_message(Paste(LONG))
             await pilot.pause()

@@ -24,9 +24,23 @@ for (item in request$inputs) {
     # Privacy only: mixed CSV expression frames can have one feature-ID column.
     # Withhold possible sample headers; this does not infer a data role or orientation.
     p$matrix_like <- numeric_matrix || (sum(numeric_columns)>=1L && sum(!numeric_columns)<=1L)
-    if (!p$matrix_like) for (nm in names(d)) {
-      v <- d[[nm]]
-      if (!is.atomic(v)) stop('Nested table columns are unsupported')
+    p$column_issues <- list()
+    # as.data.frame.matrix may repair names; inspect the original axis instead.
+    column_names <- colnames(x)
+    if (is.null(column_names)) column_names <- rep('', ncol(d))
+    for (j in seq_along(d)) {
+      nm <- column_names[j]
+      v <- d[[j]]
+      if (!is.atomic(v)) stop(sprintf('Nested table columns are unsupported: file=%s column_position=%d type=%s',
+                                     item$path, j, paste(class(v), collapse=',')))
+      unnamed <- is.na(nm) || !nzchar(trimws(nm))
+      duplicate <- !unnamed && sum(column_names==nm, na.rm=TRUE)>1L
+      if (unnamed || duplicate) {
+        p$column_issues[[length(p$column_issues)+1L]] <- list(position=j, type=class(v), missing=sum(is.na(v)),
+          reason=if (unnamed) {if (all(is.na(v))) 'unnamed_all_missing' else 'unnamed_nonempty'} else 'duplicate_name')
+        next
+      }
+      if (p$matrix_like) next
       counts <- table(as.character(v), useNA='no')
       p$columns[[nm]] <- list(type=class(v), missing=sum(is.na(v)), unique=length(unique(v)),
         known_levels=as.list(counts[intersect(names(counts),known)]), level_hashes=unname(hash(names(counts))),

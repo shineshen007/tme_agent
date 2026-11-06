@@ -78,6 +78,26 @@ def test_inspect_r_includes_user_library(tmp_path, monkeypatch):
                     + "\nCODE: " + (info.get("code") or "<none>"))
     libraries = {str(Path(p).resolve()) for p in info.get("libraries", [])}
     assert str(user_lib.resolve()) in libraries
+    if sys.platform == 'darwin':
+        import json
+        from multiomics_tui.task_runner import _step_environment
+        alias = tmp_path / 'Library/R/x86_64/4.4-x86_64/library'
+        alias.parent.mkdir(parents=True)
+        alias.symlink_to(user_lib, target_is_directory=True)
+        monkeypatch.setenv('HOME', str(tmp_path))
+        monkeypatch.delenv('R_LIBS_USER')
+        task = root / 'task'
+        task.mkdir()
+        cfg = {'runtime': {'rscript': rscript}}
+        (root / 'config').mkdir()
+        (root / 'config/study_config.yaml').write_text(json.dumps(cfg))
+        env = _step_environment(root.resolve(), task.resolve(), cfg, [])
+        assert str(user_lib.resolve()) in env['R_LIBS_USER'].split(os.pathsep)
+        assert str(user_lib.resolve()) in json.loads(env['TASK_ALLOWED_READS'])
+        assert str(user_lib.resolve()) in json.loads(env['TASK_RUNTIME_READS'])
+        snapshots = json.loads(env['TASK_RUNTIME_PATHS'])
+        assert any(row['source'] == str(alias.absolute()) and row['target'] == str(user_lib.resolve())
+                   for row in snapshots)
 
 
 def test_choose_candidate_prefers_complete_package_set():

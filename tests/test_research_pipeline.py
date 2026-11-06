@@ -185,7 +185,15 @@ def run(root, task_id, client=None, literature=None):
 
 
 @pytest.mark.parametrize("omics", [("transcriptomics",), ("transcriptomics", "proteomics")])
-def test_single_and_multiomics_accept_empty_hypotheses(tmp_path, omics):
+@pytest.mark.parametrize("line_ending", [None, b"\r\n"])
+def test_single_and_multiomics_accept_empty_hypotheses(tmp_path, omics, line_ending, monkeypatch):
+    if line_ending is not None:
+        from orchestrator import research_pipeline
+        source_root = tmp_path / "synthetic_source"
+        (source_root / "orchestrator").mkdir(parents=True)
+        (source_root / "orchestrator/fixture.py").write_bytes(b"# synthetic" + line_ending)
+        (source_root / "requirements.txt").write_bytes(b"# dependencies" + line_ending)
+        monkeypatch.setattr(research_pipeline, "__file__", str(source_root / "orchestrator/research_pipeline.py"))
     store, task_id, folder = completed_task(tmp_path, omics)
     before = frozen_analysis(folder)
     client = StubClient()
@@ -193,6 +201,12 @@ def test_single_and_multiomics_accept_empty_hypotheses(tmp_path, omics):
     assert result["research_status"] == "complete", result
     assert result["scientific_status"] == "EXPLORATORY"
     attempt = Path(result["attempt"])
+    if line_ending is not None:
+        snapshot = json.loads((attempt / "code_snapshot.json").read_text())
+        sources = json.loads((attempt / "code_sources.json").read_text())
+        for name, content in snapshot.items():
+            assert content.encode() == (source_root / name).read_bytes()
+            assert sources[name] == sha(source_root / name)
     synthesis = json.loads((attempt / "synthesis.json").read_text())
     assert synthesis["hypotheses"] == [] and len(synthesis["interpretations"]) == 1
     context = json.loads((attempt / "research_context.json").read_text())
