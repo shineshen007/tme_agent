@@ -5,9 +5,95 @@ from pathlib import Path
 import pytest
 
 from orchestrator.knowledge import KnowledgeError, KnowledgeService
-from orchestrator.llm_client import LLMClient, PrivacyViolation
+from orchestrator.llm_client import LLMClient, LLMConfigError, PrivacyViolation
 from orchestrator.privacy import metadata_private_values, sensitive_matches
 from orchestrator.research_literature import _public_queries
+
+
+@pytest.mark.parametrize('reference', ['directory', 'file', 'quoted', 'chinese', 'multiple', 'posix', 'punctuation'])
+def test_current_project_paths_are_normalized_only_in_outbound_copy(tmp_path, reference):
+    from unittest.mock import Mock
+    from multiomics_tui.task_planner import classify, generate_plan
+    from multiomics_tui.model_client import CompatibleClient
+    from multiomics_tui.controller import Session
+
+    folder = tmp_path / 'data/raw/met data'
+    folder.mkdir(parents=True)
+    source = folder / 'peaks.csv'
+    source.write_text('feature,value\na,1\n')
+    requests = {
+        'directory': f'Analyze {folder}', 'file': f'Analyze {source}',
+        'quoted': f'Analyze "{folder}" and `{source}`.',
+        'chinese': f'分析{folder}目录下的数据，使用tumor和normal分组。',
+        'multiple': f'Analyze {folder}，inspect {source}。',
+        'posix': f'Analyze "{source.as_posix()}"',
+        'punctuation': f'Analyze {source}. Compare tumor and normal.',
+    }
+    raw = requests[reference]
+    question = {'questions': [{'id': 'method', 'prompt': 'Choose method', 'mode': 'single',
+                              'options': [{'id': 'inspect', 'label': 'Inspect',
+                                           'answer': 'Inspect aggregate structure first.',
+                                           'reason': 'Confirm the input structure.', 'basis': []}]}]}
+    responses = [{'intent': 'analysis'}, question, question]
+    transport = Mock(side_effect=[(200, json.dumps({'choices': [{'message': {'content': json.dumps(value)},
+                  'finish_reason': 'stop'}], 'usage': {'total_tokens': 1}})) for value in responses])
+    cfg = llm_cfg()
+    cfg['llm'].update(provider='ollama', auth_mode='none', base_url='http://localhost:1234/v1')
+    client = CompatibleClient(tmp_path, tmp_path / 'run', cfg, transport=transport)
+    assert classify(client, raw, raw, root=tmp_path) == 'analysis'
+    assert generate_plan(client, tmp_path, raw, cfg) == question
+    session = Session(tmp_path, cfg=cfg, client=client)
+    session.jobs.start = Mock()
+    state = session.tasks.create(raw)
+    state.update(status='blocked')
+    session.tasks.save(state)
+    session.active_task = state['task_id']
+    session.handle('/retry ' + state['task_id'])
+    assert session.tasks.get(state['task_id'])['status'] == 'needs_clarification'
+    assert session.tasks.user_text(state['task_id']) == raw
+    session.jobs.start.assert_not_called()
+    assert transport.call_count == 3
+    for call in transport.call_args_list:
+        sent = json.loads(call.args[2])
+        rendered = json.dumps(sent, ensure_ascii=False)
+        assert str(tmp_path) not in rendered and tmp_path.as_posix() not in rendered
+        assert 'data/raw/met data' in rendered
+        assert sensitive_matches(rendered) == []
+
+
+@pytest.mark.parametrize('unsafe', ['external', 'missing', 'prefix', 'parent', 'symlink',
+                                  'private_id', 'contact', 'credential', 'windows_external', 'relative_private'])
+def test_path_conversion_keeps_privacy_and_input_boundaries(tmp_path, unsafe):
+    from unittest.mock import Mock
+    from multiomics_tui.task_planner import generate_plan
+    from multiomics_tui.model_client import CompatibleClient
+    folder = tmp_path / 'data/raw/met'
+    folder.mkdir(parents=True)
+    references = {'external': '/Users/oldcomputer/data/raw/met',
+                  'missing': str(folder / 'missing.csv'),
+                  'prefix': str(tmp_path) + '_other/data/raw/met',
+                  'parent': str(folder) + '/../met',
+                  'private_id': str(folder) + ' Patient ID: PRIVATE_PATIENT_A',
+                  'contact': str(folder) + ' contact: 555-123-4567',
+                  'credential': str(folder) + ' sk-' + 'a' * 30,
+                  'windows_external': r'C:\Users\oldcomputer\data\raw\met',
+                  'relative_private': 'data/raw/PRIVATE_PATIENT_A.csv'}
+    if unsafe == 'symlink':
+        link = folder / 'linked'
+        try:
+            link.symlink_to(tmp_path, target_is_directory=True)
+        except OSError:
+            pytest.skip('Creating symlinks requires target-machine privileges')
+        references['symlink'] = str(link / 'data/raw/met')
+    cfg = llm_cfg()
+    cfg['llm'].update(provider='ollama', auth_mode='none', base_url='http://localhost:1234/v1')
+    transport = Mock()
+    client = CompatibleClient(tmp_path, tmp_path / 'run', cfg, transport=transport,
+                              registry_ids=['PRIVATE_PATIENT_A'])
+    with pytest.raises((PrivacyViolation, LLMConfigError)) as error:
+        generate_plan(client, tmp_path, 'Analyze ' + references[unsafe], cfg)
+    transport.assert_not_called()
+    assert references[unsafe] not in str(error.value)
 
 
 def llm_cfg():

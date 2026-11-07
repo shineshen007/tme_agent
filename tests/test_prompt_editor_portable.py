@@ -7,7 +7,7 @@ from unittest.mock import DEFAULT, Mock
 
 import pytest
 from textual.events import Key, Paste
-from textual.widgets import Button, Input, RadioButton, RadioSet, SelectionList, Static
+from textual.widgets import Button, Input, OptionList, Static
 from textual._xterm_parser import XTermParser
 
 from multiomics_tui.app import MultiomicsApp
@@ -68,6 +68,64 @@ def setup_session(root, cfg):
     return session, client
 
 
+@pytest.mark.parametrize('size', [(60, 20), (90, 32), (140, 45)])
+@pytest.mark.parametrize('mode', ['single', 'multiple'])
+def test_full_options_wrap_and_resize_without_changing_protocol(project_root, stub_cfg, size, mode):
+    async def scenario():
+        session, client = setup_session(project_root, stub_cfg)
+        from multiomics_tui.task_sessions import canonical_hash
+        questions = [{'id': 'method', 'prompt': 'Choose an evidence-supported method', 'mode': mode,
+                      'options': [{'id': f'choice_{index}', 'label': f'Method {index} [literal]',
+                                   'answer': f'Use the full frozen requirement {index}.',
+                                   'reason': ('English explanation with spaces. 中文完整解释。\n' + 'LongWord' * 12) * 3
+                                             + f'完整说明尾部{index}', 'basis': []}
+                                  for index in range(6)]}]
+        state = session.tasks.create('检查合成输入')
+        digest = canonical_hash(questions)
+        state.update(status='needs_clarification', questions=questions, clarification_hash=digest)
+        session.tasks.save(state)
+        app = MultiomicsApp(session)
+        async with app.run_test(size=size) as pilot:
+            await app._handle_async('/session ' + state['task_id'])
+            await pilot.pause()
+            options = app.query_one('#clarification-options', OptionList)
+            options.scroll_visible(animate=False, immediate=True, top=True)
+            await pilot.pause()
+            assert options.option_count == 8 and not app._clarification_selected
+            for width, height in [size, (50, 24), size]:
+                await pilot.resize_terminal(width, height)
+                options.scroll_home(animate=False)
+                await pilot.pause()
+                strips = [options.render_line(y) for y in range(options.virtual_size.height)]
+                rendered = ''.join(strip.text for strip in strips)
+                assert '…' not in rendered
+                for index in range(6):
+                    assert f'完整说明尾部{index}' in rendered
+                assert all(strip.cell_length <= options.scrollable_content_region.width for strip in strips)
+                assert options.virtual_size.height > 8 * 2
+                assert options.max_scroll_x == 0
+            app.save_screenshot(filename=f'options_{mode}_{size[0]}.svg', path=str(project_root))
+            options.highlighted = 0
+            options.focus()
+            await pilot.press('space', 'down', 'enter')
+            assert app._clarification_selected == (['choice_1'] if mode == 'single' else ['choice_0', 'choice_1'])
+            app.query_one('#clarification-next', Button).press()
+            await pilot.pause()
+            summary = str(app.query_one('#clarification-summary', Static).renderable)
+            assert 'Use the full frozen requirement 1.' in summary
+            next_button = app.query_one('#clarification-back', Button)
+            next_button.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert next_button.region.overlaps(app.query_one('#workspace-scroll').region)
+            saved = session.tasks.get(state['task_id'])
+            assert saved['questions'] == questions and saved['clarification_hash'] == digest
+            assert session.tasks.user_text(state['task_id']) == '检查合成输入'
+            assert not client.requests
+            session.jobs.start.assert_not_called()
+            app.save_screenshot(filename=f'options_{mode}_{size[0]}_review.svg', path=str(project_root))
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("text", [
     "first second  third", "中文 全角　空格\u00a0尾部", "data/raw/path with spaces.csv",
     "first line\n第二行 tumor normal\nlast line", "first\r\n第二行\r\nlast", LONG,
@@ -122,44 +180,50 @@ def test_full_long_prompt_reaches_session_and_model_once(project_root, stub_cfg,
                 question_hash = session.tasks.get(task_id)['clarification_hash']
                 assert app.query_one('#clarification-wizard').display
                 assert not app.query_one('#plan-preview').display
-                assert not any(b.value for b in app.query('#clarification-single RadioButton'))
+                assert not app._clarification_selected
                 app.query_one('#clarification-next', Button).press()
                 await pilot.pause()
                 assert session.tasks.get(task_id).get('clarification_step', 0) == 0
-                choice = app.query_one('#clarification-choice-0', RadioButton)
+                choice = app.query_one('#clarification-options', OptionList)
                 if send == 'wizard_long':
-                    assert questions[0]['options'][0]['reason'][:180] in choice.label.plain
-                    assert '完整说明见 Details' in choice.label.plain
-                    assert '单选完整说明尾部' not in choice.label.plain
+                    assert questions[0]['options'][0]['reason'] in choice.get_option_at_index(0).prompt.plain
+                    assert '单选完整说明尾部' in choice.get_option_at_index(0).prompt.plain
                     assert questions[0]['options'][0]['reason'] in str(app.query_one('#technical-details', Static).renderable)
                 choice.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
-                await pilot.click('#clarification-choice-0')
-                assert choice.value
+                await pilot.click('#clarification-options', offset=(3, 1))
+                await pilot.pause()
+                assert app._clarification_selected == ['wilcox']
                 await pilot.resize_terminal(50, 24)
                 app._refresh_task_view()
                 await pilot.pause()
-                assert choice.value and client.chat_json.call_count == initial_calls
+                assert app._clarification_selected == ['wilcox'] and client.chat_json.call_count == initial_calls
                 assert session.tasks.get(task_id)['clarification_hash'] == question_hash
                 assert session.tasks.get(task_id)['questions'] == questions
                 app.save_screenshot(filename=f'{send}_narrow.svg', path=str(project_root))
                 # Keyboard selection of the custom choice, then persistence.
-                app.query_one('#clarification-single', RadioSet).focus()
+                choice.focus()
+                choice.highlighted = 0
                 await pilot.press('down', 'down', 'space')
-                assert app.query_one('#clarification-choice-2', RadioButton).value
+                assert app._clarification_selected == ['custom']
+                old_selection = OptionList.OptionSelected(choice, 0)
                 app.query_one('#clarification-custom', Input).value = '使用自定义检验说明'
                 app.query_one('#clarification-next', Button).press()
                 await pilot.pause()
                 assert session.tasks.get(task_id)['clarification_step'] == 1
+                app.on_option_list_option_selected(old_selection)
+                assert not app._clarification_selected
                 old_click = Button.Pressed(app.query_one('#clarification-back', Button))
-                assert app.query_one('#clarification-multiple').display
+                assert app.query_one('#clarification-options').display
                 if send == 'wizard_long':
-                    preview = app.query_one('#clarification-multiple', SelectionList).get_option_at_index(0).prompt.plain
-                    assert questions[1]['options'][0]['reason'][:180] in preview
-                    assert '完整说明见 Details' in preview and '多选完整说明尾部' not in preview
+                    preview = app.query_one('#clarification-options', OptionList).get_option_at_index(0).prompt.plain
+                    assert questions[1]['options'][0]['reason'] in preview
+                    assert '多选完整说明尾部' in preview
                     assert questions[1]['options'][0]['reason'] in str(app.query_one('#technical-details', Static).renderable)
-                assert not app.query_one('#clarification-multiple', SelectionList).selected
-                app.query_one('#clarification-multiple', SelectionList).select('unknown')
+                assert not app._clarification_selected
+                choice.highlighted = 3
+                choice.focus()
+                await pilot.press('enter')
                 app.query_one('#clarification-next', Button).press()
                 await pilot.pause()
                 await app.on_button_pressed(old_click)
@@ -170,7 +234,12 @@ def test_full_long_prompt_reaches_session_and_model_once(project_root, stub_cfg,
                 assert client.chat_json.call_count == initial_calls
                 app.query_one('#clarification-back', Button).press()
                 await pilot.pause()
-                app.query_one('#clarification-multiple', SelectionList).deselect_all().select('table').select('plot')
+                choice.highlighted = 3
+                choice.focus()
+                await pilot.press('space')
+                choice.highlighted = 0
+                choice.focus()
+                await pilot.press('space', 'down', 'space')
                 app._refresh_task_view()
                 assert session.tasks.user_text(task_id) == TAIL
                 session.jobs.start.assert_not_called()
@@ -179,19 +248,22 @@ def test_full_long_prompt_reaches_session_and_model_once(project_root, stub_cfg,
             async with restored.run_test(size=(50, 24)) as pilot:
                 await restored._handle_async('/session ' + task_id)
                 await pilot.pause()
-                assert set(restored.query_one('#clarification-multiple', SelectionList).selected) == {'table', 'plot'}
+                assert set(restored._clarification_selected) == {'table', 'plot'}
                 assert session.tasks.get(task_id)['clarification_hash'] == question_hash
                 assert session.tasks.get(task_id)['questions'] == questions
                 restored.query_one('#clarification-back', Button).press()
                 await pilot.pause()
                 assert restored.query_one('#clarification-custom', Input).value == '使用自定义检验说明'
-                assert restored.query_one('#clarification-choice-2', RadioButton).value
+                assert restored._clarification_selected == ['custom']
                 # Changing a restored choice still preserves radio exclusivity.
-                restored.query_one('#clarification-choice-0', RadioButton).value = True
-                await pilot.pause()
-                assert not restored.query_one('#clarification-choice-2', RadioButton).value
+                restored_choice = restored.query_one('#clarification-options', OptionList)
+                restored_choice.highlighted = 0
+                restored_choice.focus()
+                await pilot.press('enter')
+                assert restored._clarification_selected == ['wilcox']
                 if send != 'wizard_long':
-                    restored.query_one('#clarification-choice-2', RadioButton).value = True
+                    restored_choice.highlighted = 2
+                    await pilot.press('space')
                 await pilot.pause()
                 restored.query_one('#clarification-next', Button).press()
                 await pilot.pause()

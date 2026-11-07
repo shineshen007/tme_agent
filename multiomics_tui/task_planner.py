@@ -7,11 +7,91 @@ import re
 from pathlib import Path, PurePosixPath
 
 from orchestrator import pathway_scoring
-from orchestrator.llm_client import LLMTransportError
+from orchestrator.llm_client import LLMTransportError, PrivacyViolation
 
 
 class PlanningContextError(ValueError):
     """The full request exceeds the configured model context; never trim it."""
+
+
+class PlanningPathError(PrivacyViolation):
+    """An absolute reference cannot safely become a project input reference."""
+
+
+def project_relative_request(root: Path, text: str) -> str:
+    """Convert verified input references in a transport copy, never the transcript.
+
+    Match native absolute paths rather than deleting a home-directory prefix.
+    Existing paths determine the end of unquoted references (including spaces
+    and paths adjacent to Chinese prose); quoted references must resolve whole.
+    """
+    starts = list(re.finditer(
+        r'(?<![A-Za-z0-9_./:\\])(?:[A-Za-z]:[/\\]|\\\\[^\\\s]+\\|//[^/\s]+/|/(?!/)[A-Za-z0-9_.~-]+/)', text))
+    if not starts:
+        return text
+    root = Path(root).absolute()
+    roots = {str(root), root.as_posix(), str(root.resolve()), root.resolve().as_posix()}
+    if root.drive:
+        roots |= {value.replace('/', '\\') for value in roots}
+    allowed = ('data/raw', 'data/metadata', 'data/signature',
+               'knowledge/resources', 'workspace/runs', 'analysis')
+    replacements = []
+    for index, match in enumerate(starts):
+        start = match.start()
+        remaining = text[start:]
+        prefix = None
+        for value in sorted(roots, key=len, reverse=True):
+            anchored = value + ('\\' if '\\' in value else '/')
+            if (remaining.casefold().startswith(anchored.casefold()) if root.drive
+                    else remaining.startswith(anchored)):
+                prefix = value
+                break
+        failure = ('Absolute input path is unavailable, external or unsafe; '
+                   'use a verified current-project relative path such as data/raw/met. '
+                   '绝对输入路径不存在、位于项目外或不安全；请改用当前项目相对路径，例如 data/raw/met。')
+        if prefix is None:
+            raise PlanningPathError(failure)
+        stop = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+        quote = text[start - 1] if start and text[start - 1] in "\"'`" else None
+        if quote:
+            end = text.find(quote, start, stop)
+            if end < 0:
+                raise PlanningPathError(failure)
+            ends = [end]
+        else:
+            boundary = re.search(r'[\n\r\"\'`<>|?*;,，。；：）)]', text[start:stop])
+            end = start + boundary.start() if boundary else stop
+            ends = [pos for pos in range(end, start + len(prefix), -1)
+                    if pos == len(text) or not re.match(r'[A-Za-z0-9_./\\~-]', text[pos])
+                    or (text[pos] == '.' and (pos + 1 == len(text) or text[pos + 1].isspace()))]
+        converted = None
+        for end in ends:
+            raw = text[start:end]
+            if raw != raw.rstrip():
+                continue
+            candidate = Path(raw)
+            if '..' in candidate.parts:
+                continue
+            try:
+                relative = candidate.relative_to(Path(prefix))
+                chain = [root.joinpath(*relative.parts[:i]) for i in range(1, len(relative.parts) + 1)]
+                if any(path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction())
+                       for path in chain):
+                    continue
+                resolved = candidate.resolve()
+                if (not candidate.exists() or not resolved.is_relative_to(root.resolve())
+                        or not any(relative == Path(folder) or Path(folder) in relative.parents for folder in allowed)):
+                    continue
+            except (OSError, ValueError):
+                continue
+            converted = (start, end, relative.as_posix())
+            break
+        if converted is None:
+            raise PlanningPathError(failure)
+        replacements.append(converted)
+    for start, end, relative in reversed(replacements):
+        text = text[:start] + relative + text[end:]
+    return text
 
 
 
@@ -271,7 +351,10 @@ def catalog(root: Path, limit=160) -> list[dict]:
     return files
 
 
-def classify(client, text: str, current_goal: str = "") -> str:
+def classify(client, text: str, current_goal: str = "", *, root: Path | None = None) -> str:
+    if root is not None:
+        text = project_relative_request(root, text)
+        current_goal = project_relative_request(root, current_goal)
     def valid(parsed):
         if not isinstance(parsed, dict) or parsed.get("intent") not in {
                 "analysis", "question", "followup", "ambiguous"}:
@@ -598,6 +681,7 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
     from .input_inspection import inspect_inputs, public_inspection
     inventory = catalog(root)
     source_request = request
+    request = project_relative_request(root, request)
     # Historical submitted choices used table stems (e.g. Sample_info109 rows).
     # Resolve only explicit table syntax against one catalog file in the user's
     # named scope. Keep the stored user transcript intact and run the unchanged

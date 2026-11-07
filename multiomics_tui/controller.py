@@ -20,13 +20,15 @@ from .actions import (ActionError, SPECS, build_command, display_job_label, list
 from .jobs import ACTIVE, JobManager, display_warning
 from .llm import build_client, key_env_name, key_present, set_session_key
 from .task_sessions import TaskStore, redact_secrets
-from .task_planner import PlanningContextError, classify, generate_plan, render_plan
+from .task_planner import PlanningContextError, PlanningPathError, classify, generate_plan, render_plan
 from orchestrator.llm_client import LLMConfigError, LLMTransportError, LLMValidationError, PrivacyViolation
 
 
 def planning_failure_message(kind: str | None, language: str) -> str:
     from .language import choose
     messages = {
+        "local_path": ("Input path could not be verified. Use a current-project relative path such as data/raw/met, then retry planning.",
+                       "输入路径无法核实。请改用当前项目相对路径（例如 data/raw/met），再重新规划。"),
         "privacy": ("Planning request blocked by the privacy check; inspect Details and remove private identifiers before /retry.",
                     "规划请求被隐私检查阻止；请查看 Details，移除私密标识后使用 /retry。"),
         "input_inspection": ("Input structure inspection failed; inspect Details and the local log before using /retry.",
@@ -284,7 +286,7 @@ class Session:
             except (OSError, ValueError):
                 self.active_task = None
         try:
-            intent = classify(self.client, text, current["goal"] if current else "")
+            intent = classify(self.client, text, current["goal"] if current else "", root=self.root)
         except Exception as exc:
             if READONLY_RE.search(text):
                 local = keyword_route(text, self.root)
@@ -296,6 +298,8 @@ class Session:
             state = self.tasks.create(text)
             self.active_task = state["task_id"]
             state.update(status="blocked", error=f"LLM intent failed: {type(exc).__name__}: {exc}")
+            if isinstance(exc, PlanningPathError):
+                state['planning_failure_kind'] = 'local_path'
             self.tasks.save(state)
             self.tasks.event(state["task_id"], "assistant", "LLM intent failed; no plan or job was started.")
             return Response("text", f"Task {state['task_id']} saved. LLM intent failed; no job was started: {exc}")
@@ -417,7 +421,8 @@ class Session:
             plan = generate_plan(self.client, self.root, request, self.cfg, language=language)
         except Exception as exc:
             state = self.tasks.get(task_id)
-            kind = ("input_inspection" if getattr(exc, 'planning_failure_kind', None) == 'input_inspection' else
+            kind = ("local_path" if isinstance(exc, PlanningPathError) else
+                    "input_inspection" if getattr(exc, 'planning_failure_kind', None) == 'input_inspection' else
                     "privacy" if isinstance(exc, PrivacyViolation) else
                     "request_size" if isinstance(exc, PlanningContextError) else
                     "configuration" if isinstance(exc, LLMConfigError) else

@@ -106,10 +106,7 @@ Screen {
 }
 #clarification-counter { height: auto; color: #7ab7ff; }
 #clarification-question { height: auto; margin-bottom: 1; text-style: bold; }
-#clarification-single { height: auto; width: 100%; border: none; padding: 0; }
-#clarification-single RadioButton { height: auto; width: 100%; }
-#clarification-single .toggle--label { width: 1fr; }
-#clarification-multiple { height: auto; max-height: 16; min-height: 3; }
+#clarification-options { height: auto; width: 100%; max-height: 16; min-height: 3; overflow-x: hidden; }
 #clarification-custom { width: 100%; margin-top: 1; }
 #clarification-summary, #clarification-error { height: auto; }
 #clarification-error { color: #ffb366; }

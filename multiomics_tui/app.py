@@ -16,7 +16,8 @@ from textual.css.query import NoMatches
 from textual.events import Click
 from textual.message import Message
 from textual.suggester import SuggestFromList
-from textual.widgets import Button, Collapsible, Input, RadioButton, RadioSet, RichLog, SelectionList, Static
+from textual.widgets import Button, Collapsible, Input, OptionList, RichLog, Static
+from textual.widgets.option_list import Option
 
 from .prompt_editor import PromptEditor
 from .controller import HELP_TEXT, READONLY_COMMANDS, Response, Session, planning_failure_message
@@ -25,6 +26,12 @@ from .task_planner import render_plan
 from .language import choose
 from .task_sessions import redact_secrets
 from .task_sessions import canonical_hash
+
+
+class ClarificationOptions(OptionList):
+    """Native wrapping options with the same selection key for both modes."""
+
+    BINDINGS = [Binding('space', 'select', 'Select', show=False)]
 
 # Explicit bitmap fonts keep the name recognizable without a font dependency.
 _GLYPHS = {
@@ -145,6 +152,7 @@ class MultiomicsApp(App):
         self._view_task = None
         self._clarification_view = None
         self._clarification_epoch = 0.0
+        self._clarification_selected = []
         self._last_terminal: tuple[str, str] | None = None
         self._home_visible = True
         self._banner_height = 0
@@ -174,10 +182,7 @@ class MultiomicsApp(App):
                     with Vertical(id='clarification-wizard'):
                         yield Static('', id='clarification-counter', markup=False)
                         yield Static('', id='clarification-question', markup=False)
-                        with RadioSet(id='clarification-single'):
-                            for index in range(8):
-                                yield RadioButton('', id=f'clarification-choice-{index}')
-                        yield SelectionList(id='clarification-multiple')
+                        yield ClarificationOptions(id='clarification-options', wrap=True)
                         yield Input(placeholder='自行填写 / Custom answer', id='clarification-custom')
                         yield Static('', id='clarification-error', markup=False)
                         yield Static('', id='clarification-summary', markup=False)
@@ -608,12 +613,7 @@ class MultiomicsApp(App):
                 qid = question['id'] if isinstance(question, dict) else f'legacy_{old_step}'
                 options = question['options'] if isinstance(question, dict) else []
                 ids = [o['id'] for o in options] + ['custom', 'unknown']
-                if isinstance(question, dict) and question['mode'] == 'multiple':
-                    widget = self._get('#clarification-multiple', SelectionList)
-                    selected = list(widget.selected) if widget is not None else []
-                else:
-                    selected = [oid for index, oid in enumerate(ids)
-                                if self.query_one(f'#clarification-choice-{index}', RadioButton).value]
+                selected = [oid for oid in ids if oid in self._clarification_selected]
                 custom_widget = self._get('#clarification-custom', Input)
                 custom = custom_widget.value if custom_widget is not None else ''
                 draft = dict(old.get('clarification_draft') or {})
@@ -747,8 +747,7 @@ class MultiomicsApp(App):
                     'Fill after selecting Custom answer', '选择“自行填写”后在此填写')
                 self._update('#clarification-error', '')
                 summary = step == len(questions)
-                self._show('#clarification-single', not summary)
-                self._show('#clarification-multiple', False)
+                self._show('#clarification-options', not summary)
                 self._show('#clarification-custom', not summary)
                 self._show('#clarification-summary', summary)
                 self._show('#clarification-next', not summary)
@@ -765,7 +764,7 @@ class MultiomicsApp(App):
                         answer = draft.get(qid, {})
                         options = {o['id']: o for o in q['options']} if isinstance(q, dict) else {}
                         labels = [answer.get('custom', '') if oid == 'custom' else
-                                  self._say('Cannot confirm yet', '暂时无法确认') if oid == 'unknown' else options[oid]['label']
+                                  self._say('Cannot confirm yet', '暂时无法确认') if oid == 'unknown' else options[oid]['answer']
                                   for oid in answer.get('selected', []) if oid in options or oid in {'custom', 'unknown'}]
                         rows.append(f"{i + 1}. " + (q['prompt'] if isinstance(q, dict) else self._say('Custom clarification', '补充说明'))
                                     + '\n' + '；'.join(labels))
@@ -778,33 +777,19 @@ class MultiomicsApp(App):
                     self._update('#clarification-counter', self._say(f'Question {step + 1}/{len(questions)}', f'第 {step + 1}/{len(questions)} 题'))
                     self._update('#clarification-question', question['prompt'] if isinstance(question, dict)
                                  else self._say('Legacy question: see Details; fill an answer or generate choices.', '历史问题详见 Details；可自行填写或重新生成选项。'))
-                    # Preview only: saved questions, hashes and submitted answers
-                    # retain their full text; validation also uses the full reason.
-                    choices = [(o['label'] + ' — ' + o['reason'][:180]
-                                + (self._say('… (full explanation in Details)', '…（完整说明见 Details）')
-                                   if len(o['reason']) > 180 else ''), o['id']) for o in options]
+                    # Native OptionList wraps full, literal text; selection state
+                    # is separate from prompts and never rewrites the protocol.
+                    choices = [(o['label'] + '\n' + o['reason'], o['id']) for o in options]
                     choices += [(self._say('Custom answer (fill below)', '自行填写（在下方填写）'), 'custom'),
                                 (self._say('Cannot confirm yet', '暂时无法确认'), 'unknown')]
                     answer = draft.get(qid, {})
-                    self._show('#clarification-single', not multiple)
-                    self._show('#clarification-multiple', multiple)
-                    if multiple:
-                        selection = self.query_one('#clarification-multiple', SelectionList)
-                        selection.clear_options().add_options([(Text(label), oid, oid in answer.get('selected', [])) for label, oid in choices])
-                    else:
-                        # Restoring values must not generate toggle-off messages:
-                        # RadioSet intentionally turns an off-click back on.
-                        with self.prevent(RadioButton.Changed):
-                            for i in range(8):
-                                button = self.query_one(f'#clarification-choice-{i}', RadioButton)
-                                button.value = False
-                                button.display = i < len(choices)
-                                button.disabled = i >= len(choices)
-                                if i < len(choices):
-                                    button.label = Text(choices[i][0])
-                        for i, (_, oid) in enumerate(choices):
-                            if oid in answer.get('selected', []):
-                                self.query_one(f'#clarification-choice-{i}', RadioButton).value = True
+                    self._clarification_selected = list(answer.get('selected', []))
+                    selection = self.query_one('#clarification-options', ClarificationOptions)
+                    selection.clear_options().add_options([
+                        Option(Text(('☑ ' if oid in self._clarification_selected else '☐ ') if multiple else
+                                    ('● ' if oid in self._clarification_selected else '○ '))
+                               + Text(label, no_wrap=False, overflow='fold'), id=oid)
+                        for label, oid in choices])
                     self.query_one('#clarification-custom', Input).value = answer.get('custom', '')
             self._update('#technical-details', meta + '\n' + json.dumps(questions, ensure_ascii=False, indent=2))
         elif status == "blocked":
@@ -1370,6 +1355,37 @@ class MultiomicsApp(App):
                     self._reveal("#clarification-wizard", top=True)
             except (OSError, ValueError):
                 pass
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != 'clarification-options':
+            return
+        event.stop()
+        if self._busy or event.time < self._clarification_epoch or self._clarification_view is None:
+            return
+        task_id, digest, step = self._clarification_view
+        state = self.session.tasks.get(task_id)
+        questions = state.get('questions') or []
+        if (task_id != self.session.active_task or state['status'] != 'needs_clarification'
+                or state.get('clarification_consumed') or step >= len(questions)
+                or (state.get('clarification_hash') or canonical_hash(questions)) != digest):
+            return
+        question = questions[step]
+        multiple = isinstance(question, dict) and question['mode'] == 'multiple'
+        oid = event.option.id
+        if multiple:
+            if oid in self._clarification_selected:
+                self._clarification_selected.remove(oid)
+            else:
+                self._clarification_selected.append(oid)
+        else:
+            self._clarification_selected = [oid]
+        widget = event.option_list
+        for index in range(widget.option_count):
+            option = widget.get_option_at_index(index)
+            prompt = option.prompt.copy()
+            marker = ('☑ ' if option.id in self._clarification_selected else '☐ ') if multiple else (
+                '● ' if option.id in self._clarification_selected else '○ ')
+            widget.replace_option_prompt_at_index(index, Text(marker) + prompt[2:])
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if not self.is_running:
