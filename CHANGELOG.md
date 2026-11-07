@@ -4,8 +4,8 @@
 
 - 澄清单选/多选使用原生可换行列表，完整显示标题和理由；支持点击、方向键、空格/Enter、纵向滚动、窗口缩放和草稿恢复，核对页显示完整提交答案。
 - 项目内绝对输入路径仅在外发副本中核实并转换为相对路径；覆盖意图分类、旧目标上下文、规划及重试。项目外、不存在、越界和链接路径本地拒绝，保留全部既有隐私检查及原始会话。
-- 修复验证证据见 reports/clarification_privacy_fix_20261107/；发行记录见 reports/release_v8.3.2_20261107/。
-- 本机 macOS 完整回归 846 passed / 8 skipped / 0 failed；1 条既有 fork 警告。公开清单 231 项及来源门禁通过；正式发布须通过三平台 CI。
+- v8.3.2 已正式发布并通过下载验收。修复证据见 reports/clarification_privacy_fix_20261107/；发行记录见 reports/release_v8.3.2_20261107/。
+- 本机完整回归 846 passed / 8 skipped；发行定向回归 57 passed；三平台 CI 全部通过（Linux/macOS 各 833 passed / 21 skipped，Windows 827 passed / 27 skipped），发布工作流复验 833 passed / 21 skipped。231 项公开清单及来源门禁通过；下载附件的 GitHub digest、ZIP/manifest 校验和、文件权限和标签源码逐项一致。
 
 ## v8.3.1 — 2026-11-06
 
