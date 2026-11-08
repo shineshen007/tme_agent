@@ -158,7 +158,7 @@ def test_screenshot_parameters_use_original_quotes(project_root, stub_cfg, struc
     generate_plan(client, project_root, REQUEST, stub_cfg, language="zh")
     system, request, schema = client.requests[-1]
     assert "exact, contiguous quotation" in system and "split compound parameters" in PLANNER
-    assert request == REQUEST and schema == "tui_task_plan_v7"
+    assert request == REQUEST and schema == "tui_task_plan_v8"
 
 
 def test_all_parameter_source_errors_are_reported(project_root, stub_cfg):
@@ -232,7 +232,7 @@ def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v6(project_ro
 
     client = CompatibleClient(root=project_root, run=project_root / "audit", cfg=cfg, transport=transport)
     checked = generate_plan(client, project_root, REQUEST, cfg, language="zh")
-    assert checked["parameters"] == plan()["parameters"] and len(bodies) == 3
+    assert [p for p in checked["parameters"] if p['name'] != 'planning_protocol'] == plan()["parameters"] and len(bodies) == 3
     correction = bodies[2]["messages"][-1]["content"]
     for name in ("signature_file", "plage_algorithm", "sample_type_encoding"):
         assert name in correction
@@ -240,9 +240,9 @@ def test_actual_client_corrects_all_errors_in_one_retry_and_caches_v6(project_ro
     assert len(bodies) == 3
     messages = bodies[0]["messages"]
     assert client._cache_key("tui_task_plan", messages, "tui_task_plan_v3") != client._cache_key(
-        "tui_task_plan", messages, "tui_task_plan_v7")
+        "tui_task_plan", messages, "tui_task_plan_v8")
     records = [json.loads(p.read_text()) for p in (project_root / "audit").rglob("*task_plan.json")]
-    assert records and all(r["schema"] == "tui_task_plan_v7" for r in records)
+    assert records and all(r["schema"] == "tui_task_plan_v8" for r in records)
 
 
 @pytest.mark.parametrize("error,kind", [
@@ -532,7 +532,7 @@ def test_retry_preserves_multiple_user_turns_and_invalidates_old_confirmation(pr
     # The new user request changes the frozen knowledge query, so approval binds
     # a new plan even when the statistical steps remain the same.
     assert state["plan_hash"] != old_hash
-    assert session.tasks.plan(task_id)['steps'] == plan()['steps']
+    assert [{k: v for k, v in s.items() if k != 'method_ids'} for s in session.tasks.plan(task_id)['steps']] == plan()['steps']
     assert session.confirm(initial.pending_id).kind == "text"
     session.jobs.start.assert_not_called()
 

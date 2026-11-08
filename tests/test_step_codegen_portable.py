@@ -136,6 +136,8 @@ def approve(root, raw):
     store = TaskStore(root)
     state = store.create("Count synthetic input rows")
     plan = validate_plan(root, raw, store.user_text(state["task_id"]), {})
+    from planning_fixtures import attach
+    plan = attach(root, plan, request=store.user_text(state['task_id']))
     state = store.save_plan(state["task_id"], plan)
     store.approve(state["task_id"], state["plan_hash"])
     return store, state

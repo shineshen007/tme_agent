@@ -42,6 +42,14 @@ analysis:
 knowledge:
   shared_enabled: true
   # shared_root: optional explicit local curated-library directory
+planning:
+  evidence:
+    # No analysis plan can be approved without verified sources and method APIs.
+    cache_days: 30
+    offline: false
+    refresh: false
+    timeout: 25
+    retries: 2
 research:
   literature:
     providers: [pubmed, europepmc]

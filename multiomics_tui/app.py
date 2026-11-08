@@ -725,9 +725,24 @@ class MultiomicsApp(App):
                 preview = render_plan(task_id, plan, state["plan_hash"], language=self.session.reply_language(), compact=True)
                 if plan["goal"] == self.session.tasks.original_request(task_id):
                     preview = preview.split("\n\n", 1)[1]
-                self._update("#technical-details", meta + "\n" + render_plan(task_id, plan, state["plan_hash"]))
+                details = meta + "\n" + render_plan(task_id, plan, state["plan_hash"])
+                if plan.get('planning_evidence'):
+                    from .planning_evidence import verify_planning_evidence
+                    bundle = verify_planning_evidence(self.session.root, plan)
+                    view = {'retrieved_at': bundle['retrieved_at'], 'cache_hit': bundle['cache_hit'],
+                            'design': bundle['proposal']['design'], 'errors': bundle['errors'],
+                            'methods': [{'candidate': row['candidate'], 'environment': row['environment'],
+                                         'registry': row['software']['registry_url'],
+                                         'maintenance': row['software'].get('maintenance', {}),
+                                         'documentation': row['software']['documentation'],
+                                         'queries': row['literature']['queries'],
+                                         'papers': row['literature']['records']} for row in bundle['methods']]}
+                    details += '\n\nMethod evidence (source text requires review):\n' + json.dumps(view, ensure_ascii=False, indent=2)
+                self._update("#technical-details", details)
             except (OSError, ValueError) as exc:
                 preview = self._say("Plan cannot be loaded: ", "无法读取计划：") + str(exc)
+                self._show('#plan-actions', False)
+                self._show_dock(False)
         elif status == "needs_clarification":
             questions = state.get("questions") or []
             preview = ''
@@ -846,6 +861,10 @@ class MultiomicsApp(App):
                 "succeeded": "Completed", "failed": "Failed", "killed": "Stopped",
             }.get(state["status"], state["status"])
             parts.append(f"Phase: {phase}")
+            if state.get('planning_stage'):
+                parts.append('Method verification: ' + state['planning_stage'])
+            if state.get('planning_attempt'):
+                parts.append('Method evidence: ' + state['planning_attempt'])
             if state.get('research_status', 'not_requested') != 'not_requested':
                 parts.append('Research: ' + state['research_status'])
             path = self.session.tasks.directory(state["task_id"]) / "events.jsonl"

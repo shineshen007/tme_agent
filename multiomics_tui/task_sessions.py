@@ -188,6 +188,8 @@ class TaskStore:
                      planning_failure_kind=None, questions=[], clarification_hash=None,
                      planning_failure_summary=None, planning_transport={},
                      clarification_draft={}, clarification_step=0, clarification_consumed=False)
+        if plan.get('planning_evidence'):
+            state['planning_stage'] = 'verified'
         self.save(state)
         return state
 
@@ -201,11 +203,22 @@ class TaskStore:
             raise ValueError("Plan hash mismatch")
         return plan
 
-    def approve(self, task_id: str, plan_hash: str) -> dict:
+    def approve(self, task_id: str, plan_hash: str, *, cfg=None) -> dict:
         state = self.get(task_id)
         if state["status"] != "awaiting_approval" or state["plan_hash"] != plan_hash:
             raise ValueError("Plan changed or is not awaiting approval")
-        self.plan(task_id)
+        from .planning_evidence import verify_planning_evidence
+        plan = self.plan(task_id)
+        if cfg is None:
+            from .llm import load_tui_config
+            cfg = load_tui_config(self.root) if (self.root / 'config/study_config.yaml').is_file() else {}
+        try:
+            verify_planning_evidence(self.root, plan, stage='approve', cfg=cfg, request=self.user_text(task_id))
+        except (ValueError, OSError) as exc:
+            state.update(status='blocked', approved_hash=None, error=redact_secrets(str(exc)),
+                         planning_failure_kind=getattr(exc, 'planning_failure_kind', 'evidence_integrity'))
+            self.save(state)
+            raise
         state.update(status="approved", approved_hash=plan_hash)
         self.save(state)
         self.event(task_id, "user", "Confirmed approved plan", plan_hash=plan_hash)

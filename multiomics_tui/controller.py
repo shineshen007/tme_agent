@@ -27,6 +27,18 @@ from orchestrator.llm_client import LLMConfigError, LLMTransportError, LLMValida
 def planning_failure_message(kind: str | None, language: str) -> str:
     from .language import choose
     messages = {
+        'legacy_plan': ('Create a new task to verify methods before approval.', '该计划尚无方法证据，请建立新任务重新规划。'),
+        'evidence_offline': ('No valid method evidence cache; restore retrieval and /retry.', '没有有效方法证据缓存；恢复检索后 /retry。'),
+        'dependency': ('A method package is missing; inspect Details. Nothing was installed.', '所需方法依赖缺失；请查看 Details，本次未安装软件。'),
+        'api_incompatible': ('Method API or runtime verification failed; inspect Details.', '方法 API 或运行环境未通过核验；请查看 Details。'),
+        'design_unknown': ('Clarify required study design fields before planning.', '研究设计信息不足；请补充设计要求后重新规划。'),
+        'design_conflict': ('The method conflicts with the study design; inspect Details.', '方法与研究设计冲突；请查看 Details。'),
+        'literature_missing': ('No verified methodology source; inspect Details and /retry.', '缺少可核验的方法学来源；请查看检索 Details 后 /retry。'),
+        'software_source': ('Official software evidence unavailable; inspect Details and /retry.', '官方软件证据尚未核验；请查看 Details 后 /retry。'),
+        'evidence_integrity': ('Frozen method evidence or context changed; re-plan.', '冻结的方法证据或上下文发生变化；请重新规划。'),
+        'evidence_expired': ('Refresh expired method evidence before approval.', '方法证据已过期；请刷新后重新审批。'),
+        'evidence_validation': ('Method evidence mapping failed; inspect Details.', '方法证据映射未通过校验；请查看 Details。'),
+        'evidence_conflict': ('Method evidence has unresolved conflicts; inspect Details.', '方法证据存在未解决冲突；请查看 Details。'),
         "local_path": ("Input path could not be verified. Use a current-project relative path such as data/raw/met, then retry planning.",
                        "输入路径无法核实。请改用当前项目相对路径（例如 data/raw/met），再重新规划。"),
         "privacy": ("Planning request blocked by the privacy check; inspect Details and remove private identifiers before /retry.",
@@ -418,16 +430,16 @@ class Session:
             if not self.allow_llm or self.client is None:
                 raise LLMConfigError(choose(language, "LLM unavailable. Check /model or /key, then use /retry.",
                                            "LLM 不可用。请检查 /model 或 /key 后使用 /retry 重试。"))
-            plan = generate_plan(self.client, self.root, request, self.cfg, language=language)
+            plan = generate_plan(self.client, self.root, request, self.cfg, language=language, task_id=task_id)
         except Exception as exc:
             state = self.tasks.get(task_id)
-            kind = ("local_path" if isinstance(exc, PlanningPathError) else
+            kind = (getattr(exc, 'planning_failure_kind', None) or ("local_path" if isinstance(exc, PlanningPathError) else
                     "input_inspection" if getattr(exc, 'planning_failure_kind', None) == 'input_inspection' else
                     "privacy" if isinstance(exc, PrivacyViolation) else
                     "request_size" if isinstance(exc, PlanningContextError) else
                     "configuration" if isinstance(exc, LLMConfigError) else
                     "connection" if isinstance(exc, (LLMTransportError, ConnectionError, TimeoutError)) else
-                    "validation" if isinstance(exc, (LLMValidationError, ValueError)) else "internal")
+                    "validation" if isinstance(exc, (LLMValidationError, ValueError)) else "internal"))
             state.update(status="blocked", error=redact_secrets(f"Planning failed: {type(exc).__name__}: {exc}"),
                          planning_failure_kind=kind, questions=[], approved_hash=None,
                          clarification_hash=None, clarification_draft={})
@@ -857,7 +869,7 @@ class Session:
                 active = self.jobs.active_pipeline()
                 if active is not None:
                     return Response("text", f"Job {active['job_id']} is active. Task {task_id} still awaits approval; use /approve {task_id} later.")
-                self.tasks.approve(task_id, pending["plan_hash"])
+                self.tasks.approve(task_id, pending["plan_hash"], cfg=self.cfg)
                 # Approval is durable before the job exists. If snapshot creation or
                 # admission fails, leave a blocked record with a valid approval hash
                 # instead of an approved task that no recovery path can resume.

@@ -769,12 +769,14 @@ def test_execution_blocks_when_the_frozen_protocol_no_longer_matches(tmp_path):
     store.event(state["task_id"], "user", REQUEST_WITH_THRESHOLD)
     checked = validate_plan(root, raw_plan(root), REQUEST_WITH_THRESHOLD, CFG,
                             inspection=inspection(root))
+    from planning_fixtures import attach
+    checked = attach(root, checked, CFG, request=store.user_text(state['task_id']))
     state = store.save_plan(state["task_id"], checked)
-    state = store.approve(state["task_id"], state["plan_hash"])
+    state = store.approve(state["task_id"], state["plan_hash"], cfg=CFG)
     (root / "config/study_config.yaml").write_text(
         "schema_version: '1.0'\nanalysis:\n  pathway_scoring:\n    methods: [plage]\n",
         encoding="utf-8")
-    with pytest.raises(ValueError, match="no longer matches the approved plan"):
+    with pytest.raises(ValueError, match="Method configuration changed|no longer matches the approved plan"):
         task_runner.run(root, state["task_id"], client=None)
 
 

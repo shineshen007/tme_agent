@@ -54,6 +54,8 @@ def completed_task(root, omics=("transcriptomics",), question=None):
             "research": {"enabled": True, "context": context, "evidence_outputs": specs}}
     store = TaskStore(root)
     state = store.create(plan["goal"])
+    from planning_fixtures import attach
+    plan = attach(root, plan, CFG)
     state = store.save_plan(state["task_id"], plan)
     state = store.approve(state["task_id"], state["plan_hash"])
     folder = root / "analysis" / state["task_id"]

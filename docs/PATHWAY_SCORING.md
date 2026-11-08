@@ -140,3 +140,35 @@ GSVA 的四种方法给出的是**相对富集分**，量纲与方法相关（�
 
 **为什么某通路只有部分方法有结果？** 该通路在其他方法下不可估计（例如配对差值恒为 0），
 `methods_tested` 与 `methods_significant` 会如实反映，不补齐、不推断。
+
+## 9. 混合注释宽表的矩阵视图
+
+Input inspection v4 can bind a numeric view of an annotated wide CSV, TSV or RDS
+data.frame. The raw table remains `numeric_matrix: false`. Add the inspected
+`view_id` to its existing matrix binding; retain the view's original `path`,
+`metadata_path`, `sample_key` and `sample_axis: columns`. Views use exact metadata
+key/header equality, with no type conversion or sample exclusion. Numeric
+annotation fields are not automatically expression columns. The local review
+shows the feature field and every excluded annotation field; review these roles
+before approval. Unique feature values do not establish a biological namespace.
+
+If multiple feature fields qualify, the local clarification wizard submits an
+opaque `matrix_view=view_<digest>` selection. The model sees positions and
+aggregate diagnostics; original headers, identifier hashes and review labels stay
+local. Old mixed-table inspections must be refreshed; existing numeric matrix
+bindings without a `view_id` retain their original rules.
+
+After approval the trusted R probe prepares `objects/input_views/<binding_index>/`
+inside `TASK_DIR`: `matrix.rds` has feature row names and metadata-ordered sample
+columns; `matrix.csv` has the same axes and 17 significant digits. In pandas read
+with `dtype=str, keep_default_na=False`, use `set_index` on the first column,
+then `astype(float)` on expression values. Avoid `index_col=0`, which can coerce
+feature identifiers such as `001` to integers;
+`annotations.csv` preserves excluded fields in source row order. Generated code
+reads these products rather than selecting columns from the raw table.
+`TASK_MATRIX_VIEWS` supplies relative paths as JSON. Preparation does not apply
+preprocessing; any approved transformation remains a separate analysis operation.
+Prepared-product hashes are recorded in `matrix_view_manifest.json`, the code
+manifest and the result manifest, and are rechecked after each generated step.
+The pathway universe uses the view's feature identities and constant-feature
+diagnostics, never CSV automatic row numbers.

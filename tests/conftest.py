@@ -33,6 +33,52 @@ def substituted_probe(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def synthetic_method_services(request, monkeypatch):
+    """Keep historical UI/lifecycle tests offline through explicit service seams.
+
+    Production receipt/citation/hash validators remain active. New evidence tests
+    exercise real collection with fixed transports and the native probe separately.
+    Existing mocked model replies are extended with synthetic method assessments;
+    their purpose is transport, UI, output integrity and research continuation.
+    """
+    modules = {'test_task_planner_portable', 'test_prompt_editor_portable', 'test_matrix_views',
+               'test_research_entrypoints', 'test_research_context', 'test_research_pipeline',
+               'test_research_finalization',
+               'test_task_lifecycle', 'test_task_path_safety', 'test_task_runner_integrity',
+               'test_step_codegen_portable', 'test_pathway_scoring', 'test_privacy'}
+    if request.module.__name__ not in modules:
+        return
+    from multiomics_tui import planning_evidence as evidence, task_planner
+    from planning_fixtures import attach, binding, environment
+    monkeypatch.setattr(evidence, 'probe_method_apis', environment)
+    def collect(client, root, text, inspection, cfg, **kwargs):
+        plan = {'goal': text, 'inputs': inspection['profiles'], 'steps': [], 'parameters': []}
+        prepared = attach(root, plan, cfg, request=kwargs.get('source_request', text))
+        ref = prepared['planning_evidence']
+        return {**ref, 'bundle': json.loads((root / ref['path']).read_text())}
+    monkeypatch.setattr(evidence, 'collect_planning_evidence', collect)
+    original = task_planner.validate_plan
+    def fixture_reply(root, raw, *args, **kwargs):
+        if isinstance(raw, dict) and raw.get('planning_evidence') and not raw.get('method_bindings'):
+            import copy
+            raw = copy.deepcopy(raw)
+            raw['method_bindings'] = [binding()]
+            for step in raw.get('steps', []):
+                step['method_ids'] = ['finite']
+            # The old model transport fixture has no method-assessment reply.
+            # Supply a complete synthetic receipt for its explicit final unit.
+            from multiomics_tui.task_runner import file_hash
+            ref = raw['planning_evidence']
+            configuration = json.loads((root / ref['path']).read_text())['context']['configuration']
+            original_inputs = raw['inputs']
+            raw['inputs'] = [{'path': p, 'sha256': file_hash(root / p)} if isinstance(p, str) else p for p in original_inputs]
+            raw = attach(root, raw, configuration, request=args[0])
+            raw['inputs'] = original_inputs
+        return original(root, raw, *args, **kwargs)
+    monkeypatch.setattr(task_planner, 'validate_plan', fixture_reply)
+
+
+@pytest.fixture(autouse=True)
 def substituted_windows_guard(monkeypatch, request):
     """Windows 单元测试不经过 AppContainer。
 
@@ -55,8 +101,9 @@ def substituted_windows_guard(monkeypatch, request):
         return subprocess.run(argv, **kwargs)
 
     monkeypatch.setattr(input_inspection, "_run_guarded", run_without_appcontainer)
-    if request.module.__name__ == "test_task_path_safety":
-        # Exercise trusted-parent link rejection with synthetic child scripts.
+    if request.module.__name__ in {"test_task_path_safety", "test_matrix_views", "test_planning_evidence"}:
+        # Exercise trusted-parent link rejection and matrix preparation/contracts
+        # with synthetic child scripts.
         # Hosted Windows CI has no installed AppContainer runtime; this does not
         # certify native isolation. Other platforms keep the actual guard.
         from types import SimpleNamespace

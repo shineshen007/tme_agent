@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -23,7 +25,7 @@ jobs:
       - name: Refuse a release whose built-in datasets lack recorded provenance
         run: python -m native_dist.public_release gate --provenance
       - run: python -m native_dist.public_release audit
-      - run: python -m pytest -q
+      - run: python -m pytest tests -q
   publish:
     needs: validate
     runs-on: ubuntu-latest

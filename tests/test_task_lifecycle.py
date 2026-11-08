@@ -24,6 +24,8 @@ def make_session(root: Path, cfg: dict) -> tuple[Session, TaskStore, dict]:
     store = TaskStore(root)
     state = store.create(request)
     plan = validate_plan(root, raw, request, cfg)
+    from planning_fixtures import attach
+    plan = attach(root, plan, cfg)
     state = store.save_plan(state["task_id"], plan)
     session = Session(root, cfg=cfg, allow_llm=False)
     session.active_task = state["task_id"]
@@ -91,8 +93,10 @@ def test_retry_after_start_failure_replans_without_starting_a_job(project_root, 
            "steps": [{"id": "step_00", "language": "python", "purpose": "fixture",
                       "outputs": ["tables/out.csv"]}],
            "limitations": ["Synthetic retry fixture"]}
-    monkeypatch.setattr(controller, "generate_plan", lambda *a, **k: validate_plan(
-        project_root, raw, store.user_text(state["task_id"]), stub_cfg))
+    from planning_fixtures import attach
+    monkeypatch.setattr(controller, "generate_plan", lambda *a, **k: attach(project_root, validate_plan(
+        project_root, raw, store.user_text(state["task_id"]), stub_cfg), stub_cfg,
+        request=store.user_text(state['task_id'])))
     retry = session.handle(f"/retry {state['task_id']}")
     assert retry.kind == "need_confirm"
     after_retry = store.get(state["task_id"])

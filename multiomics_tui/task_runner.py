@@ -233,8 +233,15 @@ def _validate_step_reply(parsed, step):
 
 
 def _codegen(client, plan: dict, on_step=None, validate_code=None, on_generation=None, cfg=None) -> dict:
+    # Labels used by the local review UI must never enter model requests.
+    plan = {k: v for k, v in plan.items() if k != 'matrix_view_details'}
     if len(plan["steps"]) > 1 or plan.get("input_bindings") or plan.get('research', {}).get('enabled'):
         system = CODEGEN_STEP.replace("{plan}", json.dumps(plan, ensure_ascii=False))
+        if plan.get('planning_protocol'):
+            system += ('\nUse only the frozen method_bindings and exact approved package APIs for computation. '
+                       'Do not define functions, classes, lambdas or R anonymous functions. Use mature vectorized '
+                       'APIs directly; local helper suggestions above do not apply to evidence-bound plans. '
+                       'Never substitute an algorithm or resolve analytical APIs dynamically. Use explicit R namespaces.')
         if cfg is not None:
             from .r_env import availability_note
             note = availability_note(cfg)
@@ -361,6 +368,8 @@ def _run(root: Path, task_id: str, client=None) -> int:
     from .llm import load_tui_config
     snapshot = store.directory(task_id) / 'model_config.json'
     cfg = load_tui_config(root, snapshot=snapshot if snapshot.is_file() else None)
+    from .planning_evidence import verify_planning_evidence, verify_method_code
+    verify_planning_evidence(root, plan, stage='execute', cfg=cfg, request=store.user_text(task_id))
     request = store.user_text(task_id)
     rechecked = validate_plan(root, {**plan, "inputs": [x["path"] for x in plan["inputs"]]},
                               request, cfg)
@@ -393,10 +402,48 @@ def _run(root: Path, task_id: str, client=None) -> int:
     _state(store, task_id, "generating_code", current_stage="generation", current_step=None)
     print(f"Generating scripts for {task_id}", flush=True)
     env = _step_environment(root, task_dir, cfg, plan["inputs"])
+    prepared_views = []
+    selections = [{'binding_index': n, 'view_id': b['view_id']}
+                  for n, b in enumerate(plan.get('input_bindings', {}).get('matrices', []))
+                  if b.get('view_id') is not None]
+    if selections:
+        from .input_inspection import _run_guarded
+        preparation = task_dir / 'tmp' / 'matrix_view_request.json'
+        preparation.write_text(json.dumps({'inputs': plan['inputs'], 'materialize': selections}), encoding='utf-8')
+        probe_script = task_dir / 'tmp' / 'matrix_view_probe.R'
+        probe_script.write_bytes(Path(__file__).with_name('input_probe.R').read_bytes())
+        inspection_output = task_dir / 'tmp' / 'matrix_view_inspection.json'
+        argv = [sys.executable, str(Path(__file__).with_name('task_guard.py')), str(task_dir), '--',
+                rscript_path(root), '--vanilla', str(probe_script), str(preparation), str(inspection_output)]
+        result = _run_guarded(root, task_dir, argv, env)
+        (task_dir / 'logs' / 'matrix_view_preparation.log').write_text(result.stdout + result.stderr, encoding='utf-8')
+        if result.returncode or not inspection_output.is_file():
+            raise ValueError('Trusted matrix view preparation failed; inspect local preparation log')
+        for item in plan['inputs']:
+            if file_hash(Path(env['PROJECT_ROOT']) / item['path']) != item['sha256']:
+                raise ValueError('Input changed during matrix view preparation')
+        frozen = json.loads((root / plan['input_inspection']['path']).read_text(encoding='utf-8'))
+        fresh = json.loads(inspection_output.read_text(encoding='utf-8'))
+        for selection in selections:
+            expected = [v for p in frozen['profiles'] for v in p.get('matrix_views', [])
+                        if v['view_id'] == selection['view_id']]
+            actual = [v for p in fresh['profiles'] for v in p.get('matrix_views', [])
+                      if v['view_id'] == selection['view_id']]
+            if not expected or expected != actual:
+                raise ValueError('Prepared matrix view differs from approved inspection')
+            for name in ('matrix.rds', 'matrix.csv', 'annotations.csv'):
+                relative = f"objects/input_views/{selection['binding_index']}/{name}"
+                prepared_views.append(_output_record(task_dir / relative, task_dir))
+        _atomic_json(task_dir / 'matrix_view_manifest.json', {'selections': selections, 'outputs': prepared_views})
+        env['TASK_MATRIX_VIEWS'] = json.dumps([{
+            **s, 'matrix_rds': f"objects/input_views/{s['binding_index']}/matrix.rds",
+            'matrix_csv': f"objects/input_views/{s['binding_index']}/matrix.csv",
+            'annotations': f"objects/input_views/{s['binding_index']}/annotations.csv"} for s in selections])
     scripts, output_contracts, attempts = [], [], []
     def save_manifest(status="generating_code", **extra):
         _atomic_json(task_dir / "code_manifest.json", {"plan_hash": state["plan_hash"],
             "status":status, "scripts":scripts, "inputs":plan["inputs"],
+            "prepared_views": prepared_views,
             "output_contracts":output_contracts, "attempts":attempts, **extra})
 
     def validate_candidate(step, content):
@@ -409,6 +456,7 @@ def _run(root: Path, task_id: str, client=None) -> int:
         attempts.append(entry)
         try:
             _check_code(root, path, step["language"], env=env, dependencies=True)
+            verify_method_code(content, step['language'], plan, root, step_id=step['id'])
         except MissingDependencyError as exc:
             # Correctable: the model is asked to rewrite with base R or installed
             # packages. Recorded as a dependency problem, never as a policy abort.
@@ -473,6 +521,9 @@ def _run(root: Path, task_id: str, client=None) -> int:
                                     check=False, close_fds=True)
         if result.returncode:
             raise RuntimeError(f"Step {step['id']} failed (exit {result.returncode}); see {log_path}")
+        for record in prepared_views:
+            if _output_record(task_dir / record['path'], task_dir) != record:
+                raise ValueError('Trusted prepared matrix view changed during execution')
         _state(store, task_id, "running", current_stage="verification", current_step=step["id"])
         from .output_contracts import verify_output
         for relative in step["outputs"]:
@@ -486,10 +537,11 @@ def _run(root: Path, task_id: str, client=None) -> int:
         print(f"Completed step {step['id']}", flush=True)
     _state(store, task_id, "verifying", current_stage="verification", current_step=None)
     declared_outputs = {output for step in plan["steps"] for output in step["outputs"]}
+    trusted_outputs = {record['path'] for record in prepared_views}
     unexpected = []
     for folder in ("tables", "objects", "figures", "reports"):
         for path in (task_dir / folder).rglob("*"):
-            if path.is_file() and path.relative_to(task_dir).as_posix() not in declared_outputs:
+            if path.is_file() and path.relative_to(task_dir).as_posix() not in declared_outputs | trusted_outputs:
                 unexpected.append(path.relative_to(task_dir).as_posix())
     if unexpected:
         raise ValueError(f"Undeclared outputs: {unexpected[:20]}")
@@ -542,6 +594,7 @@ def _run(root: Path, task_id: str, client=None) -> int:
         r_version = "unavailable"
     manifest = {"task_id": task_id, "plan_hash": state["plan_hash"], "completed_at": utc(),
                 "inputs": plan["inputs"], "scripts": scripts, "outputs": final_outputs,
+                "prepared_views": prepared_views,
                 "python": sys.version.split()[0], "python_executable": sys.executable,
                 "r_version": r_version,
                 "final_output_revalidation": {"checked": len(final_outputs),

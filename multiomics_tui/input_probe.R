@@ -5,6 +5,7 @@ hash <- function(x) vapply(as.character(x), digest::digest, character(1), algo='
 key <- function(x) list(values=unname(hash(x)), missing=sum(is.na(x) | !nzchar(as.character(x))), duplicates=sum(duplicated(x)))
 known <- c('T','P','N','Tumor','Non_Tumor','Non-Tumor','tumor','normal','Normal','adjacent','Adjacent','control','Control')
 profiles <- list()
+objects <- list()
 for (item in request$inputs) {
   path <- file.path(Sys.getenv('PROJECT_ROOT'), item$path)
   ext <- tolower(tools::file_ext(path))
@@ -13,6 +14,11 @@ for (item in request$inputs) {
     gmt={lines <- strsplit(readLines(path, warn=FALSE), '\t', fixed=TRUE); if(any(lengths(lines)<3)) stop('Invalid GMT');
       names <- vapply(lines, `[`, '', 1); if(anyDuplicated(names)) stop('Duplicate GMT set names'); setNames(lapply(lines, function(v)v[-c(1,2)]), names)},
     stop('Unsupported input type'))
+  objects[length(objects)+1L] <- list(x)
+}
+for (object_index in seq_along(objects)) {
+  item <- request$inputs[[object_index]]
+  x <- objects[[object_index]]
   p <- list(path=item$path, sha256=item$sha256, object_class=class(x), dimensions=as.integer(dim(x)), keys=list(), columns=list())
   if (is.matrix(x) || is.data.frame(x)) {
     d <- as.data.frame(x, stringsAsFactors=FALSE)
@@ -24,6 +30,11 @@ for (item in request$inputs) {
     # Privacy only: mixed CSV expression frames can have one feature-ID column.
     # Withhold possible sample headers; this does not infer a data role or orientation.
     p$matrix_like <- numeric_matrix || (sum(numeric_columns)>=1L && sum(!numeric_columns)<=1L)
+    if (!numeric_matrix) for (other_index in setdiff(seq_along(objects), object_index)) {
+      other <- objects[[other_index]]
+      if (!is.data.frame(other)) next
+      for (field in other) if (is.atomic(field) && any(colnames(x) %in% as.character(field))) p$matrix_like <- TRUE
+    }
     p$column_issues <- list()
     # as.data.frame.matrix may repair names; inspect the original axis instead.
     column_names <- colnames(x)
@@ -69,8 +80,66 @@ for (item in request$inputs) {
   } else stop('Unsupported R object structure; supply an explicit data dictionary')
   profiles[[length(profiles)+1L]] <- p
 }
+# Views are exact structural joins, never a selection of all numeric columns.
+# Keep raw labels and ordered hashes local; public_inspection allowlists aggregates.
+for (i in seq_along(profiles)) {
+  x <- objects[[i]]
+  if (!is.data.frame(x) || isTRUE(profiles[[i]]$numeric_matrix)) next
+  profiles[[i]]$matrix_views <- list()
+  for (j in seq_along(profiles)) {
+    if (i == j || !is.data.frame(objects[[j]])) next
+    meta <- objects[[j]]
+    for (sample_key in names(profiles[[j]]$columns)) {
+      ids <- as.character(meta[[sample_key]])
+      # Partial matches mark headers private even when no valid view can be built.
+      if (any(names(x) %in% ids)) profiles[[i]]$matrix_like <- TRUE
+      if (length(ids)<2L || anyNA(ids) || any(!nzchar(ids)) || anyDuplicated(ids)) next
+      pos <- match(ids, names(x))
+      if (anyNA(pos) || anyDuplicated(names(x)) || any(!nzchar(trimws(names(x))))) next
+      if (!all(vapply(x[pos], is.numeric, logical(1)))) next
+      m <- as.matrix(x[pos])
+      constant <- rowSums(!is.finite(m))==0 & apply(m,1,min)==apply(m,1,max)
+      for (f in setdiff(seq_along(x), pos)) {
+        feature <- x[[f]]
+        if (anyNA(feature) || any(!nzchar(trimws(as.character(feature)))) || anyDuplicated(as.character(feature))) next
+        view_id <- paste0('view_', digest::digest(paste(profiles[[i]]$path, profiles[[i]]$sha256,
+          profiles[[j]]$path, profiles[[j]]$sha256, sample_key, f, sep='|'), algo='sha256', serialize=FALSE))
+        v <- list(view_id=view_id, path=profiles[[i]]$path, sha256=profiles[[i]]$sha256,
+          metadata_path=profiles[[j]]$path, metadata_sha256=profiles[[j]]$sha256,
+          sample_key=sample_key, sample_axis='columns', feature_ref=paste0('column_',f),
+          feature_position=f, feature_key=names(x)[f], sample_positions=as.integer(pos),
+          annotation_keys=as.list(names(x)[setdiff(seq_along(x),pos)]),
+          dimensions=as.integer(dim(m)), keys=list(rows=key(feature), columns=key(ids)),
+          finite=all(is.finite(m)), negative_count=sum(m<0,na.rm=TRUE),
+          zero_rows=sum(rowSums(m!=0,na.rm=TRUE)==0), constant_rows=sum(constant),
+          constant_row_sha256=as.list(unname(hash(feature[constant]))))
+        profiles[[i]]$matrix_views[[length(profiles[[i]]$matrix_views)+1L]] <- v
+      }
+    }
+  }
+}
+# Trusted preparation runs only after approval, under the same input sandbox.
+if (length(request$materialize)) {
+  for (entry in request$materialize) {
+    found <- FALSE
+    for (i in seq_along(profiles)) for (v in profiles[[i]]$matrix_views) {
+      if (!identical(v$view_id, entry$view_id)) next
+      if (!isTRUE(v$finite)) stop('Matrix view contains nonfinite values')
+      x <- objects[[i]]
+      m <- as.matrix(x[v$sample_positions]); rownames(m) <- as.character(x[[v$feature_position]])
+      folder <- file.path(Sys.getenv('TASK_DIR'), 'objects', 'input_views', as.character(entry$binding_index))
+      dir.create(folder, recursive=TRUE, showWarnings=FALSE)
+      saveRDS(m, file.path(folder,'matrix.rds'))
+      # Seventeen significant digits preserve IEEE doubles for Python consumers.
+      utils::write.csv(format(m,digits=17,trim=TRUE,scientific=TRUE), file.path(folder,'matrix.csv'))
+      utils::write.csv(x[setdiff(seq_along(x),v$sample_positions)], file.path(folder,'annotations.csv'), row.names=FALSE)
+      found <- TRUE
+    }
+    if (!found) stop('Approved matrix view is unavailable; re-inspect inputs')
+  }
+}
 versions <- list(R=R.version.string)
 for (pkg in c('GSVA','ggplot2')) if(requireNamespace(pkg,quietly=TRUE)) versions[[pkg]] <- as.character(utils::packageVersion(pkg))
 apis <- list()
 if(requireNamespace('GSVA',quietly=TRUE)) apis$plageParam <- names(formals(GSVA::plageParam))
-jsonlite::write_json(list(profiles=profiles,software=versions,apis=apis), args[2], auto_unbox=TRUE, pretty=TRUE, null='null', na='null')
+jsonlite::write_json(list(version='input_probe_v4',profiles=profiles,software=versions,apis=apis), args[2], auto_unbox=TRUE, pretty=TRUE, null='null', na='null')

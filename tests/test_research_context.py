@@ -49,6 +49,8 @@ def completed_task(root, *, research=None, table=None, privacy=False):
         plan["input_bindings"] = {"matrices": [{"metadata_path": "data/raw/metadata.csv", "sample_key": "sample", "pair_key": "patient"}]}
     store = TaskStore(root)
     state = store.create(plan["goal"])
+    from planning_fixtures import attach
+    plan = attach(root, plan, {})
     state = store.save_plan(state["task_id"], plan)
     state = store.approve(state["task_id"], state["plan_hash"])
     folder = root / "analysis" / state["task_id"]

@@ -33,6 +33,8 @@ def approved_plan(root: Path, steps: list[dict]) -> tuple[TaskStore, dict]:
     store = TaskStore(root)
     state = store.create(request)
     plan = validate_plan(root, raw, request, {"runtime": {}, "llm": {"enabled": False}})
+    from planning_fixtures import attach
+    plan = attach(root, plan)
     state = store.save_plan(state["task_id"], plan)
     return store, store.approve(state["task_id"], state["plan_hash"])
 

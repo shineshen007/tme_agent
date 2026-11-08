@@ -43,6 +43,9 @@ provenance needed to trace each number back to the file it came from.
 
 - **Plan before run:** Every task is bound to declared inputs, a chosen method, and generated
   code that you review and confirm before execution.
+- **Evidence before planning:** method literature, official software sources and installed
+  APIs are verified before a new analysis plan can be approved. Missing evidence blocks
+  execution; valid caches support offline use. See [method evidence](docs/PLANNING_EVIDENCE.md).
 - **Hub-and-spoke orchestration:** A planner fans work out to per-omics spokes and integrates
   their evidence; the model interprets, but never authors a statistic.
 - **Numbers are injected, not generated:** Every figure and number in a report is read from the

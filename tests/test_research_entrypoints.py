@@ -40,8 +40,10 @@ def approved_task(root):
     plan = validate_plan(root, raw, raw["goal"], CFG)
     store = TaskStore(root)
     state = store.create(raw["goal"])
+    from planning_fixtures import attach
+    plan = attach(root, plan, CFG)
     state = store.save_plan(state["task_id"], plan)
-    return store, store.approve(state["task_id"], state["plan_hash"])
+    return store, store.approve(state["task_id"], state["plan_hash"], cfg=CFG)
 
 
 def knowledge_payload(statement="GENE1 may reflect altered cell composition."):
@@ -130,11 +132,11 @@ def test_generate_plan_freezes_local_reviewed_knowledge_not_model_injection(tmp_
     assert "PENDING_ONLY" not in model_calls[-1][1]
     assert entry["statement"] in model_calls[-1][1]
     assert "untrusted source content" in model_calls[-1][1]
-    assert model_calls[-1][2] == "tui_task_plan_v7"
+    assert model_calls[-1][2] == "tui_task_plan_v8"
     assert inspection_calls[0][0]["sha256"] == digest(tmp_path / raw["inputs"][0])
     store = TaskStore(tmp_path)
     state = store.save_plan(store.create(raw["goal"])["task_id"], checked)
-    assert store.approve(state["task_id"], state["plan_hash"])["approved_hash"] == canonical_hash(checked)
+    assert store.approve(state["task_id"], state["plan_hash"], cfg=CFG)["approved_hash"] == canonical_hash(checked)
 
 
 @pytest.mark.parametrize("bad_contract", [

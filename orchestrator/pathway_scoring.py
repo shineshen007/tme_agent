@@ -336,6 +336,11 @@ def _trusted_gene_set_universe(protocol: dict, bindings, inspection) -> tuple[li
     matrix = profiles.get(str(binding.get("path")))
     if not matrix:
         raise ValueError("Trusted inspection lacks the bound expression matrix")
+    if binding.get('view_id') is not None:
+        matrix = next((v for v in matrix.get('matrix_views', [])
+                       if v['view_id'] == binding['view_id']), None)
+        if matrix is None:
+            raise ValueError('Trusted inspection lacks the bound matrix view')
     axis = "rows" if binding.get("sample_axis") == "columns" else "columns"
     features = matrix.get("keys", {}).get(axis, {}).get("values")
     features = features if isinstance(features, list) else ([] if features is None else [features])

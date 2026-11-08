@@ -8,7 +8,7 @@ import sys
 import uuid
 from pathlib import Path
 
-VERSION = 'input_probe_v3'
+VERSION = 'input_probe_v4'
 SUPPORTED = {'.csv', '.tsv', '.rds', '.gmt'}
 
 
@@ -93,11 +93,24 @@ def public_inspection(local: dict) -> dict:
         q = {k: p[k] for k in ('path','sha256','object_class','dimensions','numeric_matrix','matrix_like',
                               'finite','negative_count','zero_rows','constant_rows','gene_sets') if k in p}
         q['columns'] = {name: {k: c[k] for k in ('type','missing','unique','known_levels')} for name,c in (p.get('columns') or {}).items()}
+        if p.get('matrix_like') and not p.get('numeric_matrix'):
+            # Even invalid/partial header joins must not expose sample labels.
+            q['columns'] = {}
+        q['matrix_views'] = [{k: v[k] for k in (
+            'view_id', 'metadata_path', 'sample_key', 'sample_axis', 'feature_ref',
+            'dimensions', 'finite', 'negative_count', 'zero_rows', 'constant_rows')}
+            for v in p.get('matrix_views', [])]
         q['column_issues'] = [{k: c[k] for k in ('position','type','missing','reason') if k in c}
                               for c in p.get('column_issues', [])]
         q['axis_keys'] = {k:{f:v[f] for f in ('missing','duplicates')} for k,v in p['keys'].items() if k in {'rows','columns'}}
         profiles.append(q)
     joins = []
+    for a in local['profiles']:
+        for v in a.get('matrix_views', []):
+            joins.append({'matrix': a['path'], 'axis': 'columns', 'metadata': v['metadata_path'],
+                          'key': v['sample_key'], 'matched': v['dimensions'][1],
+                          'matrix_unique': v['dimensions'][1], 'metadata_unique': v['dimensions'][1],
+                          'view_id': v['view_id']})
     for a in local['profiles']:
         if not a.get('numeric_matrix'): continue
         for b in local['profiles']:
@@ -115,7 +128,9 @@ def public_inspection(local: dict) -> dict:
     # Include zero overlap so a planner cannot offer an impossible exact join.
     identifier_matches = []
     for i, a in enumerate(local['profiles']):
+        if a.get('matrix_like'): continue
         for b in local['profiles'][i+1:]:
+            if b.get('matrix_like'): continue
             for left_name in a.get('columns', {}):
                 if not re.search(r'sample|patient|subject|donor|specimen|(?:^|_)id$', left_name, re.I): continue
                 left = a['keys'].get('column:' + left_name)
@@ -145,6 +160,22 @@ def validate_bindings(bindings: dict, local: dict, request: str) -> dict:
         required={'path','sample_axis','metadata_path','sample_key','group_key','group_map','pair_key','preprocessing'}
         if not isinstance(b,dict) or not required <= b.keys(): raise ValueError('Incomplete matrix input binding')
         p, m = ps.get(b['path']), ps.get(b['metadata_path'])
+        if b.get('view_id') is not None:
+            if local.get('version') != VERSION:
+                raise ValueError('Matrix views require a fresh input inspection; re-plan this task')
+            views = (p or {}).get('matrix_views', [])
+            view = next((v for v in views if v['view_id'] == b['view_id']), None)
+            if not view or not m:
+                raise ValueError('Unknown matrix view; re-inspect inputs')
+            if (view['path'] != b['path'] or view['sha256'] != p['sha256'] or
+                    view['metadata_path'] != b['metadata_path'] or view['metadata_sha256'] != m['sha256'] or
+                    view['sample_key'] != b['sample_key'] or b['sample_axis'] != 'columns'):
+                raise ValueError('Matrix view disagrees with its frozen source binding')
+            alternatives = [v for v in views if v['metadata_path'] == b['metadata_path'] and
+                            v['sample_key'] == b['sample_key']]
+            if len(alternatives) > 1 and b['view_id'] not in request:
+                raise ValueError('Ambiguous feature key; ask the user to select an inspected matrix view')
+            p = {**view, 'numeric_matrix': True, 'column_issues': p.get('column_issues', [])}
         if not p or not p.get('numeric_matrix') or not m: raise ValueError('Binding requires numeric expression and inspected metadata')
         if p.get('column_issues'):
             raise ValueError('Expression column names are ambiguous; resolve structural issues before binding')
