@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import socket
 import sys
 import time
@@ -322,6 +323,10 @@ def probe_method_apis(root, candidates, cfg, folder):
         if language == 'r':
             argv.append('--vanilla')
         argv += [str(script), str(request), str(output)]
+        if language == 'r':
+            # Bind the executable actually launched, including Windows .EXE;
+            # R.home('bin') does not identify every launcher layout.
+            argv.append(shutil.which(interpreter) or interpreter)
         try:
             result = _run_guarded(root, work, argv, env)
             (work / 'probe.log').write_text(result.stdout + result.stderr, encoding='utf-8')
@@ -390,7 +395,7 @@ def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id
     from .task_sessions import TaskStore
     root = Path(root).resolve()
     s = settings(cfg)
-    scope = str(TaskStore(root).directory(task_id).relative_to(root)) if task_id else '.runtime/planning_evidence'
+    scope = TaskStore(root).directory(task_id).relative_to(root).as_posix() if task_id else '.runtime/planning_evidence'
     attempt = scope + '/planning/attempt_' + uuid.uuid4().hex
     _path(root, attempt).mkdir(parents=True, mode=0o700)
     if task_id:
@@ -492,7 +497,7 @@ def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id
                         if not isinstance(query, dict):
                             continue
                         for snap in query.get('response_snapshots', []):
-                            source = _path(root, str(Path(snap['path']).relative_to(root)))
+                            source = _path(root, Path(snap['path']).relative_to(root).as_posix())
                             data = source.read_bytes()
                             if _digest(data) != snap['sha256']:
                                 raise PlanningEvidenceError('evidence_integrity', 'Literature response snapshot changed')

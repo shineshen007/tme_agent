@@ -1,9 +1,12 @@
-updated_at: 2026-11-08 14:06:13 CST
+updated_at: 2026-11-08 16:13:36 CST
 
 ## current_goal
 按用户明确授权提交并发布 v8.4.0；工程实现已通过 906 passed / 8 skipped，本轮正在执行跨平台 CI、发布及下载验收，未运行用户真实统计分析。
 
 ## completed
+- 初轮发布定向 97 passed；历史校验器兼容复验通过；初轮 238 项候选内容、ZIP CRC、权限、内外哈希和 Git blobs 完全匹配。
+- Windows 修复后方法证据 41 passed，新增 Windows 路径回归；R 探测绑定实际启动器，兼容 .EXE。
+- 发行复验 19 项本地 HTTP 失败记录已保留；进程级 NO_PROXY 复验全部发行/回滚测试 57 passed；合计修复后定向 98 passed。
 - 用户已明确批准必要工程函数及最小辅助/测试函数；未新增自编统计或绘图算法。
 - 接入规划前方法文献、CRAN/Bioconductor/PyPI 官方来源与实际 R/Python API/签名/帮助核验；模型不能生成核验凭证。
 - 方法、版本、原文、输入及原始要求与不可变证据快照纳入审批；缺证据/依赖/API 或设计冲突时禁止审批，执行前检查环境漂移。
@@ -16,7 +19,7 @@ updated_at: 2026-11-08 14:06:13 CST
 - 最终代码/依赖与测试起点冻结哈希一致；协议说明、README、PROJECT_CONTEXT、CHANGELOG、公开源码清单和报告已同步。
 
 ## in_progress
-- v8.4.0 发布准备：版本、跨平台测试适配与公开白名单核对；依次提交、等待三平台 CI、推送标签、等待发布并验证下载附件。
+- v8.4.0 公开提交 f9b49d4b2902db1b31ff6f7436d1c2e99ec5e6de 已推送；初轮 CI 42453592700 Linux/macOS 通过，Windows 两项失败已定位并修复，修复后定向 98 passed，准备提交 Windows 修复并重跑三平台 CI，尚未创建标签。
 
 ## key_decisions
 - 模型可提出检索词与未核验候选；可信代码核验来源、版本、API 和文件完整性；语义与科学适用性仍需人工审查。
@@ -37,10 +40,10 @@ updated_at: 2026-11-08 14:06:13 CST
 - 中间失败/中断记录完整保留；full_final 为旧夹具的 8 failed 记录，8 项修复及重新全量通过过程见 fixture_fix_delta.json 和 REPORT.md。仅 full_accepted 是最终完整通过记录。
 
 ## blockers_or_warnings
-- 无工程实施阻塞。8 项跳过及 1 条已有 fork DeprecationWarning 保留。
+- Windows 证据路径序列化和 R 启动器修复已通过本机定向；初次失败记录保留，最终跨平台 CI 待运行。8 项跳过及 1 条已有 fork DeprecationWarning 保留。
 - 当前受限工具环境不能嵌套 sandbox-exec；原生沙箱测试已在获准宿主环境实际执行。
-- 未完成真实模型端到端、实时连接器验收、Windows 原生 AppContainer 或跨平台 CI；官方网页资料核对不等同于连接器验收。
+- 未完成真实模型端到端、实时连接器验收、Windows 原生 AppContainer 或本次最终三平台 CI；官方网页资料核对不等同于连接器验收。
 - 维护信息可能 unknown；来源/引用文字/API 核验不证明语义、统计实现或科学适用性。当前 VERSION 为 8.4.0 候选，尚未完成发布；标签只在代码 CI 通过后创建。
 
 ## next_step
-完成发布定向检查后，仅暂存 PUBLIC_FILES.json 白名单中的变更并提交、推送；等待所有平台 CI 通过后创建 v8.4.0 标签。
+完成 Windows 修复定向测试、提交并推送，等待新三平台 CI 全部通过后固定标签，再完成发布下载验收。

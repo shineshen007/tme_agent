@@ -216,12 +216,28 @@ def test_real_guarded_python_api_probe(project_root, stub_cfg):
     assert 'x' in rows[0]['apis']['math.isfinite']['signature']
 
 
+def test_windows_session_paths_are_stored_as_posix(tmp_path, inputs, monkeypatch):
+    from pathlib import PureWindowsPath
+    from unittest.mock import Mock
+    store = Mock()
+    store.directory.return_value.relative_to.return_value = PureWindowsPath('workspace/tui/sessions/task_fixture')
+    store.get.return_value = {}
+    monkeypatch.setattr('multiomics_tui.task_sessions.TaskStore', Mock(return_value=store))
+    receipt = collect(tmp_path, inputs, task_id='task_fixture')
+    assert receipt['path'].startswith('workspace/tui/sessions/task_fixture/planning/')
+    assert '\\' not in receipt['path']
+
+
 def test_real_guarded_r_api_probe(project_root, stub_cfg):
     folder = project_root / 'r_probe'; folder.mkdir()
     c = {'id': 'wilcox', 'name': 'Wilcoxon', 'language': 'r', 'package': 'stats',
          'apis': ['wilcox.test'], 'query': 'Wilcoxon signed rank method'}
     rows = pe.probe_method_apis(project_root, [c], stub_cfg, folder)
-    assert rows[0]['status'] == 'verified'
+    assert rows[0]['status'] == 'verified', rows[0]
+    from multiomics_tui.actions import rscript_path
+    import shutil
+    executable = rscript_path(project_root)
+    assert Path(rows[0]['interpreter']).samefile(shutil.which(executable) or executable)
     assert 'paired' in rows[0]['apis']['wilcox.test']['documentation']
     assert len(rows[0]['interpreter_sha256']) == 64
 

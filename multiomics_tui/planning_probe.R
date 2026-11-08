@@ -4,7 +4,7 @@ request <- jsonlite::read_json(a[1], simplifyVector=FALSE)
 rows <- list()
 for (candidate in request) {
   pkg <- candidate$package
-  row <- list(id=candidate$id, language='r', package=pkg, interpreter=normalizePath(file.path(R.home('bin'),'Rscript'),mustWork=FALSE),
+  row <- list(id=candidate$id, language='r', package=pkg, interpreter=normalizePath(a[3],mustWork=TRUE),
               runtime=as.character(getRversion()), status='missing', apis=list())
   tryCatch({
     if (!requireNamespace(pkg,quietly=TRUE)) stop(paste('Missing package',pkg))
