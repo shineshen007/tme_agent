@@ -1,49 +1,43 @@
-updated_at: 2026-11-08 16:13:36 CST
+updated_at: 2026-11-08 16:31:32 CST
 
 ## current_goal
-按用户明确授权提交并发布 v8.4.0；工程实现已通过 906 passed / 8 skipped，本轮正在执行跨平台 CI、发布及下载验收，未运行用户真实统计分析。
+v8.4.0 方法证据优先规划及矩阵视图修复已提交、正式发布并完成下载验收；不包含用户真实统计分析。
 
 ## completed
-- 初轮发布定向 97 passed；历史校验器兼容复验通过；初轮 238 项候选内容、ZIP CRC、权限、内外哈希和 Git blobs 完全匹配。
-- Windows 修复后方法证据 41 passed，新增 Windows 路径回归；R 探测绑定实际启动器，兼容 .EXE。
-- 发行复验 19 项本地 HTTP 失败记录已保留；进程级 NO_PROXY 复验全部发行/回滚测试 57 passed；合计修复后定向 98 passed。
-- 用户已明确批准必要工程函数及最小辅助/测试函数；未新增自编统计或绘图算法。
-- 接入规划前方法文献、CRAN/Bioconductor/PyPI 官方来源与实际 R/Python API/签名/帮助核验；模型不能生成核验凭证。
-- 方法、版本、原文、输入及原始要求与不可变证据快照纳入审批；缺证据/依赖/API 或设计冲突时禁止审批，执行前检查环境漂移。
-- 实现默认 30 天缓存、离线使用、依赖发现清单、失败/过期记录及部分阶段恢复；未安装依赖或修改共享环境。
-- GSVA 本地冻结协议先于方法检索提供，审批前核对全部构造器与 gsva API；旧计划可读，执行须重新规划，旧校验器拒绝新协议。
-- 最终独立完整回归：906 passed / 8 skipped / 0 failed / 0 errors，退出码 0，保留 1 条已有 fork 警告；full_accepted.log/xml。
-- 新增证据/原生 API/合成端到端及 GSVA 协议定向：41 passed；旧科研收尾夹具修正后 8 passed，随后已完整重跑通过。
-- 实际本机探测 Python 3.14.7、SciPy 1.18.1、R stats 4.5.2、GSVA 2.4.9；4 组 API 记录及合成执行的 5 项等哈希副本已持久保存。
-- 238 项公开源码审计通过；26 项原始输入、历史会话及已有 PDF SHA256 不变，实施前矩阵视图核心修改保留。
-- 最终代码/依赖与测试起点冻结哈希一致；协议说明、README、PROJECT_CONTEXT、CHANGELOG、公开源码清单和报告已同步。
+- 发布标签 v8.4.0 固定到 f8c2f72b069eabdad12554e5b44dc07a0d1e5e80，正式 Release 已上线： https://github.com/shineshen007/tme_agent/releases/tag/v8.4.0 。
+- 三平台 CI 42462057589 全部通过：Windows 887 passed / 28 skipped，Linux/macOS 各 893 passed / 22 skipped；macOS 保留 1 条已有 fork 警告。
+- 发布工作流 42462707091 全部通过；独立完整复验 893 passed / 22 skipped，公开源码审计和内置 TCGA-LIHC 来源门禁通过。
+- 下载 3 项发行附件；238 项公开源码与标签 Git blobs 逐项一致，GitHub digest、SHA256SUMS、ZIP CRC、内部 manifest/哈希和权限通过，与独立本地候选包字节一致。
+- ZIP SHA256：56909022f3353e94ca2add11bdd70f727953b7da25eb4a258b36d78116960ea2。
+- 方法证据主体完整回归 906 passed / 8 skipped；Windows 修复后方法证据 41 passed、发行/回滚复验 57 passed。所有初次失败及中断记录保留，不用中间记录代替最终通过证据。
+- 方法文献、官方软件来源及实际 R/Python API 核验接入规划前；方法、原文、版本/环境、输入及请求与证据快照纳入审批，缺证据/依赖/API 或设计冲突时阻止审批。
+- 默认 30 天证据缓存、离线复用与失败恢复已实现；GSVA 冻结协议、澄清、矩阵视图和分析后科研续接保留。旧计划可读，未执行计划须重新规划，旧校验器拒绝新协议。
+- Windows 证据路径统一为 POSIX 序列化，R 探测绑定实际启动器（含 Rscript.EXE）；生产沙箱约束保持。
+- 26 项原始输入、历史会话及原有 PDF SHA256 不变；私有数据、配置、密钥、环境、会话与 reports/ 未进入发行。原有未跟踪 assets/multiagent_architecture.pdf 保留。
 
 ## in_progress
-- v8.4.0 公开提交 f9b49d4b2902db1b31ff6f7436d1c2e99ec5e6de 已推送；初轮 CI 42453592700 Linux/macOS 通过，Windows 两项失败已定位并修复，修复后定向 98 passed，准备提交 Windows 修复并重跑三平台 CI，尚未创建标签。
+- 无功能、发布或下载步骤待完成。
 
 ## key_decisions
-- 模型可提出检索词与未核验候选；可信代码核验来源、版本、API 和文件完整性；语义与科学适用性仍需人工审查。
-- 允许有效证据缓存；必要证据不足时不以模型记忆、缺包替代算法或自编实现兜底。
-- 原始数据、历史会话及已有未提交修改保留；不自动下载研究参考数据，不调用真实模型，此前实现阶段未提交/推送或创建 Release；用户现已明确授权提交和发布。
-- scientific_status 保持 NOT_EVALUABLE；工程测试通过不构成真实多组学、临床或出版验收。
+- 模型只能提出检索词与候选；可信工程代码核验来源、版本、API 和完整性，必要证据不足不得以模型记忆或手写统计实现兜底。
+- 用户已明确批准必要工程和最小测试函数及提交发布；未新增自编统计/绘图算法，未安装本地依赖或更改共享环境，未调用真实模型。
+- 标签保留在已测代码提交；后续文档提交不移动标签，避免改变下载验收对象。
+- scientific_status 保持 NOT_EVALUABLE；工程通过不构成科学、临床或出版验收。
 
 ## changed_files
-- 新增 multiomics_tui/planning_evidence.py、planning_probe.py、planning_probe.R、docs/PLANNING_EVIDENCE.md、tests/planning_fixtures.py、tests/test_planning_evidence.py。
-- 修改 task_planner.py、task_runner.py、task_sessions.py、controller.py、app.py、requirements.txt、示例配置、README 中英文、PROJECT_CONTEXT.md、CHANGELOG.md、PUBLIC_FILES.json、CURRENT_STATE.md 及相关离线测试夹具。
-- 实施前已有 input_inspection.py、input_probe.R、pathway_scoring.py、docs/PATHWAY_SCORING.md 等核心矩阵视图修改哈希未变；test_matrix_views.py 和已有 PDF 保留。
+- 规划证据模块与 R/Python 探测、规划/审批/执行/UI 接口、矩阵视图、配置和依赖清单、离线测试、公开文件清单、协议与使用说明、CI/发布工作流及状态文档。
+- 具体实现见标签提交、CHANGELOG.md 及 docs/PLANNING_EVIDENCE.md；实施前已有矩阵视图修改完整保留。
 
 ## latest_outputs
-- reports/release_v8.4.0_20261108/：发布基线、验收及后续 CI/下载记录。
-- reports/planning_evidence_preparation_20261108_123659/REPORT.md、completion.json、full_accepted.log、full_accepted.xml。
-- 同目录 evidence_complete.log/xml、finalization_verified.log/xml、native_api_receipts.json、guarded_utility_receipts.json 及 guarded_utility_receipts/。
-- 同目录 baseline.json、worktree_before.patch、CURRENT_STATE.before.md、final_run_manifest.json、protected_final.json、prior_matrix_changes_preserved.json、public_release_audit.json。
-- 中间失败/中断记录完整保留；full_final 为旧夹具的 8 failed 记录，8 项修复及重新全量通过过程见 fixture_fix_delta.json 和 REPORT.md。仅 full_accepted 是最终完整通过记录。
+- reports/release_v8.4.0_20261108/REPORT.md、download_verified.json、candidate_final_verified.json、protected_final.json、ci_final_passed.json、release_run_passed.json。
+- 同目录 downloaded/、candidate_final/、01_verify_download.py、ci_final_all.log、release_all.log、distribution_recheck.log/xml；原始失败及初轮候选包完整保留。
+- reports/planning_evidence_preparation_20261108_123659/REPORT.md、full_accepted.log/xml、native_api_receipts.json、guarded_utility_receipts/。
 
 ## blockers_or_warnings
-- Windows 证据路径序列化和 R 启动器修复已通过本机定向；初次失败记录保留，最终跨平台 CI 待运行。8 项跳过及 1 条已有 fork DeprecationWarning 保留。
-- 当前受限工具环境不能嵌套 sandbox-exec；原生沙箱测试已在获准宿主环境实际执行。
-- 未完成真实模型端到端、实时连接器验收、Windows 原生 AppContainer 或本次最终三平台 CI；官方网页资料核对不等同于连接器验收。
-- 维护信息可能 unknown；来源/引用文字/API 核验不证明语义、统计实现或科学适用性。当前 VERSION 为 8.4.0 候选，尚未完成发布；标签只在代码 CI 通过后创建。
+- 无发布阻塞。各平台跳过项与已有警告明确保留；Windows CI 使用现有便携测试接缝，不构成原生 AppContainer 验收。
+- 未完成真实模型端到端、实时方法连接器及完整 Windows/macOS 原生安装验收；发行 manifest 保留 native_pending / real_api not_tested。
+- 来源原文、版本和 API 核验不证明语义或科学适用性；维护状态可能 unknown，依赖缺失时提供清单并阻塞，不自动安装。
+- 本地发行测试曾遇回环 HTTP 连接失败，进程级 NO_PROXY/no_proxy 后 57 项全部通过，未修改系统代理。
 
 ## next_step
-完成 Windows 修复定向测试、提交并推送，等待新三平台 CI 全部通过后固定标签，再完成发布下载验收。
+本次发布收尾已完成；后续真实模型、连接器或原生安装验收以独立任务记录，不改变本次已发布标签。
