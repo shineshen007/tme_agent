@@ -7,7 +7,7 @@
 - Add explicit JSON output instructions before privacy checks, caching and audit in the shared client, fixing compatible API method-search requests.
 - Preserve original requirements, complete choices, input hashes and approval boundaries. No scientific validation claim is added.
 
-- Release candidate validation: fresh local full suite 936 passed / 8 skipped / 0 failed / 0 errors, with one existing fork deprecation warning; public source/provenance gates and native fingerprints passed. Three-platform CI and published-asset verification are pending.
+- Published v8.4.1 at `3e9ee55`. Fresh local full suite: 936 passed / 8 skipped / 0 failures; Windows CI: 916 passed / 28 skipped; Linux/macOS and independent release validation: 922 passed / 22 skipped. Existing warnings and legitimate skips are retained. All 238 public blobs, GitHub digests, ZIP CRC, internal hashes and permissions match the tag and independent candidate. ZIP SHA256: `658403ae2625fdefd6eb9b2bb5f17611b7c35949b7125759b253abc5282eeabf`. Previous v8.4.0 and 26 protected files are unchanged. See reports/release_v8.4.1_20261109/REPORT.md for the full record and validation limits.
 
 ### Pre-release repair history
 

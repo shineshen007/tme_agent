@@ -1,6 +1,6 @@
 # Project context
 
-- v8.4.1 release candidate consolidates English fixed controls, Chinese task/clarification replies, responsive clarification workers and shared JSON request instructions. A fresh final local suite passed 936 tests with 8 legitimate skips; portable CI and release/download verification are the remaining publication gates.
+- v8.4.1 is the published UI/language/JSON patch release, tagged at 3e9ee55. A fresh full local suite (936 passed / 8 skipped), all three portable CI platforms, the release workflow and downloaded source integrity checks passed. Fixed controls stay English; Chinese task replies and clarification language persist across retries/restoration. Native/API/scientific acceptance remains separate and pending.
 
 - New natural-language plans use method_evidence_v1: trusted pre-plan literature/software retrieval and guarded installed-API probes precede the final planner. Immutable planning_evidence and method_bindings are approval-bound, with a 30-day default verified cache and explicit offline/dependency failure states. Approval and execution check artifacts, source inputs, original requirements and task runtime. The evidence: parameter source forces old validators to refuse new plans. Legacy plans remain readable but cannot be newly approved/executed without replanning. Statistical/research/scientific statuses remain separate; source and API verification is not semantic or scientific acceptance. See docs/PLANNING_EVIDENCE.md.
 
