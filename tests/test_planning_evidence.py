@@ -464,3 +464,19 @@ utils::write.csv(d,file.path(Sys.getenv('TASK_DIR'),'tables/check.csv'),row.name
     assert path.read_bytes() == original_bytes
     manifest = json.loads((project_root / 'analysis' / state['task_id'] / 'result_manifest.json').read_text())
     assert manifest['final_output_revalidation']['unchanged']
+
+
+@pytest.mark.parametrize('language,word,prompt', [('zh', 'Chinese', '请选择分析单位'), ('en', 'English', 'Choose the analysis unit')])
+def test_method_search_clarification_receives_reply_language(tmp_path, inputs, language, word, prompt):
+    from unittest.mock import Mock
+    questions = {'questions': [{'id': 'unit', 'prompt': prompt, 'mode': 'single', 'options': []}]}
+    def chat(role, system, request, schema, validator):
+        assert role == 'tui_method_search'
+        assert 'clarification prompts, labels, reasons and answers in ' + word in system
+        validator(questions)
+        return {'parsed': questions}
+    probe = Mock()
+    answer = pe.collect_planning_evidence(SimpleNamespace(chat_json=chat), tmp_path,
+        REQUEST, inputs, {}, reply_language=language, probe=probe)
+    assert answer == questions
+    probe.assert_not_called()

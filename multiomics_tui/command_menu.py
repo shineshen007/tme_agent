@@ -153,11 +153,10 @@ class CommandMenu(Vertical):
         self.styles.height = 0
 
     def _row(self, item: Command, highlighted: bool) -> Text:
-        zh = self._language == "zh"
         line = Text("❯ " if highlighted else "  ", style="#4a9eff")
         line.append(item.name + " " * max(1, 18 - len(item.name)),
                     style="#ffffff" if highlighted else "#d4d4d4")
-        line.append(item.chinese if zh else item.english, style="#8b9bb0")
+        line.append(item.english, style="#8b9bb0")
         return line
 
     def _paint(self) -> None:

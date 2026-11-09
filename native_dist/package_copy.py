@@ -42,7 +42,7 @@ def assess(specs):
 def closure(specs):
     selected, missing = assess(specs)
     if missing:
-        raise RuntimeError('依赖缺少或版本不兼容：'+', '.join(missing))
+        raise RuntimeError('Missing or incompatible dependencies: '+', '.join(missing))
     return selected
 
 
@@ -52,7 +52,7 @@ def copy_packages(selected, destination):
     for dist in selected.values():
         base = Path(dist.locate_file('')).resolve()
         if base.name not in {'site-packages','dist-packages'} or not dist.files:
-            raise RuntimeError(f'无法安全复制此依赖（可能为 editable 安装）：{dist.name}')
+            raise RuntimeError(f'Cannot safely copy this dependency (possibly an editable installation): {dist.name}')
         for name in dist.files:
             source = Path(dist.locate_file(name))
             relative = Path(str(name))
@@ -61,7 +61,7 @@ def copy_packages(selected, destination):
                 continue
             if source.is_file():
                 if not source.resolve().is_relative_to(base):
-                    raise RuntimeError('依赖含外部链接：'+dist.name)
+                    raise RuntimeError('Dependency contains an external link: '+dist.name)
                 target = destination/relative
                 target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copy2(source,target)

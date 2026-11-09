@@ -31,7 +31,7 @@ TEMPLATES = {
     'data/metadata/examples/synthetic_samples.csv': ('examples/synthetic_samples.csv',),
 }
 DIRECTORIES = ('config', 'data/raw', 'data/metadata', 'data/signature', 'knowledge/resources')
-API_DEFAULT = ("# 使用界面 /model 设置服务和模型；密钥通过 /key 输入，不能写入本文件。\n"
+API_DEFAULT = ("# Configure the provider and model with /model; enter credentials with /key, never in this file.\n"
                "llm: {}\n")
 
 

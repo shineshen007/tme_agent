@@ -20,7 +20,7 @@ class CompatibleClient(LLMClient):
             return ''
         key = credential({'llm': self.cfg})
         if not key:
-            raise LLMConfigError('当前接口缺少密钥，请通过 /key 输入。')
+            raise LLMConfigError('This endpoint requires an API key; enter it with /key.')
         return key
 
     def _compatible_post(self, url, headers, body, timeout):
@@ -39,14 +39,14 @@ class CompatibleClient(LLMClient):
         status, text = self._send(url, headers, json.dumps(payload).encode('utf-8'), timeout)
         if status < 400:
             if redact(text) != text:
-                raise LLMValidationError('服务回复中含密钥，已拒绝保存。')
+                raise LLMValidationError('The provider response contains credentials and was not saved.')
             try:
                 reply = json.loads(text)
                 content = reply['choices'][0]['message']['content']
                 if not isinstance(content, str) or not isinstance(reply.get('usage', {}), dict):
                     raise ValueError('Invalid response envelope')
             except (ValueError, KeyError, IndexError, TypeError) as exc:
-                raise LLMValidationError('服务未返回有效的 OpenAI compatible JSON 回复。') from exc
+                raise LLMValidationError('The provider did not return a valid OpenAI compatible JSON response.') from exc
         return status, text
 
     def _cache_key(self, role, messages, schema_name):
@@ -56,7 +56,7 @@ class CompatibleClient(LLMClient):
 
     def _guard(self, text):
         if redact(text) != text:
-            raise LLMConfigError('请求中含密钥，请移除后重试。')
+            raise LLMConfigError('The request contains credentials; remove them before retrying.')
         return super()._guard(text)
 
     def _audit(self, record):
@@ -86,21 +86,21 @@ def test_connection(root, cfg):
         client = CompatibleClient(root=Path(temp), run=Path(temp), cfg=value, audit_dir=Path(temp)/'calls')
         def validate(answer):
             if answer != {'ok': True}:
-                raise ValueError('JSON 连通性回复不符合预期 {"ok": true}。')
+                raise ValueError('Unexpected JSON connection response; expected {"ok": true}.')
         try:
             client.chat_json('connection_probe', 'Return valid JSON only: {"ok": true}.',
                              'Connection test; return {"ok": true}.', 'connection_probe', validator=validate)
         except LLMError as exc:
             message = redact(str(exc))
             if '401' in message or '403' in message:
-                category = '认证失败'
+                category = 'Authentication failed'
             elif '404' in message:
-                category = '地址或模型未找到'
+                category = 'Endpoint or model not found'
             elif 'JSON' in message or 'json' in message:
-                category = 'JSON 返回检查失败'
+                category = 'JSON response validation failed'
             elif '400' in message or '422' in message:
-                category = '请求参数不受支持；请核对 JSON 模式和高级设置'
+                category = 'Unsupported request parameters; check JSON mode and advanced settings'
             else:
-                category = '连接失败'
-            return {'status': 'failed', 'message': category + '：' + message}
-    return {'status': 'passed', 'message': '连接、认证、模型调用和 JSON 返回检查通过。'}
+                category = 'Connection failed'
+            return {'status': 'failed', 'message': category + ': ' + message}
+    return {'status': 'passed', 'message': 'Connection, authentication, model invocation and JSON response checks passed.'}

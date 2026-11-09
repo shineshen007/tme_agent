@@ -30,7 +30,7 @@ def task_tmp(root, task_dir):
         short = _short_windows_path(target)
         if short:
             return short
-        raise RuntimeError("R 需要无空格临时路径，本机未提供 Windows 短路径。请将测试包解压到 C:\\MultiomicsTest 等当前用户可写且无空格的位置后重新配置。")
+        raise RuntimeError("R requires a temporary path without spaces, but Windows short paths are unavailable. Extract the test package to a writable path without spaces, such as C:\\MultiomicsTest, then run setup again.")
     base = Path(tempfile.gettempdir())
     if " " in str(base):
         base = Path("/tmp")

@@ -2,6 +2,7 @@
 import asyncio
 import copy
 import json
+import re
 import time
 from unittest.mock import DEFAULT, Mock
 
@@ -91,6 +92,10 @@ def test_full_options_wrap_and_resize_without_changing_protocol(project_root, st
             options = app.query_one('#clarification-options', OptionList)
             options.scroll_visible(animate=False, immediate=True, top=True)
             await pilot.pause()
+            assert session.reply_language() == 'zh'
+            for control in app.query('Button, Input'):
+                for attribute in ('label', 'placeholder'):
+                    assert not re.search(r'[\u3400-\u9fff]', str(getattr(control, attribute, '')))
             assert options.option_count == 8 and not app._clarification_selected
             for width, height in [size, (50, 24), size]:
                 await pilot.resize_terminal(width, height)
@@ -402,3 +407,48 @@ def test_old_plan_hash_and_session_remain_readable(project_root, stub_cfg):
     assert before.read_bytes() == old_bytes
     assert restored.tasks.get(state["task_id"])["plan_hash"] == saved["plan_hash"]
     assert restored.tasks.user_text(state["task_id"]) == TAIL
+
+
+def test_slow_clarification_keeps_message_pump_responsive_and_submits_once(project_root, stub_cfg, monkeypatch):
+    import threading
+    from multiomics_tui.controller import Response
+    from multiomics_tui.task_sessions import canonical_hash
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+    def slow_submit(*args, **kwargs):
+        calls.append((args, kwargs))
+        started.set()
+        assert release.wait(10), 'Test did not release the offline planner'
+        return Response('text', '已收到澄清答案')
+    async def scenario():
+        session, client = setup_session(project_root, stub_cfg)
+        questions = copy.deepcopy(QUESTIONS[:1])
+        state = session.tasks.create(TAIL)
+        digest = canonical_hash(questions)
+        draft = {questions[0]['id']: {'selected': [questions[0]['options'][0]['id']], 'custom': ''}}
+        state.update(status='needs_clarification', questions=questions, clarification_hash=digest,
+                     clarification_step=1, clarification_draft=draft)
+        session.tasks.save(state)
+        monkeypatch.setattr(session, 'revise_plan', slow_submit)
+        app = MultiomicsApp(session)
+        try:
+            async with app.run_test(size=(80, 32)) as pilot:
+                await app._handle_async('/session ' + state['task_id'])
+                button = app.query_one('#clarification-submit', Button)
+                button.press()
+                assert await asyncio.to_thread(started.wait, 2)
+                await asyncio.wait_for(pilot.pause(), timeout=2)
+                assert app._busy
+                button.press()
+                await asyncio.wait_for(pilot.press('f1'), timeout=2)
+                assert app._help_showing() and len(calls) == 1
+                release.set()
+                await settle(pilot, session, app)
+                assert not app._busy and len(calls) == 1
+                assert calls[0][1]['clarification_answers'] == draft
+                assert calls[0][1]['expected_clarification_hash'] == digest
+                session.jobs.start.assert_not_called()
+        finally:
+            release.set()
+    asyncio.run(scenario())

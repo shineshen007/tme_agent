@@ -61,7 +61,7 @@ def distribution_enabled(root: Path) -> bool:
 
 def require_supported_action(root: Path, action: str) -> None:
     if distribution_enabled(root) and action != "task":
-        raise ValueError("公开版支持自然语言新分析任务。历史固定流程需要独立的研究配置和输入；请将本地数据放入 data/ 后输入分析目标。")
+        raise ValueError("The public version supports new natural-language analysis tasks. Historical pipelines require separate study configuration and inputs; place local data in data/ and enter an analysis goal.")
 
 
 def start_native(manager, kind, argv, label, run_id, env_extra):

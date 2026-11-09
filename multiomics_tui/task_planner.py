@@ -47,8 +47,7 @@ def project_relative_request(root: Path, text: str) -> str:
                 prefix = value
                 break
         failure = ('Absolute input path is unavailable, external or unsafe; '
-                   'use a verified current-project relative path such as data/raw/met. '
-                   '绝对输入路径不存在、位于项目外或不安全；请改用当前项目相对路径，例如 data/raw/met。')
+                   'use a verified current-project relative path such as data/raw/met.')
         if prefix is None:
             raise PlanningPathError(failure)
         stop = starts[index + 1].start() if index + 1 < len(starts) else len(text)
@@ -711,6 +710,7 @@ def validate_plan(root: Path, raw: dict, request: str, cfg: dict, inspection: di
 
 def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "en", *, task_id=None) -> dict:
     from .input_inspection import inspect_inputs, public_inspection
+    from .language import choose
     inventory = catalog(root)
     source_request = request
     request = project_relative_request(root, request)
@@ -767,16 +767,16 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
             views = profile.get('matrix_views', [])
             if len(views) > 1 and not any(v['view_id'] in source_request for v in views):
                 options = [{'id': 'view_' + str(n),
-                            'label': '特征列 ' + v['feature_ref'] + '：' + v['feature_key'],
+                            'label': choose(language, 'Feature column ', '特征列 ') + v['feature_ref'] + '：' + v['feature_key'],
                             'answer': 'matrix_view=' + v['view_id'],
-                            'reason': '选择特征标识列；不代表已完成代谢物或基因注释。',
+                            'reason': choose(language, 'Select the feature identifier column; this does not establish metabolite or gene annotation.', '选择特征标识列；不代表已完成代谢物或基因注释。'),
                             'basis': [{'path': profile['path']}, {'path': v['metadata_path']}]}
                            for n, v in enumerate(views[:6])]
                 return validate_plan(root, {'questions': [{'id': 'matrix_view',
-                    'prompt': '请选择混合宽表的特征标识及样本匹配视图；未列出的选择可用自定义答案指定。',
+                    'prompt': choose(language, 'Select the feature identifier and sample-matching view for this mixed wide table; use a custom answer for other choices.', '请选择混合宽表的特征标识及样本匹配视图；未列出的选择可用自定义答案指定。'),
                     'mode': 'single', 'options': options}]}, source_request, cfg, inspection=inspected)
         from .planning_evidence import collect_planning_evidence, PROTOCOL
-        evidence = collect_planning_evidence(client, root, request, inspected, cfg, task_id=task_id, source_request=source_request)
+        evidence = collect_planning_evidence(client, root, request, inspected, cfg, task_id=task_id, source_request=source_request, reply_language=language)
         if 'questions' in evidence:
             return validate_plan(root, evidence, source_request, cfg, inspection=inspected)
         from .task_sessions import canonical_hash

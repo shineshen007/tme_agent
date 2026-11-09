@@ -18,7 +18,7 @@ def wait_job(manager, job_id, timeout=15):
         if job['status'] in {'succeeded','failed','killed','exited'}:
             return job
         time.sleep(0.05)
-    raise RuntimeError('任务状态超时：'+job_id)
+    raise RuntimeError('Timed out waiting for task state: '+job_id)
 
 
 async def interface(root):
@@ -65,7 +65,7 @@ def acceptance(root):
         child_pid = int(child_file.read_text())
         child_identity = process_info(child_pid)
         if child_identity is None:
-            raise RuntimeError('未能核验测试子进程身份')
+            raise RuntimeError('Could not verify the test child process identity')
         try:
             manager.start('task',[sys.executable,'-c','print("duplicate")'],label='Expected rejection')
             checks['concurrent_task_rejected'] = False
@@ -80,7 +80,7 @@ def acceptance(root):
         if manager.get(job['job_id'])['status'] in {'starting','running','stopping','stalled','stop_failed'}:
             manager.kill(job['job_id'])
     if not all(checks.values()):
-        raise RuntimeError('生命周期验收未通过：'+json.dumps(checks,ensure_ascii=False))
+        raise RuntimeError('Lifecycle acceptance failed: '+json.dumps(checks,ensure_ascii=False))
     return checks
 
 

@@ -1,5 +1,7 @@
 # Project context
 
+- v8.4.1 release candidate consolidates English fixed controls, Chinese task/clarification replies, responsive clarification workers and shared JSON request instructions. A fresh final local suite passed 936 tests with 8 legitimate skips; portable CI and release/download verification are the remaining publication gates.
+
 - New natural-language plans use method_evidence_v1: trusted pre-plan literature/software retrieval and guarded installed-API probes precede the final planner. Immutable planning_evidence and method_bindings are approval-bound, with a 30-day default verified cache and explicit offline/dependency failure states. Approval and execution check artifacts, source inputs, original requirements and task runtime. The evidence: parameter source forces old validators to refuse new plans. Legacy plans remain readable but cannot be newly approved/executed without replanning. Statistical/research/scientific statuses remain separate; source and API verification is not semantic or scientific acceptance. See docs/PLANNING_EVIDENCE.md.
 
 - Repository: shineshen007/tme_agent; license: GPL-3.0-or-later for code only (see docs/LICENSE_NOTICE.md).
@@ -33,3 +35,5 @@
 - Grounded historical table aliases are expanded only in explicit table-reference syntax against an unambiguous catalog file; original user text remains authoritative for parameter validation. Clarification answers must pass outbound privacy checks before display. Public inspection includes aggregate identifier_matches (zero overlap included; missing keys remain unknown); zero-overlap exact joins cannot be offered as choices. A model option cannot override an explicitly requested paired design; only a later explicit user instruction can change it.
 
 - v8.4.0 is the published method-evidence-first public-source release (tagged at f8c2f72), including annotated matrix-view support. All three portable CI platforms and downloaded-asset integrity checks passed. Historical approved/unexecuted plans require replanning. Portable CI and publication never establish real-model, native Windows or scientific acceptance.
+
+- Fixed user-interface controls, menus, model/credential settings, launcher/diagnostic/update output and Wiki management chrome use English. Natural-language task replies, plans and clarification prompts/options use the task reply language. Chinese in natural-language requirements selects Chinese even alongside English terminology; paths, code and quoted passages are excluded. Task language persists separately in ui.json, without changing original user content or approval hashes. Method search receives reply_language (default en), matching input selection and final planning.

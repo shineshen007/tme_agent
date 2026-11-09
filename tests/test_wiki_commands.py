@@ -52,7 +52,7 @@ def test_import_and_review_are_separate_content_bound_confirmations(tmp_path, se
     path = resource(tmp_path, [payload(), payload('Another report')])
     preview = handle_wiki(tmp_path, f'import {path}', settings)
     assert not preview.get('error')
-    assert '2 条候选' in preview['message']
+    assert '2 candidates' in preview['message']
     assert not (tmp_path / 'knowledge/wiki').exists()
     result = execute_wiki(tmp_path, preview['confirmation'], settings)
     assert not result.get('error')
@@ -61,7 +61,7 @@ def test_import_and_review_are_separate_content_bound_confirmations(tmp_path, se
     assert service.search('GENE1') == []
     review = handle_wiki(tmp_path, 'review all', settings)
     assert review['confirmation']['arguments']['decision'] == 'approve'
-    assert '原文定位:' in review['message'] and '不会自动发布' in review['message']
+    assert 'Source passage:' in review['message'] and 'Shared publication is separate' in review['message']
     assert service.search('GENE1') == []
     assert not execute_wiki(tmp_path, review['confirmation'], settings).get('error')
     assert len(service.search('GENE1')) == 2
@@ -76,7 +76,7 @@ def test_single_review_reject_and_show_history(tmp_path, settings):
     assert not service.pending() and not service.search('GENE1')
     entry = accepted(tmp_path, settings, payload('Different report'))
     show = handle_wiki(tmp_path, f'show {entry["entry_id"]} 1', settings)
-    assert '版本: 1' in show['message'] and 'pubmed:123' in show['message']
+    assert 'Revision: 1' in show['message'] and 'pubmed:123' in show['message']
 
 
 @pytest.mark.parametrize('command', [
@@ -96,7 +96,7 @@ def test_import_file_must_match_preview_bytes(tmp_path, settings):
     with (tmp_path / path).open('a') as handle:
         handle.write('\n')
     result = execute_wiki(tmp_path, preview['confirmation'], settings)
-    assert result.get('error') and '预览后发生变化' in result['message']
+    assert result.get('error') and 'changed after preview' in result['message']
     assert not (tmp_path / 'knowledge/wiki').exists()
 
 
@@ -178,7 +178,7 @@ def test_publish_and_retract_require_independent_previews(tmp_path, settings):
     value['shareable'] = True
     entry = accepted(tmp_path, settings, value)
     publish = handle_wiki(tmp_path, f'publish {entry["entry_id"]}', settings)
-    assert '共享库:' in publish['message'] and not (tmp_path / 'shared').exists()
+    assert 'Shared library:' in publish['message'] and not (tmp_path / 'shared').exists()
     assert not execute_wiki(tmp_path, publish['confirmation'], settings).get('error')
     reader = knowledge_service(tmp_path / 'other', settings)
     assert reader.search('GENE1')

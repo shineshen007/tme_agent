@@ -23,10 +23,10 @@ def backend():
     elif sys.platform == 'linux':
         from keyring.backends.SecretService import Keyring
     else:
-        raise RuntimeError('此系统没有支持的安全凭据库。')
+        raise RuntimeError('No supported secure credential vault is available on this system.')
     value = Keyring()
     if value.priority <= 0:
-        raise RuntimeError('系统凭据库不可用。')
+        raise RuntimeError('The system credential vault is unavailable.')
     return value
 
 
@@ -39,14 +39,13 @@ def _operation(cfg, operation, key=None):
         if operation == 'write':
             vault.set_password(service, account, key)
             if vault.get_password(service, account) != key:
-                raise RuntimeError('凭据回读不一致')
+                raise RuntimeError('Credential read-back did not match')
         elif vault.get_password(service, account) is not None:
             vault.delete_password(service, account)
     except Exception as exc:
         # Backend errors can contain sensitive input; report only their type.
-        raise RuntimeError('系统密钥' + {'read':'读取', 'write':'保存', 'delete':'删除'}[operation]
-                           + '失败（' + type(exc).__name__ + '）。请解锁系统凭据库并检查权限；'
-                           '不会改用明文文件。') from None
+        raise RuntimeError('System credential ' + operation + ' failed (' + type(exc).__name__
+                           + '). Unlock the credential vault and check permissions; plaintext storage is disabled.') from None
 
 
 def read(cfg):

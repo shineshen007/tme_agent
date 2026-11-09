@@ -1,5 +1,24 @@
 # Changelog
 
+## v8.4.1 — 2026-11-09
+
+- Keep fixed controls and model settings in English while replying to Chinese tasks, including clarification questions, in Chinese. Preserve task language across retries and restored sessions.
+- Continue clarification in a background worker so slow planning keeps the interface responsive and duplicate submissions stay blocked.
+- Add explicit JSON output instructions before privacy checks, caching and audit in the shared client, fixing compatible API method-search requests.
+- Preserve original requirements, complete choices, input hashes and approval boundaries. No scientific validation claim is added.
+
+- Release candidate validation: fresh local full suite 936 passed / 8 skipped / 0 failed / 0 errors, with one existing fork deprecation warning; public source/provenance gates and native fingerprints passed. Three-platform CI and published-asset verification are pending.
+
+### Pre-release repair history
+
+- 完整界面回归暴露澄清提交等待慢规划时阻塞消息队列的问题：改用现有 Textual worker 机制，进入 worker 前同步预留 busy 状态；保留任务/问题哈希检查与重复提交保护。标准/历史/长说明向导及完整文本、慢规划响应性共 6 项复验通过；首轮失败记录保留。
+
+- 固定界面、/model 与连接错误、凭据、澄清导航、命令菜单、Wiki 管理及启动/诊断/更新提示统一英文；中文任务不再改变界面控件语言。自然语言要求含中文时使用中文回复与澄清，排除路径/代码/引用；方法检索显式接收任务语言，本地矩阵视图澄清支持中英文，保持原始内容与审批哈希。本地验证完成，未提交或发布；完整发现轮 929 passed / 3 failed / 8 skipped，全部 3 项向导失败修复后 6 passed；最终语言/文案 19 passed、JSON/标点 4 passed。完整发现轮未在最后修复后重跑，结果与限制见 reports/ui_language_fix_20261108/REPORT.md。
+
+- 本地修复验收：定向 106 passed，完整回归 910 passed / 8 skipped / 0 failed，保留 1 条已有 fork 警告；26 项保护文件哈希不变、238 项公开文件审计通过。见 reports/json_prompt_fix_20261108/REPORT.md。尚未提交或发布本修复。
+
+- 修复方法检索请求在 json_object 模式下缺少 JSON 关键词导致 HTTP 400：公共 chat_json 入口在隐私检查、缓存键及审计前统一添加明确 JSON 对象指令；方法检索提示词同步明确输出格式。严格本地 HTTP 夹具覆盖中文无关键词提示词和实际方法检索提示词，保留 prompt 模式兼容。
+
 ## v8.4.0 — 2026-11-08
 
 - 已正式提交并发布 v8.4.0（标签固定到 f8c2f72）。三平台 CI 全部通过：Windows 887 passed / 28 skipped，Linux/macOS 各 893 passed / 22 skipped；发布工作流独立复验 893 passed / 22 skipped。下载 3 项附件、238 项源码及内外哈希/权限与标签和独立候选包完全一致；26 项保护文件未变。发行记录见 reports/release_v8.4.0_20261108/REPORT.md。

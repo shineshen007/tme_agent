@@ -61,7 +61,7 @@ def make_client(tmp_path: Path, cfg: dict, **kwargs) -> LLMClient:
 
 
 def call(client):
-    return client.chat_json('fixture', 'Reply with JSON only.', 'Return {"ok": true}.', 'fixture')
+    return client.chat_json('fixture', '只返回一个对象。', '只返回结果。', 'fixture')
 
 
 @pytest.mark.parametrize('status', [301, 302, 303, 307, 308])

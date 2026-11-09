@@ -44,7 +44,7 @@ def test_probe_record_is_required_and_fingerprint_bound(project_root, monkeypatc
     只依赖 native 验收。
     """
     from native_dist import doctor
-    with pytest.raises(RuntimeError, match='行为验证'):
+    with pytest.raises(RuntimeError, match='behavioral verification'):
         doctor.require_probe(project_root)
     # 临时项目根没有应用源码和依赖清单，指纹无从计算；先显式指向源码根。
     source = Path(__file__).resolve().parents[1]
@@ -62,7 +62,7 @@ def test_probe_record_is_required_and_fingerprint_bound(project_root, monkeypatc
     # 任一指纹不符都必须重新拒绝，而不是复用旧记录。
     record['runtime_fingerprint'] = '0' * 64
     (project_root / '.runtime/doctor.json').write_text(json.dumps(record), encoding='utf-8')
-    with pytest.raises(RuntimeError, match='行为验证'):
+    with pytest.raises(RuntimeError, match='behavioral verification'):
         doctor.require_probe(project_root)
 
 

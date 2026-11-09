@@ -23,7 +23,7 @@ LOG = logging.getLogger("native_install")
 def run(argv, **kwargs):
     from multiomics_tui.model_config import redact
     command = list(map(str, argv))
-    LOG.info("执行: %s", redact(" ".join(command)))
+    LOG.info("Executing: %s", redact(" ".join(command)))
     # Tee the child's output through the same redactor and FileHandler as the
     # installer. Inherited terminal output alone used to disappear from logs.
     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -31,7 +31,7 @@ def run(argv, **kwargs):
         for line in child.stdout:
             LOG.info("%s", redact(line.rstrip()))
         code = child.wait()
-    LOG.info("退出码: %s", code)
+    LOG.info("Exit code: %s", code)
     if code:
         raise subprocess.CalledProcessError(code, command)
 
@@ -40,13 +40,13 @@ def captured_run(argv, **kwargs):
     """Keep parsed stdout separate while retaining both streams in install.log."""
     from multiomics_tui.model_config import redact
     command = list(map(str, argv))
-    LOG.info("执行: %s", redact(" ".join(command)))
+    LOG.info("Executing: %s", redact(" ".join(command)))
     result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8',
                             errors='replace', check=False, **kwargs)
     for output in (result.stdout, getattr(result, 'stderr', '')):
         for line in (output or '').splitlines():
             LOG.info("%s", redact(line))
-    LOG.info("退出码: %s", result.returncode)
+    LOG.info("Exit code: %s", result.returncode)
     if result.returncode:
         raise subprocess.CalledProcessError(result.returncode, command)
     return result
@@ -66,7 +66,7 @@ def detect_r():
     for candidate in r_candidates(ROOT):
         if inspect_r(candidate, ROOT)['compatible']:
             return Path(candidate).resolve()
-    raise RuntimeError("未找到 R 4.4 或更新版本。请安装官方 R，再运行配置脚本。非默认位置可设置 MULTIOMICS_RSCRIPT。")
+    raise RuntimeError("R 4.4 or newer was not found. Install official R and rerun setup. For a custom location, set MULTIOMICS_RSCRIPT.")
 
 
 def python_exe(root):
@@ -106,7 +106,7 @@ def _write_reused_libraries(py, root, inspected):
         temp.write_text(content, encoding='utf-8')
         temp.replace(target)
     except OSError as exc:
-        raise RuntimeError(f'无法写入 Python 复用库配置：{target}: {exc}') from exc
+        raise RuntimeError(f'Cannot write Python library reuse configuration: {target}: {exc}') from exc
     return reused
 
 
@@ -117,7 +117,7 @@ def dependency_report(py,root):
 
 def setup(root: Path, offline=False, preserve_local_config=False, no_path=False, force_path=False):
     if not (3, 12) <= sys.version_info[:2] < (3, 15):
-        raise RuntimeError("请安装 Python 3.13（支持 3.12–3.14），再重试。")
+        raise RuntimeError("Install Python 3.13 (3.12–3.14 supported), then retry.")
     root = root.resolve()
     from native_dist.public_config import initialize
     initialize(root)
@@ -128,10 +128,10 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
     for record in (root/'workspace/tui/jobs').glob('*.json'):
         data = json.loads(record.read_text(encoding='utf-8'))
         if data.get('status') in {'starting','running','stopping','stalled','stop_failed'}:
-            raise RuntimeError('项目仍有活动后台任务，请完成或停止后再配置环境。')
+            raise RuntimeError('The project has active background jobs; complete or stop them before configuring the environment.')
     report = inventory(root)
     if not report['python'] or not report['r']:
-        raise RuntimeError('缺少兼容 Python/R。请阅读 docs/INSTALL_UPDATE_zh.md，先补齐检查报告中的软件。')
+        raise RuntimeError('Compatible Python/R is missing. Read docs/INSTALL_UPDATE_zh.md and install the software listed in the inspection report.')
     runtime = root / ".runtime"
     runtime.mkdir(exist_ok=True)
     report['operations'] = []
@@ -143,12 +143,12 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         py = python_exe(root)
         checkpoint(report, report_path, "python_environment")
         if not py.is_file():
-            LOG.info("创建本机 Python 环境")
+            LOG.info("Creating the native Python environment")
             run([report['python']['path'], '-m', 'venv', '--system-site-packages', root/'.venv'])
             report['operations'].append({'action':'create_project_environment', 'system_packages_readonly':True})
             checkpoint(report, report_path)
         elif not inspect_python(py, requirements(root))['compatible']:
-            raise RuntimeError('已有 .venv 不兼容，未覆盖。请在新解压目录安装当前版本。')
+            raise RuntimeError('The existing .venv is incompatible and was not overwritten. Install this version in a newly extracted directory.')
         requirement = root / "native_dist/requirements-native.txt"
         checkpoint(report, report_path, "python_dependencies")
         before = inspect_python(py, requirements(root))
@@ -163,10 +163,10 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
             report['operations'].append({'action':'install_missing_python_packages', 'requirements':missing})
             checkpoint(report, report_path)
         else:
-            LOG.info('Python 依赖齐全，跳过 pip 安装')
+            LOG.info('Python dependencies are complete; skipping pip installation')
         after = inspect_python(py, requirements(root))
         if any(row['status'] != 'reusable' for row in after['packages']):
-            raise RuntimeError('Python 依赖版本或导入检查未通过，见环境检查报告。')
+            raise RuntimeError('Python dependency version or import checks failed; see the environment report.')
         dependencies = dependency_report(py,root)
         if dependencies['missing_requirements']:
             required = dependencies['missing_requirements']
@@ -175,7 +175,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
             checkpoint(report, report_path)
             after = inspect_python(py,requirements(root))
             if any(row['status'] != 'reusable' for row in after['packages']):
-                raise RuntimeError('补齐依赖后导入检查失败。')
+                raise RuntimeError('Import checks failed after dependency installation.')
         report['python_dependencies'] = dependency_report(py,root)
         # Check only the project's dependency closure, not unrelated global tools.
         run([py, '-m', 'native_dist.package_copy', '--check', '--project-root', root], cwd=root)
@@ -187,7 +187,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         packages = r_packages(root)
         r_state = inspect_r(rscript, root)
         if not r_state.get('compatible'):
-            raise RuntimeError(f'R 检查失败：{r_state.get("error") or r_state.get("stderr") or "unknown"}')
+            raise RuntimeError(f'R checks failed: {r_state.get("error") or r_state.get("stderr") or "unknown"}')
         missing = [row['name'] for row in r_state.get('packages', []) if row.get('status') != 'reusable']
         r_literal = lambda value: json.dumps(str(value), ensure_ascii=False)
         # Bioconductor dependency trees include large binary packages; the R
@@ -199,7 +199,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
         code += 'cran <- c(' + ','.join(r_literal(x) for x in cran_packages if x) + '); '
         code += 'bioc <- c(' + ','.join(r_literal(x) for x in bioc_packages if x) + '); '
         if offline:
-            code += 'if(length(missing)) stop(paste("离线安装缺少 R 包",paste(missing,collapse=",")))'
+            code += 'if(length(missing)) stop(paste("Offline installation is missing R packages",paste(missing,collapse=",")))'
         else:
             # CRAN packages come from the locked CRAN mirror; Bioconductor packages
             # (e.g. GSVA) are installed through BiocManager against the release
@@ -209,7 +209,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
                      'if(length(bioc_missing)) { '
                      'if(!requireNamespace("BiocManager",quietly=TRUE)) install.packages("BiocManager",lib=lib,repos="https://cloud.r-project.org"); '
                      'BiocManager::install(bioc_missing,lib=lib,ask=FALSE,update=FALSE); } ; '
-                     'if(any(!vapply(missing,requireNamespace,logical(1),quietly=TRUE))) stop("R 包安装不完整")')
+                     'if(any(!vapply(missing,requireNamespace,logical(1),quietly=TRUE))) stop("R package installation is incomplete")')
         run([rscript, "--vanilla", "-e", code])
         report['operations'].append({'action':'install_missing_r_packages' if missing else 'reuse_r_packages',
                                      'packages':missing})
@@ -242,7 +242,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
             temp.replace(config_path)
         api_local = root / "config/api.local.yaml"
         if not api_local.exists():
-            api_local.write_text("# 使用界面 /model 设置服务和模型；密钥通过 /key 输入，不能写入本文件。\nllm: {}\n", encoding="utf-8")
+            api_local.write_text("# Configure the provider and model with /model; enter credentials with /key, never in this file.\nllm: {}\n", encoding="utf-8")
         checkpoint(report, report_path, "behavioral_selfcheck")
         run([py, "-m", "native_dist.doctor", "--project-root", root], cwd=root)
         checkpoint(report, report_path, "global_command")
@@ -260,28 +260,28 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
             from native_dist.command_link import install as install_command
             linked = install_command(root, venv_python=py, add_path=add_path)
             report['operations'].append({'action': 'install_global_command', **linked})
-            LOG.info("已创建 multiomics 命令：%s", linked['launcher'])
+            LOG.info("Created multiomics command: %s", linked['launcher'])
             command_ready = True
             command_on_path = bool(linked.get('path_configured'))
             launcher_dir = linked.get('bin_dir')
             if linked.get('restart_required'):
-                LOG.info("PATH 已更新；请打开新的终端后再运行 multiomics。")
+                LOG.info("PATH updated; open a new terminal before running multiomics.")
             if linked.get('warning'):
-                LOG.warning("multiomics 命令已创建，但 PATH 尚未生效：%s", linked['warning'])
+                LOG.warning("The multiomics command was created, but PATH is not active yet: %s", linked['warning'])
         except Exception as exc:
             from multiomics_tui.model_config import redact
             message = redact(f'{type(exc).__name__}: {exc}')
             report['operations'].append({'action': 'install_global_command',
                                          'status': 'warning', 'error': message})
-            LOG.warning("未创建全局 multiomics 命令：%s；仍可使用 start 脚本。", message)
+            LOG.warning("Global multiomics command was not created: %s; use the start script.", message)
         report.update(status='passed', python_after=after, r_after=inspect_r(rscript,root))
         checkpoint(report, report_path, "complete")
         if command_ready and command_on_path:
-            LOG.info("配置完成。可在任意目录运行 multiomics，或双击 start_windows.cmd / start_macos.command 启动。")
+            LOG.info("Setup complete. Run multiomics from any directory, or open start_windows.cmd / start_macos.command.")
         elif command_ready:
-            LOG.info("配置完成。multiomics 启动器已创建，但 PATH 未配置；请将 %s 加入 PATH 后使用，或运行 start 脚本。", launcher_dir)
+            LOG.info("Setup complete. The multiomics launcher was created without PATH configuration; add %s to PATH or use the start script.", launcher_dir)
         else:
-            LOG.info("配置完成。请双击 start_windows.cmd / start_macos.command 启动；全局 multiomics 命令未创建。")
+            LOG.info("Setup complete. Open start_windows.cmd / start_macos.command; no global multiomics command was created.")
     except Exception as exc:
         from multiomics_tui.model_config import redact
         report.update(status='failed', error=redact(f'{type(exc).__name__}: {exc}'))
@@ -294,7 +294,7 @@ def setup(root: Path, offline=False, preserve_local_config=False, no_path=False,
 def launch(root: Path):
     py = python_exe(root)
     if not py.is_file():
-        raise RuntimeError("尚未配置环境。先双击 setup_windows.cmd 或 setup_macos.command。")
+        raise RuntimeError("Environment is not configured. Open setup_windows.cmd or setup_macos.command first.")
     env = dict(os.environ)
     for name in ('MULTIOMICS_APP_ROOT', 'PYTHONHOME', 'PYTHONSTARTUP'):
         env.pop(name, None)
@@ -335,13 +335,13 @@ def main():
                      no_path=args.no_path, force_path=args.path) or 0
     except Exception as exc:
         from multiomics_tui.model_config import redact
-        LOG.error("操作未完成：%s", redact(exc))
+        LOG.error("Operation failed: %s", redact(exc))
         report_path = log_dir/'install_report.json'
         if args.mode == 'setup' and report_path.is_file():
             report = json.loads(report_path.read_text(encoding='utf-8'))
             report.update(status='failed', error=redact(f'{type(exc).__name__}: {exc}'))
             report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-        LOG.error("请把 .runtime/install.log 发给项目负责人；不要发送 API key。")
+        LOG.error("Share .runtime/install.log with the project maintainer; do not share API keys.")
         return 1
 
 

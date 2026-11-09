@@ -39,7 +39,7 @@ def _seed_datasets(root):
     try:
         mapping = seeds(root)
     except DatasetError as exc:
-        raise RuntimeError(f'内置数据集校验失败：{exc}') from exc
+        raise RuntimeError(f'Built-in dataset validation failed: {exc}') from exc
     base = datasets_root(root).resolve()
     created = []
     for destination, source in sorted(mapping.items()):
@@ -48,7 +48,7 @@ def _seed_datasets(root):
             continue
         origin = Path(source).resolve()
         if not origin.is_file() or not origin.is_relative_to(base):
-            raise RuntimeError(f'内置数据集源文件不可用：{source}')
+            raise RuntimeError(f'Built-in dataset source file unavailable: {source}')
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with origin.open('rb') as src, path.open('xb') as dst:

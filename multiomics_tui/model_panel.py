@@ -36,23 +36,23 @@ class ModelPanel(ModalScreen):
         with Vertical(id='model-dialog'):
             yield Static('Model connection · /model')
             with VerticalScroll():
-                yield Static('Provider / 服务')
+                yield Static('Provider')
                 yield Select([('DeepSeek', 'deepseek'), ('OpenAI compatible', 'openai_compatible'), ('Ollama', 'ollama'), ('LM Studio', 'lm_studio')], value=cfg['provider'], allow_blank=False, id='model-provider')
-                yield Static('Base URL / 接口基础地址')
+                yield Static('Base URL')
                 yield Input(cfg['base_url'], id='model-url')
-                yield Static('Model / 服务中实际可用的模型名')
+                yield Static('Model name available from this provider')
                 yield Input(cfg['model'], id='model-name')
-                yield Static('Authentication / 认证')
-                yield Select([('Bearer API key', 'bearer'), ('None / 无认证', 'none')], value=cfg['auth_mode'], allow_blank=False, id='model-auth')
-                yield Static('API key / 仅本进程保存，可留空使用已有密钥')
+                yield Static('Authentication')
+                yield Select([('Bearer API key', 'bearer'), ('None', 'none')], value=cfg['auth_mode'], allow_blank=False, id='model-auth')
+                yield Static('API key (leave blank to use the existing key)')
                 yield Input(password=True, id='model-key')
-                with Collapsible(title='Advanced / 高级设置', collapsed=True):
-                    yield Static('Model request route / 仅影响模型请求')
-                    yield Select([('继承当前代理 / Inherit', 'inherit'), ('直接连接 / Direct', 'direct')],
+                with Collapsible(title='Advanced', collapsed=True):
+                    yield Static('Model request route (model requests only)')
+                    yield Select([('Inherit current proxy', 'inherit'), ('Direct connection', 'direct')],
                                  value=cfg['proxy_mode'], allow_blank=False, id='model-proxy')
-                yield Static('Advanced parameters stay in config/api.local.yaml. 高级参数仍可在该文件中调整。',
+                yield Static('Advanced parameters stay in config/api.local.yaml.',
                              id='model-advanced-hint')
-            yield Static('Settings only; connection has not been tested. 设置不会自动请求模型。', id='model-notice')
+            yield Static('Settings only; connection has not been tested.', id='model-notice')
             with Horizontal(id='model-buttons'):
                 yield Button('Save', variant='primary', id='model-save')
                 yield Button('Test connection', id='model-test')
@@ -63,7 +63,7 @@ class ModelPanel(ModalScreen):
 
     def on_select_changed(self, event: Select.Changed):
         if not self._loading and event.select.id == 'model-proxy':
-            self.query_one('#model-notice', Static).update('路由已更改；当前设置尚未测试，保存后生效。')
+            self.query_one('#model-notice', Static).update('Route changed; settings are untested and take effect after saving.')
             return
         if self._loading or event.select.id != 'model-provider':
             return
@@ -77,7 +77,7 @@ class ModelPanel(ModalScreen):
             self.query_one('#model-' + field, Input).value = preset[name]
         self.query_one('#model-auth', Select).value = preset['auth_mode']
         self.query_one('#model-key', Input).value = ''
-        self.query_one('#model-notice', Static).update('新服务尚未测试；填写实际模型名后保存或测试。')
+        self.query_one('#model-notice', Static).update('Provider is untested; enter an available model name, then save or test.')
 
     def collect(self):
         def text(field): return self.query_one('#model-' + field, Input).value.strip()
@@ -116,7 +116,7 @@ class ModelPanel(ModalScreen):
                 self._testing = True
                 for widget in self.query('Input, Select, Button'):
                     widget.disabled = True
-                self.query_one('#model-notice', Static).update('Testing… 此请求不包含项目数据，云端可能计费。')
+                self.query_one('#model-notice', Static).update('Testing… No project data is sent. Cloud providers may charge for this request.')
                 result = await asyncio.to_thread(self.session.test_model, settings, key)
                 self.query_one('#model-key', Input).value = ''
                 self.query_one('#model-notice', Static).update(result['message'])

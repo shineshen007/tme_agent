@@ -47,5 +47,5 @@ foreach ($path in ($candidates | Select-Object -Unique)) {
         if ($process.ExitCode -eq 0) { Write-Output $path; exit 0 }
     } catch { continue }
 }
-Write-Error '未发现兼容 Python，请阅读 AGENT_INSTALL_PROMPT_zh.md。'
+Write-Error 'Compatible Python was not found; read AGENT_INSTALL_PROMPT_zh.md.'
 exit 1

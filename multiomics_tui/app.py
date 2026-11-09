@@ -81,7 +81,7 @@ COMMAND_LIST = command_menu.COMMAND_LIST
 # Home onboarding examples shown when the terminal is tall enough; click fills the input.
 HOME_EXAMPLES = (
     "Check the input datasets and summarize sample IDs",
-    "分析某一模块的结果并生成一个新的图表模块",
+    "Analyze a module result and create a new figure module",
     "Ask what evidence exists for a target gene",
 )
 
@@ -183,14 +183,14 @@ class MultiomicsApp(App):
                         yield Static('', id='clarification-counter', markup=False)
                         yield Static('', id='clarification-question', markup=False)
                         yield ClarificationOptions(id='clarification-options', wrap=True)
-                        yield Input(placeholder='自行填写 / Custom answer', id='clarification-custom')
+                        yield Input(placeholder='Custom answer', id='clarification-custom')
                         yield Static('', id='clarification-error', markup=False)
                         yield Static('', id='clarification-summary', markup=False)
                         with Horizontal(id='clarification-navigation'):
-                            yield Button('上一步 / Back', id='clarification-back')
-                            yield Button('下一步 / Next', id='clarification-next', variant='primary')
-                            yield Button('提交并继续规划 / Submit', id='clarification-submit', variant='primary')
-                        yield Button('重新生成选项 / Generate options', id='clarification-regenerate')
+                            yield Button('Back', id='clarification-back')
+                            yield Button('Next', id='clarification-next', variant='primary')
+                            yield Button('Submit answers', id='clarification-submit', variant='primary')
+                        yield Button('Generate choices', id='clarification-regenerate')
                     yield Static("", id="progress-details")
                     with Horizontal(id="progress-actions"):
                         yield Button("Stop task", variant="error", id="stop-task")
@@ -495,8 +495,7 @@ class MultiomicsApp(App):
             log.write(value)
 
     def _refresh_status(self) -> None:
-        self._update("#prompt-meta", self._say("Enter Send · Tab Complete · ↑↓ Choose · /new",
-                                              "Enter 发送 · Tab 补全 · ↑↓ 选择 · /new"))
+        self._update("#prompt-meta", "Enter Send · Tab Complete · ↑↓ Choose · /new")
         service = ("AI checked" if self.session.connection_tested() else "AI configured") if self.session.llm_mode == "LLM" else \
             ("AI on · /key" if self.session.key_available() else "AI off · /key")
         cfg = self.session.cfg.get('llm', {})
@@ -650,7 +649,7 @@ class MultiomicsApp(App):
             self._show("#plan-preview", True)
             self._update("#plan-preview", self._say("Could not load task: ", "无法读取任务：") + str(exc))
             self._update("#result-summary", self._say("No verified result available.", "暂无可用结果。"))
-            self._set_stage(self._say("Could not load task", "无法读取任务"), "error")
+            self._set_stage("Could not load task", "error")
             return
         status = state["status"]
         self._show('#clarification-wizard', status == 'needs_clarification' and not self._busy)
@@ -753,13 +752,12 @@ class MultiomicsApp(App):
             if self._clarification_view != view:
                 self._clarification_view = view
                 self._clarification_epoch = Message().time
-                for selector, en, zh in (('#clarification-back', 'Back', '上一步'),
-                                         ('#clarification-next', 'Next', '下一步'),
-                                         ('#clarification-submit', 'Submit answers', '提交并继续规划'),
-                                         ('#clarification-regenerate', 'Generate choices', '重新生成选项')):
-                    self.query_one(selector, Button).label = self._say(en, zh)
-                self.query_one('#clarification-custom', Input).placeholder = self._say(
-                    'Fill after selecting Custom answer', '选择“自行填写”后在此填写')
+                for selector, en in (('#clarification-back', 'Back'),
+                                     ('#clarification-next', 'Next'),
+                                     ('#clarification-submit', 'Submit answers'),
+                                     ('#clarification-regenerate', 'Generate choices')):
+                    self.query_one(selector, Button).label = en
+                self.query_one('#clarification-custom', Input).placeholder = 'Fill after selecting Custom answer'
                 self._update('#clarification-error', '')
                 summary = step == len(questions)
                 self._show('#clarification-options', not summary)
@@ -771,7 +769,7 @@ class MultiomicsApp(App):
                 self.query_one('#clarification-back', Button).disabled = step == 0
                 draft = state.get('clarification_draft') or {}
                 if summary:
-                    self._update('#clarification-counter', self._say('Review answers', '核对已选答案'))
+                    self._update('#clarification-counter', 'Review answers')
                     self._update('#clarification-question', '')
                     rows = []
                     for i, q in enumerate(questions):
@@ -779,7 +777,7 @@ class MultiomicsApp(App):
                         answer = draft.get(qid, {})
                         options = {o['id']: o for o in q['options']} if isinstance(q, dict) else {}
                         labels = [answer.get('custom', '') if oid == 'custom' else
-                                  self._say('Cannot confirm yet', '暂时无法确认') if oid == 'unknown' else options[oid]['answer']
+                                  'Cannot confirm yet' if oid == 'unknown' else options[oid]['answer']
                                   for oid in answer.get('selected', []) if oid in options or oid in {'custom', 'unknown'}]
                         rows.append(f"{i + 1}. " + (q['prompt'] if isinstance(q, dict) else self._say('Custom clarification', '补充说明'))
                                     + '\n' + '；'.join(labels))
@@ -789,14 +787,14 @@ class MultiomicsApp(App):
                     qid = question['id'] if isinstance(question, dict) else f'legacy_{step}'
                     options = question['options'] if isinstance(question, dict) else []
                     multiple = isinstance(question, dict) and question['mode'] == 'multiple'
-                    self._update('#clarification-counter', self._say(f'Question {step + 1}/{len(questions)}', f'第 {step + 1}/{len(questions)} 题'))
+                    self._update('#clarification-counter', f'Question {step + 1}/{len(questions)}')
                     self._update('#clarification-question', question['prompt'] if isinstance(question, dict)
                                  else self._say('Legacy question: see Details; fill an answer or generate choices.', '历史问题详见 Details；可自行填写或重新生成选项。'))
                     # Native OptionList wraps full, literal text; selection state
                     # is separate from prompts and never rewrites the protocol.
                     choices = [(o['label'] + '\n' + o['reason'], o['id']) for o in options]
-                    choices += [(self._say('Custom answer (fill below)', '自行填写（在下方填写）'), 'custom'),
-                                (self._say('Cannot confirm yet', '暂时无法确认'), 'unknown')]
+                    choices += [('Custom answer (fill below)', 'custom'),
+                                ('Cannot confirm yet', 'unknown')]
                     answer = draft.get(qid, {})
                     self._clarification_selected = list(answer.get('selected', []))
                     selection = self.query_one('#clarification-options', ClarificationOptions)
@@ -825,8 +823,7 @@ class MultiomicsApp(App):
                             self._busy and editable)
         hint = self._get("#plan-hint", Static)
         if hint is not None:
-            note = self._say("Confirm to run; nothing runs before confirmation.",
-                             "点击 Confirm and run 才会执行；确认前不会运行。")
+            note = "Confirm to run; nothing runs before confirmation."
             # On very short windows the hint row is dropped and the plan scrolls instead.
             show_hint = status == "awaiting_approval" and self.size.height >= 30
             hint.update(escape(note) if show_hint else "")
@@ -1197,7 +1194,7 @@ class MultiomicsApp(App):
         self._refresh_status()
         self._write_chat(escape(response.message))
         try:
-            self.notify(escape(response.message), title=self._say("New task", "新任务"), timeout=8)
+            self.notify(escape(response.message), title="New task", timeout=8)
         except Exception:  # noqa: BLE001 - notification support is optional
             pass
         chat_input = self._get("#chat-input", PromptEditor)
@@ -1366,7 +1363,7 @@ class MultiomicsApp(App):
             else:
                 self._message(response.message)
             if not state:
-                self._set_stage(self._say("Answer", "答复"), "ok")
+                self._set_stage("Answer", "ok")
         self._refresh_task_view()
         if self.session.active_task:
             try:
@@ -1454,17 +1451,10 @@ class MultiomicsApp(App):
                     return
                 self._set_busy(True)
                 self._show('#clarification-wizard', False)
-                try:
-                    response = await asyncio.to_thread(self.session.revise_plan, '', task_id,
-                                                      clarification_answers=draft if button_id == 'clarification-submit' else None,
-                                                      expected_clarification_hash=digest,
-                                                      regenerate_options=button_id == 'clarification-regenerate')
-                    await self._render(response)
-                except Exception as exc:
-                    self._message(self._say('Clarification failed: ', '澄清提交失败：') + f'{type(exc).__name__}: {exc}')
-                finally:
-                    self._set_busy(False)
-                    self._refresh_task_view()
+                # Reserve busy state above before returning to the message pump;
+                # slow planning must not block widget events or queue duplicates.
+                self.run_worker(self._continue_clarification(task_id, digest, draft,
+                                regenerate=button_id == 'clarification-regenerate'), exclusive=False)
                 return
         if button_id == "stop-task":
             self._stop_selected_job()
@@ -1561,6 +1551,20 @@ class MultiomicsApp(App):
             self._busy = False
             self._set_busy(False)
             self._refresh_status()
+
+    async def _continue_clarification(self, task_id, digest, draft, *, regenerate=False) -> None:
+        """Keep the message pump responsive while an admitted submission plans."""
+        try:
+            response = await asyncio.to_thread(self.session.revise_plan, '', task_id,
+                                              clarification_answers=None if regenerate else draft,
+                                              expected_clarification_hash=digest,
+                                              regenerate_options=regenerate)
+            await self._render(response)
+        except Exception as exc:
+            self._message(self._say('Clarification failed: ', '澄清提交失败：') + f'{type(exc).__name__}: {exc}')
+        finally:
+            self._set_busy(False)
+            self._refresh_task_view()
 
     def on_click(self, event: Click) -> None:
         """Home example rows fill the input when clicked (never submit)."""

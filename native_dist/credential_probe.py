@@ -28,7 +28,7 @@ def probe(root):
         if created:
             vault.delete_password(service, account)
         return {'status':'unavailable', 'error_type':type(exc).__name__,
-                'message':'系统凭据库未就绪，请解锁或启用凭据服务；不会明文保存密钥。'}
+                'message':'The system credential vault is not ready. Unlock or enable the credential service; keys will not be stored as plaintext.'}
     try:
         with tempfile.TemporaryDirectory(prefix='credential_probe_',dir=Path(root)/'.runtime') as name:
             task = Path(name)
@@ -75,7 +75,7 @@ pathlib.Path(RESULT).write_text(json.dumps({'readable':readable,'reason':reason}
                 raise RuntimeError('Credential guarded probe did not complete: exit='+str(guarded.returncode)
                                    + '; stderr='+redact(guarded.stderr.decode('utf-8',errors='replace')[-2000:]))
             if json.loads((task/'result.json').read_text())['readable']:
-                raise RuntimeError('生成脚本可读取系统凭据，禁止执行任务。')
+                raise RuntimeError('Generated scripts can access system credentials; task execution is blocked.')
             if vault.get_password(service,account)!=value:
                 raise RuntimeError('Credential unexpectedly changed')
             return {'status':'passed','controller_vault_read_write':True,'generated_script_vault_denied':True}

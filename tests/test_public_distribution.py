@@ -194,7 +194,7 @@ def test_modified_source_refused(releases, name):
     root, _, second, protected = releases
     target = root / name
     target.write_text('local edit\n')
-    with server(second) as client, pytest.raises(ValueError, match='已修改'):
+    with server(second) as client, pytest.raises(ValueError, match='changed'):
         updater.update(root, client=client, environment=environment)
     assert target.read_text() == 'local edit\n'
     assert_protected(root, protected)
@@ -206,7 +206,7 @@ def test_active_job_refused(releases, status):
     jobs = root / 'workspace/tui/jobs'
     jobs.mkdir(parents=True)
     (jobs / 'active.json').write_text(json.dumps({'status': status}))
-    with server(second) as client, pytest.raises(RuntimeError, match='活动任务'):
+    with server(second) as client, pytest.raises(RuntimeError, match='Active task'):
         updater.update(root, client=client, environment=environment)
     assert updater.installed(root)['version'] == BASE_VERSION
     assert_protected(root, protected)
@@ -214,7 +214,7 @@ def test_active_job_refused(releases, status):
 
 def test_maintenance_lock_refused(releases):
     root, _, second, _ = releases
-    with updater.maintenance(root), server(second) as client, pytest.raises(RuntimeError, match='另一更新'):
+    with updater.maintenance(root), server(second) as client, pytest.raises(RuntimeError, match='another update'):
         updater.update(root, client=client, environment=environment)
 
 
@@ -243,7 +243,7 @@ def test_environment_failure_restores_source(releases):
     root, _, second, protected = releases
     def failure(_):
         raise RuntimeError('synthetic dependency failure')
-    with server(second) as client, pytest.raises(RuntimeError, match='源码已恢复'):
+    with server(second) as client, pytest.raises(RuntimeError, match='source was restored'):
         updater.update(root, client=client, environment=failure)
     assert updater.installed(root)['version'] == BASE_VERSION
     journal = updater.journals(root)[0][2]
@@ -264,7 +264,7 @@ def test_copy_failure_restores_source(releases, monkeypatch):
             raise OSError('synthetic disk failure')
         return real_copy(source, destination, *args, **kwargs)
     monkeypatch.setattr(updater.shutil, 'copy2', failure)
-    with server(second) as client, pytest.raises(RuntimeError, match='源码已恢复'):
+    with server(second) as client, pytest.raises(RuntimeError, match='source was restored'):
         updater.update(root, client=client, environment=environment)
     assert failed
     assert updater.installed(root)['version'] == BASE_VERSION
@@ -276,7 +276,7 @@ def test_rollback_refuses_later_user_edit(releases):
     with server(second) as client:
         updater.update(root, client=client, environment=environment)
     (root / 'README.md').write_text('post upgrade user edit\n')
-    with pytest.raises(ValueError, match='升级后源码已修改'):
+    with pytest.raises(ValueError, match='Source changed after upgrade'):
         updater.rollback(root)
     assert (root / 'README.md').read_text() == 'post upgrade user edit\n'
     assert_protected(root, protected)
@@ -285,7 +285,7 @@ def test_rollback_refuses_later_user_edit(releases):
 def test_git_worktree_refused_before_network(releases):
     root, _, _, _ = releases
     (root / '.git').write_text('gitdir: fixture')
-    with pytest.raises(ValueError, match='Git 工作副本'):
+    with pytest.raises(ValueError, match='Git working copy'):
         updater.update(root)
 
 
@@ -293,7 +293,7 @@ def test_new_file_collision_refused(releases):
     root, _, second, _ = releases
     path = root / 'docs/new_release_fixture.md'
     path.write_text('user content')
-    with server(second) as client, pytest.raises(ValueError, match='冲突'):
+    with server(second) as client, pytest.raises(ValueError, match='conflicts'):
         updater.update(root, client=client, environment=environment)
     assert path.read_text() == 'user content'
 
@@ -302,7 +302,7 @@ def test_downgrade_refused(releases):
     root, first, second, _ = releases
     with server(second) as client:
         updater.update(root, client=client, environment=environment)
-    with server(first) as client, pytest.raises(ValueError, match='降级'):
+    with server(first) as client, pytest.raises(ValueError, match='Downgrade'):
         updater.update(root, tag='v' + BASE_VERSION, client=client, environment=environment)
 
 
@@ -348,7 +348,7 @@ def test_symlink_destination_refused(releases, tmp_path):
     outside = tmp_path / 'outside'
     outside.mkdir()
     (root / '.runtime').symlink_to(outside, target_is_directory=True)
-    with server(second) as client, pytest.raises(ValueError, match='符号链接'):
+    with server(second) as client, pytest.raises(ValueError, match='Symbolic link'):
         updater.update(root, client=client, environment=environment)
     assert list(outside.iterdir()) == []
 
@@ -381,7 +381,7 @@ def test_interrupted_update_requires_recovery(releases):
     with server(second) as client, pytest.raises(KeyboardInterrupt):
         updater.update(root, client=client, environment=interruption)
     assert updater.installed(root)['version'] == NEXT_VERSION
-    with server(second) as client, pytest.raises(ValueError, match='上次更新中断'):
+    with server(second) as client, pytest.raises(ValueError, match='last update was interrupted'):
         updater.update(root, client=client, environment=environment)
     assert updater.rollback(root)['version'] == BASE_VERSION
     assert_protected(root, protected)
@@ -394,7 +394,7 @@ def test_rollback_unchanged_source_edit_refused_before_any_write(releases):
     path = root / 'multiomics_tui/root.py'
     path.write_text('post update edit\n')
     before = (root / 'VERSION').read_bytes()
-    with pytest.raises(ValueError, match='升级后源码已修改'):
+    with pytest.raises(ValueError, match='Source changed after upgrade'):
         updater.rollback(root)
     assert (root / 'VERSION').read_bytes() == before
     assert path.read_text() == 'post update edit\n'
@@ -405,7 +405,7 @@ def test_diagnostic_failure_has_separate_phase(releases):
     root, _, second, _ = releases
     def failure(_):
         raise updater.PreparationError('synthetic doctor failure', {'environment': 'passed', 'diagnostic': 'failed'})
-    with server(second) as client, pytest.raises(RuntimeError, match='源码已恢复'):
+    with server(second) as client, pytest.raises(RuntimeError, match='source was restored'):
         updater.update(root, client=client, environment=failure)
     journal = updater.journals(root)[0][2]
     assert journal['status'] == 'rolled_back'

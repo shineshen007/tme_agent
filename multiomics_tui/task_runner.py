@@ -85,8 +85,8 @@ def _check_code(root: Path, path: Path, language: str, env: dict | None = None, 
         missing = sorted(name for name in modules if importlib.util.find_spec(name) is None)
         if missing:
             raise MissingDependencyError(
-                f"缺少 Python 分析包 / Missing Python dependencies in {path.name}: {', '.join(missing)}；"
-                "仅可改用已安装且实现同一审批方法的成熟 API；若无适用实现则保持依赖阻塞，不得自编统计方法或安装软件包。")
+                f"Missing Python dependencies in {path.name}: {', '.join(missing)}; "
+                "Use an installed mature API implementing the approved method; otherwise remain dependency-blocked. Do not implement custom statistical methods or install packages.")
     else:
         rscript = Path(shutil.which(rscript_path(root)) or rscript_path(root))
         if not rscript.is_file():
@@ -94,8 +94,8 @@ def _check_code(root: Path, path: Path, language: str, env: dict | None = None, 
         result = subprocess.run([str(rscript), "--vanilla", str(Path(__file__).with_name("r_preflight.R")), str(path)],
                                 cwd=root, env=env, capture_output=True, text=True, timeout=30, check=False)
         if result.returncode == 4:
-            raise MissingDependencyError(f"缺少 R 分析包 / Missing R dependencies in {path.name}: {result.stderr[-1500:]}；"
-                                         "仅可调用已安装且实现同一审批方法的成熟 API；否则保持依赖阻塞，不得自编统计方法或安装软件包。")
+            raise MissingDependencyError(f"Missing R dependencies in {path.name}: {result.stderr[-1500:]}; "
+                                         "Use an installed mature API implementing the approved method; otherwise remain dependency-blocked. Do not implement custom statistical methods or install packages.")
         if result.returncode == 3:
             raise GeneratedCodeError(result.stderr[-1500:])
         if result.returncode == 2:
@@ -111,8 +111,8 @@ def _check_code(root: Path, path: Path, language: str, env: dict | None = None, 
             check = subprocess.run([str(rscript), "--vanilla", "-e", expression, *packages],
                                    cwd=root, env=env, capture_output=True, text=True, timeout=30, check=False)
             if check.returncode:
-                raise MissingDependencyError(f"缺少 R 分析包 / Missing R dependencies in {path.name}: {check.stdout.strip() or check.stderr[-500:]}；"
-                                             "仅可调用已安装且实现同一审批方法的成熟 API；否则保持依赖阻塞，不得自编统计方法或安装软件包。")
+                raise MissingDependencyError(f"Missing R dependencies in {path.name}: {check.stdout.strip() or check.stderr[-500:]}; "
+                                             "Use an installed mature API implementing the approved method; otherwise remain dependency-blocked. Do not implement custom statistical methods or install packages.")
 
 
 def _step_environment(root: Path, task_dir: Path, cfg: dict, inputs) -> dict:

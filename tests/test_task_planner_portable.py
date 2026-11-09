@@ -159,6 +159,8 @@ def test_screenshot_parameters_use_original_quotes(project_root, stub_cfg, struc
     system, request, schema = client.requests[-1]
     assert "exact, contiguous quotation" in system and "split compound parameters" in PLANNER
     assert request == REQUEST and schema == "tui_task_plan_v8"
+    assert "Reply in Chinese" in client.requests[0][0]
+    assert "clarification questions in Chinese" in system
 
 
 def test_all_parameter_source_errors_are_reported(project_root, stub_cfg):

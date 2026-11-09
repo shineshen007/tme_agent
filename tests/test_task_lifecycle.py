@@ -121,3 +121,38 @@ def test_start_exception_that_already_created_a_job_binds_it(project_root, stub_
     response = session.confirm("pending")
     assert response.kind == "job" and response.job["job_id"] == "job_existing"
     assert store.get(state["task_id"])["job_id"] == "job_existing"
+
+
+def test_chinese_task_language_survives_answers_retry_and_session_restore(project_root, stub_cfg, monkeypatch):
+    import copy
+    from multiomics_tui.controller import Session
+    from multiomics_tui import controller
+    questions = [{'id': 'unit', 'prompt': '请确认生物学独立单位', 'mode': 'single',
+                  'options': [{'id': 'patient', 'label': '患者', 'answer': 'Use patient as the independent unit.',
+                               'reason': '按患者作为独立单位。', 'basis': []}]}]
+    calls = []
+    def plan(client, root, request, cfg, language='en', **kwargs):
+        calls.append(language)
+        return {'questions': copy.deepcopy(questions)}
+    monkeypatch.setattr(controller, 'generate_plan', plan)
+    session = Session(project_root, cfg=stub_cfg, client=object())
+    response = session.handle_tui('请用 GSVA ssGSEA PLAGE ZSCORE analyze data/raw/input.csv')
+    task_id = session.active_task
+    state = session.tasks.get(task_id)
+    assert '请' in response.message and calls == ['zh']
+    digest = state['clarification_hash']
+    session.revise_plan('', task_id, clarification_answers={'unit': {'selected': ['patient'], 'custom': ''}},
+                        expected_clarification_hash=digest)
+    assert calls == ['zh', 'zh']
+    assert 'Use patient as the independent unit.' in session.tasks.user_text(task_id)
+    assert session.tasks.get(task_id)['questions'] == questions
+    state = session.tasks.get(task_id)
+    state.update(status='blocked')
+    session.tasks.save(state)
+    restored = Session(project_root, cfg=stub_cfg, client=object())
+    restored.handle_tui('/session ' + task_id)
+    restored.handle_tui('/retry')
+    assert calls[-1] == 'zh' and restored.reply_language() == 'zh'
+    restored.handle_tui('/new')
+    restored.handle_tui('Inspect data/raw/input.csv')
+    assert calls[-1] == 'en' and restored.reply_language() == 'en'

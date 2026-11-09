@@ -28,8 +28,8 @@ def main():
         report.update(error_type=type(exc).__name__,error=redact(str(exc)))
     path=root/'.runtime/native_diagnostic.json'
     path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    print('诊断结果：'+report['status']+'；记录：'+str(path))
-    print('回传 native_diagnostic.json、doctor.json、install_report.json 和 install.log；Mac 另附 macos_diagnostic.json。不要发送密钥或整个 .runtime。')
+    print('Diagnostic result: '+report['status']+'; record: '+str(path))
+    print('Share native_diagnostic.json, doctor.json, install_report.json and install.log; on Mac include macos_diagnostic.json. Do not share credentials or the entire .runtime directory.')
     return 0 if report['status']=='passed' else 1
 
 

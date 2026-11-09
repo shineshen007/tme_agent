@@ -2,8 +2,8 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
 if [ ! -x .venv/bin/python ]; then
-  echo "请把本文件放到与 setup_macos.command 相同的项目文件夹，先完成依赖安装。"
-  read -r -p "按回车关闭" _
+  echo "Place this file beside setup_macos.command and install dependencies first."
+  read -r -p "Press Enter to close" _
   exit 1
 fi
 if .venv/bin/python - <<'PY'
@@ -12,7 +12,7 @@ import json, os, platform, signal, subprocess, sys, tempfile, time, traceback
 
 root = Path.cwd().resolve()
 if sys.platform != 'darwin':
-    print('此诊断入口仅用于 macOS。')
+    print('This diagnostic entry point is for macOS only.')
     raise SystemExit(1)
 from multiomics_tui.model_config import redact
 from multiomics_tui.task_runner import _step_environment
@@ -54,7 +54,7 @@ def collect(label, argv, env=None, cwd=None, timeout=35):
     record['steps'][label] = step
     print(label + ': ' + str(step.get('returncode', step.get('error'))), flush=True)
     if step.get('signal'):
-        print('  系统信号：' + step['signal'], flush=True)
+        print('  System signal: ' + step['signal'], flush=True)
     return step
 
 try:
@@ -78,7 +78,7 @@ try:
                 record['sandbox_rules'][label] = {'policy': policy, 'runtime_paths': mappings}
             collect('python_guard_startup', [*prefix, sys.executable, '-c', 'import json,pathlib,socket;print("GUARDED_PYTHON_OK")'], env=env, cwd=task)
             collect('r_guard_startup', [*prefix, rscript, '--vanilla', '-e', 'cat("GUARDED_R_OK\\n")'], env=env, cwd=task)
-            print("下面是启动对照诊断：without_root_read 分支可能预期失败，不代表新自检失败。", flush=True)
+            print("Startup comparison diagnostics follow: the without_root_read branch may fail as expected; this does not indicate failure of the new self-check.", flush=True)
             from native_dist.macos_startup import root_read_ab
             record['root_directory_ab'] = root_read_ab(record['sandbox_rules']['python']['policy'], {
                 'python': [sys.executable, '-c', 'import json,pathlib,socket;print("PYTHON_AB_OK")'],
@@ -108,8 +108,8 @@ except Exception as exc:
 finally:
     output = runtime / 'macos_diagnostic.json'
     output.write_text(json.dumps(record, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print('\n诊断记录已保存：' + str(output))
-    print('请将 macos_diagnostic.json 发给项目负责人；不要发送密钥或整个 .runtime。')
+    print('\nDiagnostic record saved: ' + str(output))
+    print('Share macos_diagnostic.json with the project maintainer; do not share credentials or the entire .runtime directory.')
 PY
 then
   MULTIOMICS_DIAG_EXIT=0
@@ -121,5 +121,5 @@ if .venv/bin/python -B -m native_dist.diagnostics --project-root "$PWD"; then
 else
   MULTIOMICS_DIAG_EXIT=$?
 fi
-read -r -p "按回车关闭" _
+read -r -p "Press Enter to close" _
 exit "$MULTIOMICS_DIAG_EXIT"

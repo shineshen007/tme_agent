@@ -193,7 +193,7 @@ class Session:
     def save_model(self, settings, key=''):
         from .model_config import overlay, save_settings, ready, public_settings
         if getattr(self, 'model_busy', False) or self.jobs.active_pipeline() is not None:
-            raise ValueError('当前请求或后台任务仍在执行，完成后才能保存模型设置。')
+            raise ValueError('A request or background job is running; wait before saving model settings.')
         value = overlay(self.cfg['llm'], settings)
         save_settings(self.root, value)
         if self._model_checked != public_settings({'llm': value}):
@@ -203,8 +203,8 @@ class Session:
             self.set_key(key)
         else:
             self.refresh_client()
-        status = '模型设置已保存；连接检查通过。' if self.connection_tested() else '模型设置已保存；尚未测试连接。'
-        return status + ('' if ready(self.cfg) else ' 请通过 /key 输入此接口的密钥。')
+        status = 'Model settings saved; connection checks passed.' if self.connection_tested() else 'Model settings saved; connection has not been tested.'
+        return status + ('' if ready(self.cfg) else ' Enter this endpoint key with /key.')
 
     def test_model(self, settings, key=''):
         from .model_config import overlay, store_key, ready
@@ -213,7 +213,7 @@ class Session:
         if key.strip():
             store_key(cfg, key)
         if not ready(cfg):
-            return {'status': 'failed', 'message': '认证未配置：请在掩码输入框填写此接口的密钥。'}
+            return {'status': 'failed', 'message': 'Authentication is not configured; enter this endpoint key in the masked field.'}
         result = test_connection(self.root, cfg)
         from .model_config import public_settings
         self._model_checked = public_settings(cfg) if result['status'] == 'passed' else None
@@ -221,7 +221,12 @@ class Session:
 
     # ---------- dispatch ----------
     def handle(self, text: str) -> Response:
+        from .language import detect_language
         text = (text or "").strip()
+        language = detect_language(text, self.reply_language())
+        self._reply_language = language
+        if self.active_task and text.startswith("/ask "):
+            self.tasks.set_reply_language(self.active_task, language)
         self.cancel()  # a new request invalidates any earlier confirmation
         if not text:
             return Response("text", "Enter a request or use /help to see commands.")
@@ -273,6 +278,8 @@ class Session:
 
     def handle_natural_task(self, text: str) -> Response:
         """LLM intent first; failed planning never becomes an executable route."""
+        from .language import detect_language, choose
+        language = detect_language(text, self.reply_language())
         if redact_secrets(text) != text:
             return Response("text", "A credential was detected. Use /key to enter it in the masked prompt.")
         from .nl import ACTION_INTENTS, READONLY_RE, keyword_route
@@ -283,9 +290,10 @@ class Session:
             if is_analysis:
                 state = self.tasks.create(text)
                 self.active_task = state["task_id"]
+                self.tasks.set_reply_language(state["task_id"], language)
                 state.update(status="blocked", error="LLM is unavailable")
                 self.tasks.save(state)
-                message = f"Task {state['task_id']} saved as a draft. LLM is unavailable; no plan or job was started. Set /key and use /session to continue."
+                message = choose(language, f"Task {state['task_id']} saved as a draft. LLM is unavailable; no plan or job was started. Set /key and use /session to continue.", "任务已保存为草稿；模型不可用，尚未制定计划或启动任务。请检查 /model 或 /key，再使用 /session 继续。")
                 self.tasks.event(state["task_id"], "assistant", message)
                 return Response("text", message)
             response = self.dispatch_intent(local.intent, local.slots)
@@ -316,8 +324,10 @@ class Session:
             self.tasks.event(state["task_id"], "assistant", "LLM intent failed; no plan or job was started.")
             return Response("text", f"Task {state['task_id']} saved. LLM intent failed; no job was started: {exc}")
         if intent == "ambiguous":
-            return Response("text", "Is this a new task or a revision of the current task? Use /new for a new task, or /session <task-id> to revise one.")
+            return Response("text", choose(language, "Is this a new task or a revision of the current task? Use /new for a new task, or /session <task-id> to revise one.", "这是新任务还是当前任务的修改？请使用 /new 新建任务，或使用 /session <task-id> 修改已有任务。"))
         if intent == "question":
+            if self.active_task:
+                self.tasks.set_reply_language(self.active_task, language)
             local = keyword_route(text, self.root)
             response = (self.dispatch_intent(local.intent, local.slots) if local.intent in
                         {"module_list", "status", "list_runs", "list_figures", "show_report", "help"}
@@ -338,6 +348,7 @@ class Session:
             state = self.tasks.create(text)
             self.active_task = state["task_id"]
         task_id = state["task_id"]
+        self.tasks.set_reply_language(task_id, language)
         if state["status"] == "awaiting_approval":
             state.update(status="draft", approved_hash=None)
             self.tasks.save(state)
@@ -348,6 +359,8 @@ class Session:
                     expected_clarification_hash: str | None = None,
                     regenerate_options: bool = False) -> Response:
         """Revise the selected unapproved task without intent classification."""
+        from .language import choose
+        language = self.reply_language()
         text = (text or "").strip()
         if not text and clarification_answers is None and not regenerate_options:
             return Response("text", "Describe the clarification or plan change.")
@@ -357,6 +370,7 @@ class Session:
             state = self.tasks.get(task_id)
         except (OSError, ValueError):
             return Response("text", f"Unknown task session: {task_id}")
+        language = self.tasks.reply_language(task_id)
         if state["status"] not in {"draft", "blocked", "needs_clarification", "awaiting_approval"}:
             return Response("text", f"Task {task_id} is {state['status']}; start a new task to change the plan.")
         if expected_hash is not None and state.get("plan_hash") != expected_hash:
@@ -371,16 +385,16 @@ class Session:
                         or state.get('questions') != questions or not questions
                         or (state.get('clarification_hash') or canonical_hash(questions)) != expected_clarification_hash
                         or state.get('clarification_consumed', False)):
-                    return Response('text', '澄清问题已变化或已提交，请查看当前问题。')
+                    return Response('text', choose(language, 'Clarification questions changed or were already submitted; review the current questions.', '澄清问题已变化或已提交，请查看当前问题。'))
                 lines = []
                 if not regenerate_options:
                     qids = [q['id'] if isinstance(q, dict) else f'legacy_{i}' for i, q in enumerate(questions)]
                     if not isinstance(clarification_answers, dict) or set(clarification_answers) != set(qids):
-                        return Response('text', '请回答全部澄清问题。')
+                        return Response('text', choose(language, 'Answer all clarification questions.', '请回答全部澄清问题。'))
                     for qid, question in zip(qids, questions):
                         answer = clarification_answers[qid]
                         if not isinstance(answer, dict):
-                            return Response('text', '无效的澄清答案。')
+                            return Response('text', choose(language, 'Invalid clarification answer.', '无效的澄清答案。'))
                         selected = answer.get('selected', [])
                         custom = answer.get('custom', '')
                         options = {o['id']: o for o in question['options']} if isinstance(question, dict) else {}
@@ -391,20 +405,20 @@ class Session:
                                 or not isinstance(custom, str)
                                 or (isinstance(question, dict) and question['mode'] == 'single' and len(selected) != 1)
                                 or (not isinstance(question, dict) and len(selected) != 1)):
-                            return Response('text', '无效的选项，请重新选择。')
+                            return Response('text', choose(language, 'Invalid choice; select an answer again.', '无效的选项，请重新选择。'))
                         if 'unknown' in selected:
-                            return Response('text', '仍有问题暂时无法确认；请补充资料或更改选择后继续。')
+                            return Response('text', choose(language, 'Some answers are still unknown; supply information or change the selection.', '仍有问题暂时无法确认；请补充资料或更改选择后继续。'))
                         if 'custom' in selected and not custom.strip():
-                            return Response('text', '请填写自定义答案。')
+                            return Response('text', choose(language, 'Enter a custom answer.', '请填写自定义答案。'))
                         if redact_secrets(custom) != custom:
-                            return Response('text', '自定义答案含凭据，请移除后继续。')
+                            return Response('text', choose(language, 'The custom answer contains credentials; remove them before continuing.', '自定义答案含凭据，请移除后继续。'))
                         # Only explicit selections become user requirements;
                         # model-written prompts are never user authorization.
                         for oid in selected:
                             lines.append(custom.strip() if oid == 'custom' else options[oid]['answer'])
                     text = '\n'.join(lines)
                     if redact_secrets(text) != text:
-                        return Response('text', '澄清答案含凭据，已拒绝提交。')
+                        return Response('text', choose(language, 'Clarification answers contain credentials; submission refused.', '澄清答案含凭据，已拒绝提交。'))
                 state.update(clarification_consumed=True)
                 self.tasks.save(state)
                 if not regenerate_options:
@@ -537,7 +551,7 @@ class Session:
         from . import workspace as workspace_module
         from .language import choose
         from .llm import load_tui_config
-        language = self.reply_language()
+        language = "en"
         text = (value or "").strip()
         if not text:
             return Response("text", choose(language,
@@ -736,23 +750,23 @@ class Session:
             if args == ['delete']:
                 from .model_config import forget_key
                 if getattr(self, 'model_busy', False) or self.jobs.active_pipeline() is not None:
-                    return Response('text', '任务执行中不能删除密钥，请完成或停止后再操作。')
+                    return Response('text', 'A task is running. Complete or stop it before deleting credentials.')
                 forget_key(self.cfg)
                 self.client = None
                 self._model_checked = None
-                return Response('text', '已删除此接口保存的密钥；以后使用需重新输入。')
+                return Response('text', 'Stored credentials for this endpoint were deleted; enter a key again when needed.')
             if args:
-                return Response('text', '使用 /key 打开掩码输入框，或 /key delete 删除当前接口密钥。')
+                return Response('text', 'Use /key for masked entry, or /key delete to delete credentials for this endpoint.')
             if self.cfg.get('llm', {}).get('auth_mode') == 'none':
-                return Response('text', '当前接口使用无认证模式，无需密钥；可通过 /model 更改。')
+                return Response('text', 'This endpoint uses no authentication. Change it with /model if needed.')
             from .credentials import enabled
             if enabled(self.cfg):
-                return Response('need_key', '输入或替换此接口的密钥，将保存到系统凭据库，重启后自动读取。'
+                return Response('need_key', 'Enter or replace this endpoint\'s API key. It will be stored in the system credential vault and loaded after restart. '
                                 + (self.cfg.get('_credential_error') or ''))
             return Response("need_key", "Enter or replace this endpoint's API key; it stays in memory.")
         if command == '/model':
             if getattr(self, 'model_busy', False) or self.jobs.active_pipeline() is not None:
-                return Response('text', '当前请求或后台任务仍在执行，完成后才能更改模型设置。')
+                return Response('text', 'A request or background job is running. Wait for completion before changing model settings.')
             return Response('model_settings', 'Configure model connection')
         if command == "/kill":
             if not args:
@@ -849,7 +863,7 @@ class Session:
             if pending_id is None:  # standalone /key never resumes a hidden action
                 from .credentials import enabled
                 if enabled(self.cfg):
-                    return Response('text', 'API 密钥已保存到系统凭据库，重启后自动读取。使用 /key delete 可删除。')
+                    return Response('text', 'API key stored in the system credential vault and loaded after restart. Use /key delete to remove it.')
                 return Response("text", "API key saved in process memory.")
             return self._confirmation()
 
@@ -964,7 +978,7 @@ class Session:
             from .model_config import credential
             key = credential(self.cfg)
             if not key:
-                raise ActionError('历史固定流程需要密钥；本地免认证模型请使用普通中文指令创建新任务。')
+                raise ActionError('Historical pipelines require a key; for local models without authentication, create a new natural-language task.')
             env_extra = {env_name: key}
         kind = "module" if action_id == "module_run" else "pipeline"
         job = self.jobs.start(kind, argv, label=spec.label, run_id=slots.get("run_id"),
@@ -984,7 +998,7 @@ class Session:
         """List built-in datasets with their frozen bindings; never prints sample IDs."""
         from .datasets import DatasetError, summary_lines
         try:
-            lines = summary_lines(self.root, self.reply_language())
+            lines = summary_lines(self.root, "en")
         except DatasetError as exc:
             return Response("text", f"Built-in dataset check failed: {exc}")
         return Response("text", "\n".join(lines))

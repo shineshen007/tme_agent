@@ -35,6 +35,12 @@ def server(status=200, content='{"ok": true}', raw=None, location=None):
         def do_POST(self):
             request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             received.append({'path': self.path, 'headers': dict(self.headers), 'body': request})
+            if request.get('response_format') == {'type': 'json_object'} and not any(
+                    'json' in message['content'].lower() for message in request['messages']):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'{"error":{"message":"Prompt must contain the word json"}}')
+                return
             self.send_response(status)
             if location:
                 self.send_header('Location', location)
@@ -60,12 +66,13 @@ def client(root, cfg):
     return CompatibleClient(root=root, run=root/'run', cfg=cfg)
 
 
-def call(model):
-    return model.chat_json('fixture', 'Reply with JSON only.', 'Return {"ok": true}.', 'fixture')
+def call(model, system='只返回一个对象。', role='fixture'):
+    return model.chat_json(role, system, '只返回结果。', 'fixture')
 
 
 @pytest.mark.parametrize('mode,bypass', [('inherit', False), ('direct', False), ('inherit', True)])
-def test_local_no_key_actual_http(tmp_path, monkeypatch, mode, bypass):
+@pytest.mark.parametrize('prompt', ['plain', 'method_search'])
+def test_local_no_key_actual_http(tmp_path, monkeypatch, mode, bypass, prompt):
     monkeypatch.delenv('OLLAMA_API_KEY', raising=False)
     environment = dict(os.environ)
     with server() as (proxy_url, proxy_requests), server() as (url, requests):
@@ -73,7 +80,14 @@ def test_local_no_key_actual_http(tmp_path, monkeypatch, mode, bypass):
         monkeypatch.setattr(urllib.request, 'getproxies', Mock(return_value={
             'http': f'http://synthetic-proxy-user:synthetic-proxy-password@{proxy.netloc}'}))
         monkeypatch.setattr(urllib.request, 'proxy_bypass', Mock(return_value=bypass))
-        result = call(client(tmp_path, settings(url, proxy_mode=mode)))
+        system = '只返回一个对象。'
+        role = 'fixture'
+        if prompt == 'method_search':
+            from multiomics_tui.planning_evidence import PROPOSAL
+            from multiomics_tui.task_planner import CLARIFICATIONS
+            system = PROPOSAL + '{"profiles": []}\n' + CLARIFICATIONS
+            role = 'tui_method_search'
+        result = call(client(tmp_path, settings(url, proxy_mode=mode)), system, role)
         assert result['parsed'] == {'ok': True}
         routed = mode == 'inherit' and not bypass
         assert len(proxy_requests) == int(routed) and len(requests) == int(not routed)
@@ -82,8 +96,11 @@ def test_local_no_key_actual_http(tmp_path, monkeypatch, mode, bypass):
     assert 'Authorization' not in request['headers']
     assert request['body']['model'] == 'fixture-model'
     assert request['body']['response_format'] == {'type': 'json_object'}
+    assert request['body']['messages'][0]['content'] == system + '\nReturn a valid JSON object only.'
     assert dict(os.environ) == environment
     record = json.loads(next((tmp_path / 'run/report/agent/calls').glob('*.json')).read_text())
+    assert record['request_messages'] == request['body']['messages']
+    assert record['role'] == role
     attempt = record['attempts'][0]
     assert attempt['proxy_mode'] == mode
     assert attempt['proxy_host'] == (proxy.hostname if routed else None)
@@ -103,6 +120,7 @@ def test_bearer_and_parameter_compatibility(tmp_path):
     body = requests[0]['body']
     assert body['max_completion_tokens'] == 32000
     assert not {'thinking', 'temperature', 'max_tokens', 'response_format'} & body.keys()
+    assert 'JSON' in body['messages'][0]['content']
 
 
 def test_deepseek_legacy_parameter(tmp_path):
@@ -147,7 +165,7 @@ def test_missing_key_refuses_request(tmp_path):
         assert requests == []
 
 
-@pytest.mark.parametrize('status,label', [(401, '认证失败'), (404, '地址或模型'), (400, '参数不受支持')])
+@pytest.mark.parametrize('status,label', [(401, 'Authentication failed'), (404, 'Endpoint or model'), (400, 'Unsupported request parameters')])
 def test_connection_http_failures(tmp_path, status, label):
     with server(status=status, raw='fixture error') as (url, _):
         result = probe_connection(tmp_path, settings(url))
@@ -232,7 +250,7 @@ def test_save_busy_refused_and_key_replace(project_root):
     from multiomics_tui.controller import Session
     session = Session(project_root, allow_llm=False)
     session.model_busy = True
-    with pytest.raises(ValueError, match='执行'):
+    with pytest.raises(ValueError, match='running'):
         session.save_model(settings('http://localhost:1234/v1')['llm'])
     assert not (project_root/'config/api.local.yaml').exists()
     session.model_busy = False
@@ -279,7 +297,7 @@ def test_settings_panel_save_cancel_and_local_readiness(project_root):
             assert load_tui_config(project_root, snapshot)['llm']['proxy_mode'] == 'inherit'
             assert session.client is not None
             assert 'ollama/fixture-local' in str(app.query_one('#status-bar', Static).renderable)
-            assert '尚未测试' in str(app.query_one('#reply-message', Static).renderable)
+            assert 'has not been tested' in str(app.query_one('#reply-message', Static).renderable)
             assert session.handle('/key').kind == 'text'
     asyncio.run(scenario())
 
@@ -381,7 +399,7 @@ def test_panel_connection_test_is_explicit_and_does_not_save(project_root):
             app.screen.query_one('#model-test', Button).press()
             for _ in range(40):
                 await pilot.pause()
-                if '检查通过' in str(app.screen.query_one('#model-notice', Static).renderable):
+                if 'checks passed' in str(app.screen.query_one('#model-notice', Static).renderable):
                     break
             assert len(incoming) == 1
             assert not (project_root/'config/api.local.yaml').exists()
@@ -398,5 +416,97 @@ def test_active_job_prevents_settings_save(project_root, monkeypatch):
     session = Session(project_root)
     monkeypatch.setattr(session.jobs, 'active_pipeline', lambda: {'job_id': 'fixture'})
     assert session.handle('/model').kind == 'text'
-    with pytest.raises(ValueError, match='执行'):
+    with pytest.raises(ValueError, match='running'):
         session.save_model(settings('http://localhost:1234/v1')['llm'])
+
+
+@pytest.mark.parametrize('input_text,fallback,expected', [
+    ('请用 GSVA ssGSEA PLAGE ZSCORE analyze data/met.csv', 'en', 'zh'),
+    ('Analyze data/中文.csv with GSVA', 'zh', 'en'),
+    ('Analyze 中文.RDS with GSVA', 'zh', 'en'),
+    ('Read 中文.xlsx', 'zh', 'en'),
+    ('Use 中文.gmt', 'zh', 'en'),
+    ('Analyze `中文` using GSVA', 'zh', 'en'),
+    ('Analyze "中文原文" using GSVA', 'zh', 'en'),
+    ('Analyze “中文原文” using GSVA', 'zh', 'en'),
+    ("Analyze '中文原文' using GSVA", 'zh', 'en'),
+    ("Please don't translate '中文原文'", 'zh', 'en'),
+    ('```python\nprint("中文")\n```', 'zh', 'zh'),
+    ('data/中文.csv', 'zh', 'zh'),
+    ('/retry', 'zh', 'zh'),
+    ('/ask 请解释 GSVA', 'en', 'zh'),
+    ('/ask --summary Explain `中文`', 'zh', 'en'),
+    ('请检查 data/raw/input.csv', 'en', 'zh'),
+    ('Use data/raw/input.csv', 'zh', 'en'),
+    ('123', 'zh', 'zh'),
+])
+def test_reply_language_ignores_quoted_content_and_identifiers(input_text, fallback, expected):
+    from multiomics_tui.language import detect_language
+    assert detect_language(input_text, fallback) == expected
+
+
+def test_model_and_fixed_controls_stay_english_for_chinese_task(project_root, monkeypatch):
+    import re
+    import asyncio
+    from textual.widgets import Button, Collapsible, Input, Select, Static
+    from multiomics_tui.app import MultiomicsApp
+    from multiomics_tui.controller import Session
+    from multiomics_tui.model_panel import ModelPanel
+    from multiomics_tui import model_client
+
+    async def scenario():
+        session = Session(project_root)
+        state = session.tasks.create('请分析 GSVA ssGSEA PLAGE ZSCORE')
+        session.active_task = state['task_id']
+        session.tasks.set_reply_language(state['task_id'], 'zh')
+        app = MultiomicsApp(session)
+        async with app.run_test(size=(90, 32)) as pilot:
+            await app._handle_async('/session ' + state['task_id'])
+            await app._handle_async('/model')
+            await pilot.pause()
+            assert isinstance(app.screen, ModelPanel)
+            for widget in app.screen.query('Static, Button, Collapsible, Input, Select'):
+                for attribute in ('renderable', 'label', 'title', 'placeholder', '_options'):
+                    assert not re.search(r'[\u3400-\u9fff]', str(getattr(widget, attribute, '')))
+            app.screen.query_one('#model-provider', Select).value = 'ollama'
+            await pilot.pause()
+            app.screen.query_one('#model-name', Input).value = 'fixture'
+            app.screen.query_one('#model-proxy', Select).value = 'direct'
+            await pilot.pause()
+            assert not re.search(r'[\u3400-\u9fff]', str(app.screen.query_one('#model-notice', Static).renderable))
+            monkeypatch.setattr(model_client, 'test_connection', lambda *a: {'status': 'passed', 'message': 'Connection checks passed.'})
+            app.screen.query_one('#model-test', Button).press()
+            await pilot.pause()
+            assert 'passed' in str(app.screen.query_one('#model-notice', Static).renderable)
+            app.screen.query_one('#model-name', Input).value = ''
+            app.screen.query_one('#model-save', Button).press()
+            await pilot.pause()
+            assert 'Enter model' in str(app.screen.query_one('#model-notice', Static).renderable)
+            app.screen.query_one('#model-cancel', Button).press()
+            await pilot.pause()
+            app._refresh_status()
+            for widget in app.query('Button, Collapsible, Input'):
+                for attribute in ('label', 'title', 'placeholder'):
+                    assert not re.search(r'[\u3400-\u9fff]', str(getattr(widget, attribute, '')))
+            assert not re.search(r'[\u3400-\u9fff]', str(app.query_one('#prompt-meta', Static).renderable))
+            app._menu.refresh_for('/', busy=False, language='zh')
+            await pilot.pause()
+            for widget in app._menu.query(Static):
+                assert not re.search(r'[\u3400-\u9fff]', str(widget.renderable))
+            assert session.reply_language() == 'zh'
+    asyncio.run(scenario())
+
+
+def test_fixed_entrypoint_literals_are_english():
+    """Supplement interaction checks; Chinese task content elsewhere remains valid."""
+    import ast
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    files = list((root / 'native_dist').glob('*.py'))
+    files += [root / 'multiomics_tui' / name for name in
+              ('model_panel.py', 'model_client.py', 'model_config.py', 'credentials.py', 'wiki.py')]
+    for path in files:
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                assert not re.search(r'[\u3400-\u9fff。；：，、]', node.value), (path.name, node.lineno)

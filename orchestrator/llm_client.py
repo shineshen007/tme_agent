@@ -200,6 +200,10 @@ class LLMClient:
 
     def chat_json(self, role, system, user, schema_name, validator=None, messages_extra=None):
         """One JSON completion; retain every attempted response's usage on failure."""
+        # JSON mode providers require an explicit JSON instruction in messages.
+        # Normalize before privacy checks, cache keys and audit snapshots so all
+        # three describe the exact prompt sent, including corrective attempts.
+        system = system + '\nReturn a valid JSON object only.'
         messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
         if messages_extra:
             messages.extend(messages_extra)

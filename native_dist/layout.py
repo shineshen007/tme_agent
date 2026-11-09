@@ -11,7 +11,7 @@ def code_root(workspace):
     if value:
         path = Path(value).resolve(strict=True)
         if not (path / 'multiomics_tui/task_guard.py').is_file():
-            raise RuntimeError('内置应用源码目录不完整。')
+            raise RuntimeError('Bundled application source is incomplete.')
         return path
     workspace = Path(workspace).resolve()
     if (workspace / 'multiomics_tui/task_guard.py').is_file():
@@ -32,5 +32,5 @@ def bundled_runtime(workspace):
         return None
     value = json.loads(marker.read_text(encoding='utf-8'))
     if Path(value['app_root']).resolve() != code_root(workspace):
-        raise RuntimeError('工作目录与当前应用版本不匹配，请从应用入口重新启动。')
+        raise RuntimeError('Workspace and application versions differ; restart from the application launcher.')
     return value

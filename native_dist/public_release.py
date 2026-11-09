@@ -42,13 +42,13 @@ def file_sha(path: Path) -> str:
 def version(value: str) -> str:
     value = value.removeprefix('v')
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value):
-        raise ValueError('版本必须是 X.Y.Z 或 vX.Y.Z')
+        raise ValueError('Version must be X.Y.Z or vX.Y.Z')
     return value
 
 
 def safe_name(name: str) -> str:
     if not isinstance(name, str) or not name or '\\' in name or '\x00' in name:
-        raise ValueError('不安全的路径')
+        raise ValueError('Unsafe path')
     parts = name.split('/')
     reserved = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
     if PurePosixPath(name).is_absolute() or any(
@@ -56,7 +56,7 @@ def safe_name(name: str) -> str:
         p.split('.')[0].upper() in reserved or any(ord(c) < 32 for c in p)
         for p in parts
     ):
-        raise ValueError('不安全的路径：' + name)
+        raise ValueError('Unsafe path: ' + name)
     return name
 
 
@@ -66,7 +66,7 @@ def safe_path(root: Path, name: str) -> Path:
     for part in name.split('/'):
         path = path / part
         if path.is_symlink():
-            raise ValueError('拒绝符号链接：' + name)
+            raise ValueError('Symbolic link refused: ' + name)
     return path
 
 
@@ -81,7 +81,7 @@ def managed_name(name: str) -> str:
         s in {'__pycache__', '.git', '.venv', '.runtime', '.cache'} for s in p.parts
     ):
         return name
-    raise ValueError('发行禁止管理此路径：' + name)
+    raise ValueError('Release cannot manage this path: ' + name)
 
 
 def json_bytes(value) -> bytes:
@@ -93,7 +93,7 @@ def load_json(data):
         result = {}
         for key, value in pairs:
             if key in result:
-                raise ValueError('JSON 重复字段：' + key)
+                raise ValueError('Duplicate JSON field: ' + key)
             result[key] = value
         return result
     return json.loads(data, object_pairs_hook=unique)
@@ -101,32 +101,32 @@ def load_json(data):
 
 def validate_manifest(manifest):
     if not isinstance(manifest, dict):
-        raise ValueError('发行清单必须是 JSON 对象')
+        raise ValueError('Release manifest must be a JSON object')
     if manifest.get('schema_version') != 1 or manifest.get('delivery') != 'public_source' or manifest.get('repository') != REPOSITORY:
-        raise ValueError('非本仓库的公开发行清单')
+        raise ValueError('Public release manifest belongs to another repository')
     v = version(manifest['version'])
     if v != manifest['version'] or manifest.get('tag') != 'v' + v:
-        raise ValueError('发行版本不一致')
+        raise ValueError('Release version mismatch')
     files = manifest.get('files')
     if not isinstance(files, list) or not 1 <= len(files) <= 3000:
-        raise ValueError('发行清单文件数异常')
+        raise ValueError('Unexpected release manifest file count')
     seen = set()
     total = 0
     for item in files:
         name = managed_name(item['path'])
         if name.casefold() in seen:
-            raise ValueError('重复或大小写冲突的发行路径：' + name)
+            raise ValueError('Duplicate or case-conflicting release path: ' + name)
         seen.add(name.casefold())
         if not re.fullmatch(r'[0-9a-f]{64}', item['sha256']):
-            raise ValueError('SHA256 格式错误：' + name)
+            raise ValueError('Invalid SHA256 format: ' + name)
         if type(item['bytes']) is not int or not 0 <= item['bytes'] <= MAX_BYTES or item.get('mode') not in {0o644, 0o755}:
-            raise ValueError('发行文件元数据错误：' + name)
+            raise ValueError('Invalid release file metadata: ' + name)
         total += item['bytes']
     if total > MAX_BYTES or not {'version', 'license', 'public_files.json', 'multiomics_tui/__main__.py', 'native_dist/public_update.py', 'config/study_config.example.yaml'} <= seen:
-        raise ValueError('发行不完整或体积超限')
+        raise ValueError('Release is incomplete or exceeds the size limit')
     # ``source_data`` keeps its original meaning: private study data never ships.
     if manifest.get('source_data') != []:
-        raise ValueError('公开发行不允许携带研究数据清单')
+        raise ValueError('Public releases cannot include a research data manifest')
     # ``builtin_datasets`` lists the shipped open-access datasets, and must match
     # the datasets/<id>/dataset.json manifests that are actually declared. Older
     # manifests predate the field; they declared no datasets, so an absent key
@@ -138,9 +138,9 @@ def validate_manifest(manifest):
                        and len(name.split('/')) == 3})
     shipped = manifest.get('builtin_datasets', [])
     if not isinstance(shipped, list) or not all(isinstance(v, str) for v in shipped):
-        raise ValueError('发行清单的 builtin_datasets 必须是数据集 ID 列表')
+        raise ValueError('Manifest builtin_datasets must be a list of dataset IDs')
     if sorted(shipped) != declared or len(set(shipped)) != len(shipped):
-        raise ValueError('builtin_datasets 与 datasets/ 声明不一致')
+        raise ValueError('builtin_datasets does not match datasets/ declarations')
     return manifest
 
 
@@ -148,18 +148,18 @@ def source_files(root: Path):
     declaration = safe_path(root, 'PUBLIC_FILES.json')
     names = load_json(declaration.read_bytes())['files']
     if len(names) != len({n.casefold() for n in names}):
-        raise ValueError('公开白名单重复')
+        raise ValueError('Duplicate public allowlist entry')
     for name in sorted(names):
         managed_name(name)
         path = safe_path(root, name)
         if not path.is_file():
-            raise ValueError('公开文件缺失：' + name)
+            raise ValueError('Missing public file: ' + name)
         data = path.read_bytes()
         if SECRET.search(data):
-            raise ValueError('公开文件疑似包含凭据：' + name)
+            raise ValueError('Public file may contain credentials: ' + name)
         # Local source paths and private-study evidence must not enter public files.
         if (b'/mnt/' + b'8T_Disk2/') in data or (b'/home/' + b'shenxia/') in data:
-            raise ValueError('公开文件包含本机绝对路径：' + name)
+            raise ValueError('Public file contains a local absolute path: ' + name)
         yield name, path, data
 
 
@@ -180,9 +180,9 @@ def builtin_datasets(root: Path) -> list[dict]:
         try:
             value = load_json(manifest_path.read_bytes())
         except ValueError as exc:
-            raise ValueError(f'数据集清单无效：{directory.name}: {exc}') from exc
+            raise ValueError(f'Invalid dataset manifest: {directory.name}: {exc}') from exc
         if value.get('schema_version') != 1 or value.get('dataset_id') != directory.name:
-            raise ValueError('数据集清单 schema 或 ID 与目录不一致：' + directory.name)
+            raise ValueError('Dataset manifest schema or ID differs from the directory: ' + directory.name)
         found.append({'dataset_id': directory.name,
                       'provenance_status': value.get('provenance_status')})
     return found
@@ -196,7 +196,7 @@ def pending_provenance(root: Path) -> list[str]:
 def build(root: Path, output: Path, expected_version=None):
     v = version((root / 'VERSION').read_text(encoding='utf-8').strip())
     if expected_version and version(expected_version) != v:
-        raise ValueError('标签与 VERSION 不一致')
+        raise ValueError('Tag does not match VERSION')
     datasets = builtin_datasets(root)
     records = []
     members = {}
@@ -205,7 +205,7 @@ def build(root: Path, output: Path, expected_version=None):
         members[name] = (data, mode)
         records.append({'path': name, 'bytes': len(data), 'sha256': sha(data), 'mode': mode})
     if members['VERSION'][0].decode().strip() != v:
-        raise ValueError('VERSION 不在公开白名单内')
+        raise ValueError('VERSION is not in the public allowlist')
     manifest = {'schema_version': 1, 'delivery': 'public_source', 'repository': REPOSITORY,
                 'version': v, 'tag': 'v' + v, 'license': 'GPL-3.0-or-later',
                 'source_data': [], 'builtin_datasets': [item['dataset_id'] for item in datasets],
@@ -222,7 +222,7 @@ def build(root: Path, output: Path, expected_version=None):
     checksums = output / f'SHA256SUMS-v{v}.txt'
     for path in (archive, external, checksums):
         if path.exists():
-            raise FileExistsError('不覆盖既有发行：' + str(path))
+            raise FileExistsError('Existing release will not be overwritten: ' + str(path))
     with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for name, (data, mode) in sorted(members.items()):
             entry = zipfile.ZipInfo('tme_agent/' + name, (2026, 1, 1, 0, 0, 0))
@@ -266,7 +266,7 @@ def main(argv=None):
                 v = version(args.version)
                 old = version((ROOT / 'VERSION').read_text().strip())
                 if tuple(map(int, v.split('.'))) < tuple(map(int, old.split('.'))):
-                    raise ValueError('准备新版本不能降低版本号')
+                    raise ValueError('Preparing a new version cannot lower the version number')
                 (ROOT / 'VERSION').write_text(v + '\n', encoding='utf-8')
             result = {'status': 'passed', 'files': len(rows),
                       'version': (ROOT / 'VERSION').read_text().strip(),
@@ -276,12 +276,12 @@ def main(argv=None):
                 # A pending record is reported, never silently dropped: the data
                 # is usable locally while the source metadata is still missing.
                 result['provenance_pending'] = pending
-                print('数据集来源尚未记录：' + ', '.join(pending) + '；发布前需补齐 '
-                      'datasets/<id>/dataset.json 的 source 与 license。', file=__import__('sys').stderr)
+                print('Dataset provenance is not recorded: ' + ', '.join(pending) + '; before publishing, complete '
+                      'datasets/<id>/dataset.json source and license fields.', file=__import__('sys').stderr)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f'发行失败：{exc}', file=__import__('sys').stderr)
+        print(f'Release failed: {exc}', file=__import__('sys').stderr)
         return 1
 
 

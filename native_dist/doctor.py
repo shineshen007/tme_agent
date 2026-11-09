@@ -69,7 +69,7 @@ def require_probe(root):
             record.get('runtime_fingerprint') != runtime_fingerprint(root)):
             raise ValueError('Probe record mismatch')
     except (OSError, ValueError, KeyError) as exc:
-        raise RuntimeError('本机执行限制尚未通过行为验证。请用 start 重新检查；不会无保护运行。') from exc
+        raise RuntimeError('Native execution restrictions have not passed behavioral verification. Run start to check again; unprotected execution is disabled.') from exc
 
 
 def run_check(label, argv, diagnostics, **kwargs):
@@ -248,10 +248,10 @@ def verify_manifest(root):
     for item in manifest["files"]:
         target = root / item["path"]
         if target.is_symlink() or not target.is_file():
-            raise ValueError("包文件缺失或为链接：" + item["path"])
+            raise ValueError("Package file is missing or is a link: " + item["path"])
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         if digest != item["sha256"]:
-            raise ValueError("包文件校验失败：" + item["path"])
+            raise ValueError("Package file integrity check failed: " + item["path"])
     return {"status": "passed", "files": len(manifest["files"])}
 
 
@@ -281,13 +281,13 @@ def main():
             if record['credential_storage']['status'] != 'passed':
                 raise RuntimeError('System credential isolation has not passed; unlock the credential service and retry')
         record['status'] = 'passed'; record['phase'] = 'complete'
-        print('本机检查通过：Python/R 启动、依赖、文件和网络限制及启用的凭据隔离均已验证。')
+        print('Native checks passed: Python/R startup, dependencies, filesystem and network restrictions, and enabled credential isolation were verified.')
     except Exception as exc:
         from multiomics_tui.model_config import redact
         record['error_type'] = type(exc).__name__
         record['error'] = redact(str(exc))
         record['failed_stage'] = record.get('probe_diagnostics', {}).get('phase') if record['phase']=='behavioral_selfcheck' else record['phase']
-        print('本机检查未通过：' + record['error'], file=sys.stderr)
+        print('Native checks failed: ' + record['error'], file=sys.stderr)
     path = root/'.runtime/doctor.json'
     stage = path.with_suffix('.json.tmp')
     stage.write_text(json.dumps(record,ensure_ascii=False,indent=2)+'\n',encoding='utf-8'); stage.replace(path)

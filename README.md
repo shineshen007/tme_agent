@@ -180,7 +180,7 @@ site, pyenv/uv/conda, `R_LIBS_USER`) and only fills missing dependencies into th
 environment. Put
 your real data under local `data/raw/`, `data/metadata/`, and `data/signature/` — do not upload
 these directories. Set the service with `/model` and enter the key in the masked field with
-`/key`; the key uses the system credential vault. The `/model` panel asks only for the service,
+`/key`; the key uses the system credential vault. Fixed interface labels and controls are always English. Task replies and clarification questions use Chinese when the natural-language request contains Chinese; paths, code and quoted passages do not determine the reply language. The `/model` panel asks only for the service,
 endpoint, model, authentication, and key; timeout, output limit, JSON mode, token field, and
 temperature stay in local `config/api.local.yaml` (default output limit: 32000 tokens). On Linux without a desktop credential service,
 you may explicitly set local config `distribution.credential_storage` to `memory`, where the key

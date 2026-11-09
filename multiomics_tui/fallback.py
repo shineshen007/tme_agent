@@ -68,7 +68,7 @@ def _handle(session: Session, response: Response) -> bool:
                 _out("Use /tail <job-id> to follow the log, or /jobs to list jobs.")
             return True
         if response.kind == 'model_settings':
-            _out('请在全屏界面使用 /model；REPL 可编辑 config/api.local.yaml 后重新启动。密钥仍通过 /key 输入。')
+            _out('Use /model in the full-screen interface; in the REPL, edit config/api.local.yaml and restart. Enter credentials with /key.')
             return True
         if response.kind == "excerpts":
             _show_excerpts(response)

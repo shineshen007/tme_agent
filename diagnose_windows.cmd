@@ -5,7 +5,7 @@ set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (
-  echo 请先运行 setup_windows.cmd；诊断不会安装或修复环境。
+  echo Run setup_windows.cmd first; diagnostics do not install or repair the environment.
   pause
   exit /b 1
 )

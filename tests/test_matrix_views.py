@@ -180,3 +180,21 @@ def test_pathway_coverage_uses_view_feature_keys(view_id):
     universe, resources = _trusted_gene_set_universe({'min_size': 1, 'max_size': 10}, bindings, local)
     assert universe[0]['size_in_matrix'] == 1 and universe[0]['status'] == 'used'
     assert universe[1]['status'] == 'zero_overlap' and resources[0]['sha256'] == 'synthetic'
+
+
+@pytest.mark.parametrize('mixed_inputs', ['ambiguous'], indirect=True)
+@pytest.mark.parametrize('language,fragment', [('en', 'Select the feature'), ('zh', '请选择')])
+def test_local_matrix_questions_use_task_language(project_root, stub_cfg, mixed_inputs, monkeypatch, language, fragment):
+    from types import SimpleNamespace
+    from multiomics_tui import input_inspection
+    local, inputs = mixed_inputs
+    monkeypatch.setattr(input_inspection, 'inspect_inputs', lambda *a: local)
+    def chat(role, system, request, schema, validator):
+        assert role == 'tui_task_plan_inputs'
+        selected = {'inputs': [i['path'] for i in inputs]}
+        validator(selected)
+        return {'parsed': selected}
+    questions = generate_plan(SimpleNamespace(chat_json=chat), project_root,
+        'Inspect data/raw/mixed.csv and data/raw/samples.csv', stub_cfg, language=language)['questions']
+    assert fragment in questions[0]['prompt']
+    assert ('Select the feature' if language == 'en' else '选择特征') in questions[0]['options'][0]['reason']

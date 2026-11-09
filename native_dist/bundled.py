@@ -38,9 +38,9 @@ def verify_bundle(bundle):
         if item.get('link') is not None:
             original = bundle / item['path']
             if not original.is_symlink() or os.readlink(original) != item['link']:
-                raise ValueError('应用链接校验失败：' + item['path'])
+                raise ValueError('Application link verification failed: ' + item['path'])
         elif not path.is_file() or path.stat().st_size != item['bytes'] or digest(path) != item['sha256']:
-            raise ValueError('应用文件校验失败：' + item['path'])
+            raise ValueError('Application file verification failed: ' + item['path'])
     return manifest
 
 
@@ -49,7 +49,7 @@ def verify_workspace_inputs(bundle, workspace):
     for item in metadata['inputs']:
         path = within(workspace, item['path'])
         if digest(path) != item['sha256']:
-            raise ValueError('原始输入副本发生变化，未覆盖：' + item['path'])
+            raise ValueError('Original input copy changed; nothing overwritten: ' + item['path'])
 
 
 def default_workspace():
@@ -63,20 +63,20 @@ def initialize(bundle, workspace):
     bundle = Path(bundle).resolve(strict=True)
     workspace = Path(workspace).resolve()
     if workspace == bundle or workspace.is_relative_to(bundle):
-        raise ValueError('请选择应用目录外的工作目录。')
+        raise ValueError('Choose a workspace outside the application directory.')
     metadata = json.loads((bundle/'bundle.json').read_text(encoding='utf-8'))
     if metadata['system'] != sys.platform or metadata['machine'] not in {platform.machine(), {'AMD64':'x86_64','arm64':'aarch64'}.get(platform.machine())}:
-        raise RuntimeError('安装包与当前操作系统/芯片不匹配。')
+        raise RuntimeError('The package does not match this operating system or architecture.')
     verify_bundle(bundle)
     app = within(bundle, 'app')
     marker = workspace/'.runtime/application.json'
     if (workspace/'config/study_config.yaml').exists() and not marker.exists():
-        raise ValueError('该目录是已有源码项目，不能直接改为安装版工作目录。请另选空目录。')
+        raise ValueError('This directory contains a source project; choose an empty directory for the installed application workspace.')
     workspace.mkdir(parents=True, exist_ok=True)
     for relative in ('.runtime', 'config', '.runtime/application.json', 'config/api.local.yaml', 'config/runtime.local.yaml'):
         path = workspace / relative
         if path.is_symlink() or not path.resolve().is_relative_to(workspace):
-            raise ValueError('工作目录配置不能为外部链接：' + relative)
+            raise ValueError('Workspace configuration cannot be an external link: ' + relative)
     (workspace/'.runtime').mkdir(exist_ok=True)
     lease = (workspace/'.runtime/initialize.lock').open('a+b')
     acquired = False
@@ -86,7 +86,7 @@ def initialize(bundle, workspace):
         old = json.loads(marker.read_text(encoding='utf-8')) if marker.is_file() else None
         if old and (old['bundle_root'] != str(bundle) or old['version'] != metadata['version']):
             if JobManager(workspace).active_pipeline() is not None:
-                raise RuntimeError('后台任务仍运行，请完成或停止后再切换应用版本。')
+                raise RuntimeError('A background job is running; complete or stop it before switching application versions.')
         # Seed only immutable inputs/resources and configuration. No historical
         # result directories are copied; existing files are never overwritten.
         seed = [*metadata['inputs'], *metadata.get('resources', [])]
@@ -94,17 +94,17 @@ def initialize(bundle, workspace):
             source = within(app, item['path'])
             destination = workspace/item['path']
             if not destination.resolve().is_relative_to(workspace) or any(p.is_symlink() for p in [destination, *destination.parents] if p.is_relative_to(workspace)):
-                raise ValueError('工作目录输入不能为符号链接：' + item['path'])
+                raise ValueError('Workspace inputs cannot be symbolic links: ' + item['path'])
             if destination.exists():
                 if digest(destination) != item['sha256']:
-                    raise ValueError('已有输入/资源与此版本不同，未覆盖：' + item['path'])
+                    raise ValueError('Existing input/resource differs from this version; nothing overwritten: ' + item['path'])
             else:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 # Exclusive destination avoids overwriting an input during a race.
                 with source.open('rb') as src, destination.open('xb') as dst:
                     shutil.copyfileobj(src, dst)
                 if digest(destination) != item['sha256']:
-                    raise ValueError('输入复制校验失败：' + item['path'])
+                    raise ValueError('Input copy verification failed: ' + item['path'])
         (workspace/'config').mkdir(exist_ok=True)
         study = workspace/'config/study_config.yaml'
         if not study.exists():
@@ -112,7 +112,7 @@ def initialize(bundle, workspace):
                 shutil.copyfileobj(src, dst)
         api = workspace/'config/api.local.yaml'
         if not api.exists():
-            api.write_text('# 用 /model 配置服务；密钥不得写入此文件。\nllm: {}\n', encoding='utf-8')
+            api.write_text('# Configure the provider with /model; never write credentials to this file.\nllm: {}\n', encoding='utf-8')
         python = within(bundle, metadata['python'])
         rhome = within(bundle, metadata['r_home'])
         rscript = within(bundle, metadata['rscript'])
@@ -125,7 +125,7 @@ def initialize(bundle, workspace):
             runtime_id = metadata['runtime_id']
             if private.exists() and (not receipt.is_file() or receipt.read_text().strip() != runtime_id):
                 if JobManager(workspace).active_pipeline() is not None:
-                    raise RuntimeError('后台任务仍使用旧运行库，请完成或停止后再升级。')
+                    raise RuntimeError('A background job still uses the old runtime; complete or stop it before upgrading.')
                 import uuid
                 backup = private.with_name('sandbox_runtime_previous_'+uuid.uuid4().hex[:12])
                 private.rename(backup)  # Preserve the previous private copy for rollback.
@@ -137,7 +137,7 @@ def initialize(bundle, workspace):
             rhome = private/'r'
             rscript = next(iter(sorted(rhome.glob('bin/**/Rscript.exe'))), None)
             if rscript is None:
-                raise RuntimeError('私有 R 库中未找到 Rscript.exe。')
+                raise RuntimeError('Rscript.exe was not found in the private R runtime.')
             libraries = [rhome/'library']
         runtime = {'python': str(python), 'rscript': str(rscript), 'r_home': str(rhome),
                    'r_library_paths': list(map(str, libraries))}
@@ -188,8 +188,8 @@ def main():
         return launch(args.bundle_root.resolve(),args.workspace.resolve(),args.verify_only,args.smoke)
     except Exception as exc:
         from multiomics_tui.model_config import redact
-        print('启动未完成：'+redact(f'{type(exc).__name__}: {exc}'),file=sys.stderr)
-        print('请保留工作目录 .runtime/doctor.json；不要发送密钥。',file=sys.stderr)
+        print('Startup failed: '+redact(f'{type(exc).__name__}: {exc}'),file=sys.stderr)
+        print('Keep .runtime/doctor.json in the workspace; do not share credentials.',file=sys.stderr)
         return 1
 
 

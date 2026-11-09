@@ -48,6 +48,7 @@ CANDIDATE_SCHEMA = {
                    'required': {'type': 'boolean'},
                    'documentation_url': {'type': 'string', 'maxLength': 1500}}}
 PROPOSAL = '''Propose retrieval ONLY; do not construct an analysis plan or assert a verified method.
+Return a valid JSON object only.
 Use the user's goal and the aggregate inspection below. Return structured clarification
 questions if the design needed to choose methods is unknown; do not guess it.
 Otherwise return {"kind":"analysis|utility","design":{"analysis_unit":"...",
@@ -389,7 +390,7 @@ def _proposal_valid(proposal, request, private_ids=()):
 
 
 def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id=None,
-                              literature_service=None, software_transport=None, probe=None, source_request=None):
+                              literature_service=None, software_transport=None, probe=None, source_request=None, reply_language="en"):
     """Retrieve and freeze evidence before the final planner can be invoked."""
     from .input_inspection import public_inspection
     from .task_sessions import TaskStore
@@ -410,6 +411,9 @@ def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id
         from orchestrator import pathway_scoring
         frozen_scoring = pathway_scoring.draft_protocol(request, cfg)
         search_system = PROPOSAL + json.dumps(public_inspection(inspection), ensure_ascii=False) + '\n' + CLARIFICATIONS
+        search_system += ('\nWrite all human-readable explanations and clarification prompts, labels, reasons and answers in '
+                          + ('Chinese' if reply_language == 'zh' else 'English')
+                          + '. Keep JSON keys, IDs, paths, API identifiers and exact source quotes unchanged.')
         if frozen_scoring is not None:
             search_system += ('\nIf pathway scoring is requested, retain this local frozen protocol. Include '
                               'GSVA::gsva and every named parameter constructor among the candidate R APIs.\n' +
