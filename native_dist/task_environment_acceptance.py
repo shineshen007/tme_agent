@@ -70,9 +70,9 @@ def acceptance(project_root):
         args += ['--vanilla'] if language == 'r' else []
         result = subprocess.run([*args,str(script)],env=env,cwd=task,capture_output=True,text=True,timeout=60,check=True)
         expected = 'BOUND_R_OK' if language == 'r' else 'BOUND_PYTHON_OK'
-        if result.stdout.strip() != expected:
+        if result.stdout.strip().splitlines()[-1:] != [expected]:
             raise RuntimeError('Unexpected bound-runtime output: ' + result.stdout)
-        outputs[language] = result.stdout.strip()
+        outputs[language] = {'result':expected, 'stdout':result.stdout, 'stderr':result.stderr}
     if before != inventory(folder/'runtime'):
         raise RuntimeError('Execution changed installed runtime files')
     report = {'status':'passed','platform':platform.platform(),'root':str(root),

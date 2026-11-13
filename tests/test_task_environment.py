@@ -332,6 +332,7 @@ def test_native_installer_reaps_children_but_cannot_signal_controller(tmp_path):
 
 
 def test_r_downloads_only_frozen_registry_artifacts(tmp_path, monkeypatch):
+    import hashlib
     from multiomics_tui import actions
     backend = te.Installer.__new__(te.Installer)
     backend.root = backend.folder = tmp_path
@@ -340,13 +341,16 @@ def test_r_downloads_only_frozen_registry_artifacts(tmp_path, monkeypatch):
     (tmp_path / 'r-tools/pak').mkdir(parents=True)
     backend.env = {}
     stages = []
+    checksum = hashlib.sha256(b'fixture').hexdigest()
     def run(argv, stage, guarded=False):
         stages.append((stage, guarded))
         if stage == 'resolving_dependencies':
             (tmp_path / 'r-packages.lock').write_text(json.dumps({'packages':[
-                {'type':'standard','package':'digest','version':'0.6.39','sha256':'\n  ' + 'a'*64},
+                {'ref':'digest','type':'standard','package':'digest','version':'0.6.39','sha256':'\n  ' + checksum, 'target':'digest.tar.gz'},
                 {'type':'local','package':'authorpkg','version':'1.0','sources':[str(tmp_path/'author')]}
             ]}))
+        if stage == 'downloading_packages':
+            (tmp_path/'r-downloads/digest.tar.gz').write_bytes(b'fixture')
     backend.run = run
     monkeypatch.setattr(actions, 'rscript_path', lambda root: 'Rscript')
     monkeypatch.setattr(te.shutil, 'which', lambda name: '/opt/R/bin/Rscript')
@@ -354,8 +358,9 @@ def test_r_downloads_only_frozen_registry_artifacts(tmp_path, monkeypatch):
     script = (tmp_path / 'download_packages.R').read_text()
     assert 'digest@0.6.39' in script and 'authorpkg' not in script and 'dependencies=FALSE' in script
     assert stages[-1] == ('installing_packages', True)
-    assert json.loads((tmp_path/'r-packages.lock').read_text())['packages'][0]['sha256'] == 'a'*64
+    assert json.loads((tmp_path/'r-packages.lock').read_text())['packages'][0]['sha256'] == checksum
     assert json.loads((tmp_path/'r-resolved.lock').read_text())['packages'][0]['sha256'].startswith('\n')
+    assert json.loads((tmp_path/'r-install.lock').read_text())['packages'][0]['ref'] == 'local::' + str(tmp_path/'r-downloads/digest.tar.gz')
 
 
 def test_bioc_missing_package_uses_released_repository_for_existing_r():

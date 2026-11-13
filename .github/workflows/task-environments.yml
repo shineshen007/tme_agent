@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 45
     env:
       PYTHONUTF8: '1'
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,6 +28,16 @@ jobs:
           r-version: '4.5'
       - name: Prepare acceptance dependencies
         run: python -m pip install -r native_dist/requirements-native.txt uv==0.13.7
+      - name: Prepare isolated Linux sandbox tool
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .runtime/ci-tools
+          cd .runtime/ci-tools
+          apt-get download bubblewrap
+          dpkg-deb -x bubblewrap_*.deb extracted
+          echo "$PWD/extracted/usr/bin" >> "$GITHUB_PATH"
       - name: Prepare native R probe dependencies
         run: Rscript -e 'install.packages(c("jsonlite", "digest"), repos="https://cloud.r-project.org")'
       - name: Audit public source list
@@ -47,3 +58,4 @@ jobs:
             .runtime/environment_acceptance_*/.runtime/task_environments/**/probe.log
             .runtime/environment_acceptance_*/.runtime/task_environments/**/*.bootstrap.json
           if-no-files-found: warn
+          include-hidden-files: true

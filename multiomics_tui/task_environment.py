@@ -464,13 +464,35 @@ class Installer:
         if registry_refs:
             self.run([rscript, '--vanilla', download], 'downloading_packages')
         write_json(self.folder / 'r.artifacts.json', inventory(self.folder / 'r-downloads'))
+        # Bind installation to the exact downloaded files, not pak's mutable
+        # cache freshness state (which may otherwise request network offline).
+        offline = copy.deepcopy(resolved)
+        local_refs = {}
+        for package in offline.get('packages', []):
+            if package.get('type') != 'standard':
+                continue
+            from .planning_evidence import _path
+            archive = _path(self.folder / 'r-downloads', package['target'])
+            if not archive.is_file():
+                raise EnvironmentError('Locked R artifact was not downloaded: ' + package['package'])
+            if package.get('sha256') and digest(archive) != package['sha256']:
+                raise EnvironmentError('Locked R artifact checksum mismatch: ' + package['package'])
+            reference = 'local::' + str(archive)
+            local_refs[package['ref']] = reference
+            package.update(ref=reference, type='local', sources=[str(archive)], sha256=digest(archive))
+        for package in offline.get('packages', []):
+            package['dependencies'] = [local_refs.get(ref, ref) for ref in package.get('dependencies', [])]
+            for dependency in package.get('deps', []):
+                dependency['ref'] = local_refs.get(dependency['ref'], dependency['ref'])
+        offline_lock = self.folder / 'r-install.lock'
+        write_json(offline_lock, offline)
         install = self.folder / 'install_packages.R'
         install.write_text('options(Ncpus=2, pkg.sysreqs=FALSE)\n'
-            'pak::lockfile_install(lockfile=' + q(str(lock)) + ',lib=' + q(str(library)) + ',update=FALSE)\n', encoding='utf-8')
+            'pak::lockfile_install(lockfile=' + q(str(offline_lock)) + ',lib=' + q(str(library)) + ',update=FALSE)\n', encoding='utf-8')
         self.run([rscript, '--vanilla', install], 'installing_packages', True)
         if json.loads((self.folder / 'r.artifacts.json').read_text()) != inventory(self.folder / 'r-downloads'):
             raise EnvironmentError('Downloaded R artifacts changed during installation')
-        return str(library), {'r-packages.lock': digest(lock), 'r-resolved.lock': digest(original_lock)}
+        return str(library), {'r-packages.lock': digest(lock), 'r-resolved.lock': digest(original_lock), 'r-install.lock': digest(offline_lock)}
 
 
 def prepare(root, plan, approved_hash, cfg, progress=None, *, installer=Installer, probe=None):
