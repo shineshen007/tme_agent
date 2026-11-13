@@ -385,9 +385,12 @@ def test_bioc_missing_package_uses_released_repository_for_existing_r():
 
 def test_source_http_detects_truncation_and_decodes_gzip(monkeypatch):
     import io,gzip
+    class ShortRead(io.BytesIO):
+        def read(self, count=-1):
+            return super().read(min(count, 3))
     monkeypatch.setattr(pe, '_url', lambda *a, **k: None)
     payload = gzip.compress(b'{"verified":true}')
-    response = io.BytesIO(payload)
+    response = ShortRead(payload)
     response.url = 'https://pypi.org/fixture'
     response.headers = {'Content-Length': str(len(payload)), 'Content-Encoding':'gzip'}
     monkeypatch.setattr(pe.urllib.request, 'build_opener', lambda *a: SimpleNamespace(open=lambda *a, **k: response))
@@ -397,3 +400,17 @@ def test_source_http_detects_truncation_and_decodes_gzip(monkeypatch):
     response.headers = {'Content-Length':'100'}
     with pytest.raises(ConnectionError, match='truncated'):
         pe._http(response.url, {'pypi.org'}, 10)
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='Symlink creation needs Windows privilege')
+def test_inventory_binds_internal_directory_alias_and_rejects_escape(tmp_path):
+    tree=tmp_path/'runtime';tree.mkdir()
+    (tree/'lib').mkdir();(tree/'lib/package.py').write_text('value=1')
+    (tree/'lib64').symlink_to('lib',target_is_directory=True)
+    original=te.inventory(tree)
+    assert 'lib64' in original and 'lib/package.py' in original
+    (tree/'lib/package.py').write_text('value=2')
+    assert original != te.inventory(tree)
+    (tree/'outside').symlink_to(tmp_path,target_is_directory=True)
+    with pytest.raises(te.EnvironmentError,match='Linked environment directory'):
+        te.inventory(tree)

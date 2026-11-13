@@ -79,9 +79,14 @@ def write_json(path, data):
 def inventory(folder):
     result = {}
     for p in sorted(Path(folder).rglob('*')):
-        # venv interpreter links are bound to their target content, not followed recursively.
+        # Linux venv creates lib64 -> lib. Bind internal directory aliases without
+        # following them recursively; reject links escaping the inventoried tree.
         if p.is_symlink() and p.is_dir():
-            raise EnvironmentError('Linked environment directory refused: ' + str(p))
+            target = p.resolve(strict=True)
+            if not target.is_relative_to(Path(folder).resolve()):
+                raise EnvironmentError('Linked environment directory refused: ' + str(p))
+            result[p.relative_to(folder).as_posix()] = canonical_hash({'symlink':os.readlink(p), 'target':target.relative_to(Path(folder).resolve()).as_posix()})
+            continue
         if p.is_file():
             result[p.relative_to(folder).as_posix()] = digest(p)
     return result

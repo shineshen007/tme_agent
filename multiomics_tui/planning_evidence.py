@@ -145,7 +145,14 @@ def _http(url, hosts, timeout):
     with urllib.request.build_opener(Redirect()).open(
             urllib.request.Request(url, headers={'User-Agent': 'tme-agent-method-evidence/1.0', 'Accept-Encoding': 'gzip'}), timeout=timeout) as response:
         _url(response.url, hosts)
-        content = response.read(12 * 1024 * 1024 + 1)
+        chunks, size = [], 0
+        while size <= 12 * 1024 * 1024:
+            chunk = response.read(min(65536, 12 * 1024 * 1024 + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        content = b''.join(chunks)
         expected = response.headers.get('Content-Length')
         if expected and len(content) < int(expected):
             raise ConnectionError(f'Software source response was truncated: {url} ({len(content)}/{expected} bytes)')

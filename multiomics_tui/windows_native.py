@@ -274,6 +274,14 @@ def run_appcontainer(task_dir: Path, argv: list[str], env: dict) -> int:
     clean_env = {name: value for name, value in env.items() if name in allowed_env}
     clean_env.update(HOME=str(task_dir), USERPROFILE=str(task_dir), PYTHONUTF8='1',
                      PYTHONIOENCODING='utf-8', XDG_CACHE_HOME=str(task_dir/'tmp/.cache'))
+    # Explicit AppContainer environments need application-data variables during
+    # CreateProcess initialization. Bind them to task-only storage, never HOME.
+    for name, relative in (('LOCALAPPDATA', 'tmp/localappdata'), ('APPDATA', 'tmp/appdata')):
+        directory = task_dir / relative
+        directory.mkdir(parents=True, exist_ok=True)
+        clean_env[name] = str(directory)
+    clean_env['SYSTEMDRIVE'] = Path(os.environ['SYSTEMROOT']).drive
+    clean_env['COMSPEC'] = str(Path(os.environ['SYSTEMROOT']) / 'System32/cmd.exe')
     extra_runtime = None
     if env.get('TASK_BOUND_RUNTIME'):
         from .planning_evidence import _path
