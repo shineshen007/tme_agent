@@ -25,11 +25,14 @@ def command(stage, argv, env):
     for path in paths:
         if not path.is_absolute():
             raise ValueError('Installer runtime paths must be absolute')
-        path = path.resolve(strict=True)
-        if path == stage or path.is_relative_to(stage):
+        resolved = path.resolve(strict=True)
+        if resolved == stage or resolved.is_relative_to(stage):
             continue
-        if stage.is_relative_to(path):
+        if stage.is_relative_to(resolved):
             raise ValueError('Installer cannot mount a parent of its staging directory')
+        # Preserve lexical system aliases (/lib64, /bin) at the destination.
+        # ELF interpreters use those names even when their host paths resolve
+        # into /usr. Canonicalizing the destination makes existing binaries fail.
         if path not in mounts:
             mounts.append(path)
     result = [executable, '--unshare-all', '--die-with-parent', '--new-session', '--proc', '/proc', '--dev', '/dev']

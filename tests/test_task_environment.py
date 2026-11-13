@@ -414,3 +414,18 @@ def test_inventory_binds_internal_directory_alias_and_rejects_escape(tmp_path):
     (tree/'outside').symlink_to(tmp_path,target_is_directory=True)
     with pytest.raises(te.EnvironmentError,match='Linked environment directory'):
         te.inventory(tree)
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX sandbox paths')
+def test_linux_installer_preserves_lexical_runtime_mount(tmp_path, monkeypatch):
+    from multiomics_tui import installer_guard
+    stage=tmp_path/'stage';stage.mkdir()
+    runtime=tmp_path/'actual';runtime.mkdir()
+    alias=tmp_path/'alias';alias.symlink_to(runtime,target_is_directory=True)
+    monkeypatch.setattr(installer_guard.shutil,'which',lambda name:'/usr/bin/bwrap')
+    args=installer_guard.command(stage,['/fixture/python'],{'TASK_ALLOWED_READS':json.dumps([str(alias)])})
+    mounts=[args[i+1:i+3] for i,value in enumerate(args) if value=='--ro-bind']
+    assert [str(alias),str(alias)] in mounts
+    assert '--unshare-all' in args
+    with pytest.raises(ValueError,match='parent'):
+        installer_guard.command(stage,['/fixture/python'],{'TASK_ALLOWED_READS':json.dumps([str(tmp_path)])})

@@ -31,11 +31,15 @@ The report includes the actual environment, packages and source commitments.
   currently require compatible wheels; no online source build is permitted.
 - R uses pinned pak 0.11.2, bootstrapped from the current platform's official CRAN package
   artifact. pak resolves required dependencies and creates a lockfile; downloaded
-  packages are installed offline in the task library. System requirements are
+  packages are installed offline in the task library. The installation lock binds
+  verified local archive paths, so installation never depends on an online cache
+  freshness check. Resolver, normalized source and local installation locks are retained. System requirements are
   not installed automatically. The pak macOS binary fallback `mac.cran.dev`
   is included, as recorded by the [R-universe build configuration](https://github.com/r-universe-org/actions/blob/v12/Rprofile).
   Folded whitespace around registry SHA256 values is normalized; the original
-  resolver lock remains available alongside the installation lock.
+  resolver lock remains available alongside the installation lock. Missing
+  Bioconductor packages are looked up in a released repository matching the
+  existing R major/minor version, using the official compatibility mapping.
 - Public GitHub author repositories require a link from official registry
   metadata, its registered homepage/documentation, or a retrieved methodology
   passage. The source is frozen to a complete commit and archive hash. An arbitrary
@@ -66,3 +70,14 @@ A receipt is published after API verification and linked to the task plan hash i
 the session. Changed dependencies, source identities or scientific choices require
 a new plan. Successful package/API checks are engineering evidence, not scientific
 or clinical acceptance. Native acceptance results must be recorded per platform.
+
+## Native acceptance
+
+`python -m native_dist.task_environment_acceptance` installs small real Python/R
+packages in a disposable task environment, probes their APIs and executes bound
+scripts under the native guard. It uses synthetic inputs and no model credentials.
+The dedicated `Native task environment acceptance` workflow runs this on Windows,
+Linux and macOS without a release. Linux CI extracts the signed Ubuntu package
+for bubblewrap into its own workspace; the application still never installs system
+tools automatically. Native acceptance logs and lockfiles are uploaded separately
+from portable regression results.

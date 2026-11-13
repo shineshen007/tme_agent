@@ -359,6 +359,13 @@ class Installer:
         if not exe.exists():
             base_python = (Path(self.env['MULTIOMICS_RUNTIME_ROOT']) / '.runtime/sandbox_runtime/python/python.exe' if os.name == 'nt' else Path(sys.executable))
             self.run([base_python, '-m', 'venv', '--copies', '--without-pip', target], 'preparing_environment')
+            if os.name == 'nt':
+                # Cache uv's interpreter metadata while this newly created venv
+                # contains no third-party code. AppContainer denies uv opening
+                # NUL for its query subprocess; cached inspection avoids that
+                # device access without relaxing the installation sandbox.
+                self.run([uv, 'python', 'find', '--offline', '--no-config', '--no-project', exe],
+                         'verifying_empty_interpreter')
         self.run([uv, 'pip', 'sync', '--offline', '--no-config', '--no-build', '--require-hashes',
                   '--no-index', '--find-links', wheels, '--python', exe, lock], 'installing_packages', True)
         for source in source_trees:
@@ -420,8 +427,8 @@ class Installer:
                     raise EnvironmentError('Author R dependency introduces unapproved remote sources')
                 refs.append('local::' + str(source))
             else:
-                refs.append(d['package'] + '@' + d['version'])
-        refs += ['jsonlite', 'digest']
+                refs.append(('bioc::' if d['source']['kind'] == 'bioconductor' else 'cran::') + d['package'] + '@' + d['version'])
+        refs += ['cran::jsonlite', 'cran::digest']
         vector = 'c(' + ','.join(q(v) for v in refs) + ')'
         lock = self.folder / 'r-packages.lock'
         prepare = self.folder / 'prepare_packages.R'
@@ -460,8 +467,8 @@ class Installer:
         # Do not pass author source trees to an online download operation:
         # pkg_download may package local trees. Only frozen registry artifacts
         # belong here; local source builds happen in the offline installer.
-        registry_refs = [p['package'] + '@' + p['version'] for p in resolved.get('packages', [])
-                         if p.get('type') == 'standard']
+        registry_refs = [('bioc::' if p.get('repotype') == 'bioc' or p.get('type') == 'bioc' else 'cran::') + p['package'] + '@' + p['version'] for p in resolved.get('packages', [])
+                         if p.get('type') in {'standard', 'cran', 'bioc'}]
         download_vector = 'c(' + ','.join(q(v) for v in registry_refs) + ')'
         download.write_text('options(repos=c(CRAN="https://cloud.r-project.org"), timeout=1800, pkg.sysreqs=FALSE)\n'
             + 'pak::pkg_download(' + download_vector + ',dest_dir=' + q(str(self.folder / 'r-downloads')) + ',dependencies=FALSE)\n', encoding='utf-8')
@@ -474,7 +481,7 @@ class Installer:
         offline = copy.deepcopy(resolved)
         local_refs = {}
         for package in offline.get('packages', []):
-            if package.get('type') != 'standard':
+            if package.get('type') not in {'standard', 'cran', 'bioc'}:
                 continue
             from .planning_evidence import _path
             archive = _path(self.folder / 'r-downloads', package['target'])
