@@ -858,6 +858,8 @@ class MultiomicsApp(App):
                 "succeeded": "Completed", "failed": "Failed", "killed": "Stopped",
             }.get(state["status"], state["status"])
             parts.append(f"Phase: {phase}")
+            if str(state.get('current_stage', '')).startswith('environment:'):
+                parts.append('Environment: ' + state['current_stage'].split(':', 1)[1])
             if state.get('planning_stage'):
                 parts.append('Method verification: ' + state['planning_stage'])
             if state.get('planning_attempt'):

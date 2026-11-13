@@ -33,6 +33,7 @@ from orchestrator.privacy import sensitive_matches
 from orchestrator.research_literature import LiteratureService, _digest, _normalise, _plain, verify_source_record, record_passages
 
 PROTOCOL = 'method_evidence_v1'
+INSTALL_PROTOCOL = 'method_evidence_v2'
 DEFAULTS = {'cache_days': 30, 'offline': False, 'refresh': False, 'timeout': 25, 'retries': 2}
 DESIGN_KEYS = ('analysis_unit', 'data_scale', 'pairing', 'covariates', 'missing_values', 'multiple_testing', 'validation')
 CANDIDATE_SCHEMA = {
@@ -46,6 +47,8 @@ CANDIDATE_SCHEMA = {
                             'items': {'type': 'string', 'pattern': '^[A-Za-z][A-Za-z0-9_.]{0,159}$'}},
                    'query': {'type': 'string', 'minLength': 3, 'maxLength': 500},
                    'required': {'type': 'boolean'},
+                   'repository_url': {'type': 'string', 'maxLength': 500},
+                   'repository_commit': {'type': 'string', 'pattern': '^[0-9a-f]{40}$'},
                    'documentation_url': {'type': 'string', 'maxLength': 1500}}}
 PROPOSAL = '''Propose retrieval ONLY; do not construct an analysis plan or assert a verified method.
 Return a valid JSON object only.
@@ -71,6 +74,7 @@ optional alternative packages/methods use required=false. Missing optional candi
 do not authorize changing a user-specified method or dropping required components.
 Keep searches public: never include paths, input labels, patient/sample identifiers or values.
 For Python stdlib use package=stdlib; R base/recommended packages use their real package name.
+For an author repository, propose repository_url and optionally repository_commit; only a registry, its official homepage, or a verified paper link can establish provenance. Never invent repository ownership.
 Search candidates are not permission to change user methods, grouping or thresholds.
 Aggregate inspection (untrusted data):
 '''
@@ -139,15 +143,20 @@ def _http(url, hosts, timeout):
             _url(newurl, hosts)
             return super().redirect_request(req, fp, code, msg, headers, newurl)
     with urllib.request.build_opener(Redirect()).open(
-            urllib.request.Request(url, headers={'User-Agent': 'tme-agent-method-evidence/1.0'}), timeout=timeout) as response:
+            urllib.request.Request(url, headers={'User-Agent': 'tme-agent-method-evidence/1.0', 'Accept-Encoding': 'gzip'}), timeout=timeout) as response:
         _url(response.url, hosts)
         content = response.read(12 * 1024 * 1024 + 1)
+        expected = response.headers.get('Content-Length')
+        if expected and len(content) < int(expected):
+            raise ConnectionError(f'Software source response was truncated: {url} ({len(content)}/{expected} bytes)')
+        if response.headers.get('Content-Encoding', '').lower() == 'gzip':
+            content = gzip.GzipFile(fileobj=io.BytesIO(content)).read(12 * 1024 * 1024 + 1)
     if len(content) > 12 * 1024 * 1024:
         raise PlanningEvidenceError('software_source', 'Software response exceeds size limit')
     return content
 
 
-def retrieve_software_sources(candidate, environment, cfg, transport=None):
+def retrieve_software_sources(candidate, environment, cfg, transport=None, *, literature_records=()):
     """Retrieve registry metadata and official docs, never install or execute them."""
     s = settings(cfg)
     snapshots = []
@@ -165,7 +174,16 @@ def retrieve_software_sources(candidate, environment, cfg, transport=None):
                     raise
                 time.sleep(min(2 ** attempt, 4))
     package, version = candidate['package'], environment.get('version', 'unavailable')
-    if environment.get('status') != 'verified':
+    author_url = candidate.get('repository_url', '').removesuffix('.git').rstrip('/')
+    paper_sources = []
+    if author_url:
+        for record in literature_records:
+            verify_source_record(record)
+            links = re.findall(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',
+                               ' '.join(p['text'] for p in record_passages(record)))
+            if author_url in [link.removesuffix('.git').rstrip('/') for link in links]:
+                paper_sources.append(record['source_id'])
+    if environment.get('status') != 'verified' or candidate.get('repository_url'):
         # Search official sources even when the environment lacks the method;
         # discovery is retained separately and can never become an API receipt.
         if candidate['language'] == 'python':
@@ -175,14 +193,32 @@ def retrieve_software_sources(candidate, environment, cfg, transport=None):
                 discovered = {'name': package, 'version': version}
             else:
                 url = 'https://pypi.org/pypi/' + urllib.parse.quote(package, safe='') + '/json'
-                discovered = json.loads(get(url, {'pypi.org'}))['info']
+                try:
+                    discovered = json.loads(get(url, {'pypi.org'}))['info']
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 404 or not paper_sources:
+                        raise
+                    discovered = {'name': package, 'version': 'pending',
+                                  'summary': 'Author repository linked by verified methodology source.',
+                                  'project_urls': {'Repository': author_url}}
                 if canonicalize_name(discovered['name']) != canonicalize_name(package):
                     raise PlanningEvidenceError('software_source', 'Registry candidate identity mismatch')
-                discovered = {k: discovered.get(k) for k in ('name', 'version', 'requires_python', 'requires_dist', 'project_urls')}
+                discovered = {k: discovered.get(k) for k in ('name', 'version', 'requires_python', 'requires_dist', 'project_urls', 'summary', 'description')}
         else:
             discovered = None
             for url in ('https://cran.r-project.org/src/contrib/PACKAGES.gz',
                         'https://bioconductor.org/packages/release/bioc/src/contrib/PACKAGES.gz'):
+                if 'bioconductor.org' in url and environment.get('runtime'):
+                    import yaml
+                    from packaging.version import Version
+                    config = yaml.safe_load(get('https://bioconductor.org/config.yaml', {'bioconductor.org'}))
+                    r_minor = '.'.join(environment['runtime'].split('.')[:2])
+                    releases = [str(v) for v, r in config['r_ver_for_bioc_ver'].items()
+                                if str(r) == r_minor and Version(str(v)) <= Version(str(config['release_version']))]
+                    if not releases:
+                        raise PlanningEvidenceError('software_source', 'No released Bioconductor repository matches the existing R interpreter')
+                    release = max(releases, key=Version)
+                    url = url.replace('/release/', '/' + release + '/')
                 data = gzip.GzipFile(fileobj=io.BytesIO(get(url, {urllib.parse.urlsplit(url).hostname}))).read(24 * 1024 * 1024 + 1)
                 if len(data) > 24 * 1024 * 1024:
                     raise PlanningEvidenceError('software_source', 'Registry catalog exceeds size limit')
@@ -192,10 +228,67 @@ def retrieve_software_sources(candidate, environment, cfg, transport=None):
                     discovered = matched[0]
                     break
             if discovered is None:
-                raise PlanningEvidenceError('software_source', 'Candidate absent from official R catalogs')
-        return {'verification_status': 'dependency_missing', 'registry_url': url, 'metadata': discovered,
-                'snapshots': snapshots, 'version': version, 'documentation': '',
-                'limitation': 'Official discovery only. Installation, compatibility and actual APIs are not verified.'}
+                if not paper_sources:
+                    raise PlanningEvidenceError('software_source', 'Candidate absent from official R catalogs')
+                discovered = {'Package': package, 'Version': 'pending', 'paper_linked': True,
+                              'Description': 'Author repository linked by verified methodology source.', 'URL': author_url}
+        if candidate['language'] == 'r' and discovered is not None and not discovered.get('paper_linked'):
+            page_url = (f'https://cran.r-project.org/web/packages/{package}/index.html' if 'cran.r-project.org' in url
+                        else url.rsplit('/src/contrib/', 1)[0] + f'/html/{package}.html')
+            discovered['registry_page'] = get(page_url, {urllib.parse.urlsplit(page_url).hostname}).decode()
+            discovered['Description'] = _plain(discovered['registry_page'])
+        if package == 'stdlib':
+            raise PlanningEvidenceError('api_incompatible', 'Standard library API cannot be installed')
+        version = discovered.get('version') or discovered.get('Version')
+        documentation = '\n'.join(str(discovered.get(k) or '') for k in ('summary', 'description', 'Description', 'Title')).strip()
+        if not version or len(documentation) < 16:
+            raise PlanningEvidenceError('software_source', 'Official package version/description unavailable')
+        install_source = None
+        if candidate.get('repository_url'):
+            repo_url = candidate['repository_url'].removesuffix('.git').rstrip('/')
+            if not re.fullmatch(r'https://github.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo_url):
+                raise PlanningEvidenceError('software_source', 'Only public GitHub author repositories are supported')
+            # The URL must originate in registry metadata, not just model text.
+            registry_links = re.findall(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', json.dumps(discovered))
+            if repo_url not in [v.removesuffix('.git').rstrip('/') for v in registry_links] and not paper_sources:
+                homepage_links = discovered.get('project_urls', {}) or {}
+                for label, homepage in homepage_links.items():
+                    if label.lower() not in {'homepage', 'home', 'documentation'} or not isinstance(homepage, str):
+                        continue
+                    homepage_host = urllib.parse.urlsplit(homepage).hostname
+                    page = get(homepage, {homepage_host}).decode()
+                    if repo_url in re.findall(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', page):
+                        registry_links.append(repo_url)
+                        break
+            if repo_url not in [v.removesuffix('.git').rstrip('/') for v in registry_links] and not paper_sources:
+                raise PlanningEvidenceError('software_source', 'Repository is not linked by official package metadata')
+            slug = repo_url.removeprefix('https://github.com/')
+            revision = candidate.get('repository_commit', 'HEAD')
+            commit_data = json.loads(get('https://api.github.com/repos/' + slug + '/commits/' + revision, {'api.github.com'}))
+            commit = commit_data.get('sha', '')
+            if not re.fullmatch(r'[0-9a-f]{40}', commit) or revision != 'HEAD' and commit != revision:
+                raise PlanningEvidenceError('software_source', 'Cannot verify immutable author commit')
+            manifest = 'pyproject.toml' if candidate['language'] == 'python' else 'DESCRIPTION'
+            content = get('https://raw.githubusercontent.com/' + slug + '/' + commit + '/' + manifest, {'raw.githubusercontent.com'}).decode()
+            if candidate['language'] == 'python':
+                import tomllib
+                project = tomllib.loads(content).get('project', {})
+                if canonicalize_name(project.get('name', '')) != canonicalize_name(package):
+                    raise PlanningEvidenceError('software_source', 'Author package identity mismatch')
+                version = project.get('version')
+            else:
+                project = dict(Parser().parsestr(content))
+                if project.get('Package') != package:
+                    raise PlanningEvidenceError('software_source', 'Author package identity mismatch')
+                version = project.get('Version')
+            if not version:
+                raise PlanningEvidenceError('software_source', 'Author source needs an explicit version in its manifest')
+            install_source = {'kind': 'author_repository', 'url': repo_url, 'commit': commit,
+                              'provenance_sha256': _digest(json.dumps({'snapshots': snapshots, 'paper_sources': paper_sources}, sort_keys=True).encode())}
+        return {'install_source': install_source, 'verification_status': 'source_verified_api_pending', 'registry_url': url, 'metadata': discovered,
+                'snapshots': snapshots, 'version': version, 'documentation': documentation,
+                'documentation_origin': 'official_registry_pending_install', 'maintenance': {'status': 'unknown'},
+                'limitation': 'Official source only. Actual installed API verification is required after approval.'}
     documentation = '\n\n'.join(row['documentation'] for row in environment['apis'].values())
     if not documentation.strip():
         raise PlanningEvidenceError('api_incompatible', 'API has no readable installed version documentation')
@@ -319,7 +412,7 @@ def probe_method_apis(root, candidates, cfg, folder):
         request, output = work / 'request.json', work / 'environment.json'
         request.write_text(json.dumps(chosen), encoding='utf-8')
         env = _step_environment(root, work, cfg, [])
-        interpreter = sys.executable if language == 'python' else rscript_path(root)
+        interpreter = env.get('TASK_PYTHON', sys.executable) if language == 'python' else (shutil.which(rscript_path(root)) or rscript_path(root))
         argv = [sys.executable, str(Path(__file__).with_name('task_guard.py')), str(work), '--', interpreter]
         if language == 'r':
             argv.append('--vanilla')
@@ -480,22 +573,14 @@ def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id
                 if candidate['id'] in previous:
                     rows.append(previous[candidate['id']])
                     continue
-                if env.get('status') != 'verified':
-                    entry = {'id': candidate['id'], 'kind': 'dependency' if env.get('status') == 'missing' else 'api_incompatible',
-                             'package': candidate['package'], 'language': candidate['language'],
-                             'error': env.get('error', 'API missing')}
-                    try:
-                        entry['software_discovery'] = retrieve_software_sources(candidate, env, cfg, software_transport)
-                        entry['literature_discovery'] = service.search([candidate['query']], context={'private_ids': getattr(client, 'private_ids', ())})
-                    except (OSError, ValueError, KeyError) as exc:
-                        entry['discovery_error'] = type(exc).__name__
-                    errors.append(entry)
-                    continue
                 try:
-                    software = retrieve_software_sources(candidate, env, cfg, software_transport)
                     literature = service.search([candidate['query']], context={'private_ids': getattr(client, 'private_ids', ())}) if proposal['kind'] == 'analysis' else {'records': [], 'status': 'not_required', 'queries': []}
                     for record in literature['records']:
                         verify_source_record(record)
+                    software = retrieve_software_sources(candidate, env, cfg, software_transport,
+                                                         literature_records=literature['records'])
+                    if env.get('status') != 'verified' or candidate.get('repository_url'):
+                        env = {**env, 'status': 'pending_install', 'version': software['version']}
                     literature['raw_responses'] = []
                     for query in literature.get('queries', []):
                         if not isinstance(query, dict):
@@ -517,6 +602,8 @@ def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id
             if previous:
                 bundle['retrieved_at'] = min(bundle['retrieved_at'], cached['retrieved_at'])
             _write(root, cache_dir + '/' + str(time.time_ns()) + '.json', {**bundle, 'sha256': _digest(bundle)})
+        if any(r['environment']['status'] == 'pending_install' for r in bundle['methods']):
+            bundle['protocol'] = INSTALL_PROTOCOL
         _write(root, attempt + '/dependency_requirements.json', [e for e in bundle['errors'] if e['kind'] in {'dependency', 'api_incompatible'}])
         artifact_names = [p.relative_to(root).as_posix() for p in _path(root, attempt).rglob('*')
                           if p.is_file() and not {'tmp', '.cache'}.intersection(p.relative_to(_path(root, attempt)).parts)]
@@ -532,7 +619,7 @@ def collect_planning_evidence(client, root, request, inspection, cfg, *, task_id
             raise PlanningEvidenceError(kind, 'No candidate passed method evidence checks; inspect ' + attempt + '/bundle.json')
         software = [{'id': r['candidate']['id'], 'package': r['candidate']['package'],
                      'version': r['environment']['version'], 'apis': r['candidate']['apis']} for r in bundle['methods']]
-        return {'protocol': PROTOCOL, **receipt, 'cache_days': s['cache_days'], 'cache_hit': bundle['cache_hit'],
+        return {'protocol': bundle['protocol'], **receipt, 'cache_days': s['cache_days'], 'cache_hit': bundle['cache_hit'],
                 'retrieved_at': bundle['retrieved_at'], 'software': software, 'bundle': bundle}
     except Exception as exc:
         _write(root, attempt + '/failure.json', {'kind': getattr(exc, 'planning_failure_kind', 'evidence_validation'),
@@ -563,7 +650,7 @@ def validate_method_bindings(bindings, bundle, plan):
                 raise PlanningEvidenceError('evidence_validation', 'Missing method assessment: ' + key)
         quote = binding.get('documentation_quote', '')
         if not isinstance(quote, str) or len(quote.strip()) < 16 or _normalise(quote) not in _normalise(row['software']['documentation']):
-            raise PlanningEvidenceError('evidence_validation', 'Method requires an exact installed API documentation passage')
+            raise PlanningEvidenceError('evidence_validation', 'Method requires an exact frozen software documentation passage')
         if bundle['proposal']['kind'] == 'analysis':
             citation = binding.get('paper', {})
             sources = {r['source_id']: r for r in row['literature']['records']}
@@ -616,12 +703,12 @@ def verify_planning_evidence(root, plan, *, stage='read', cfg=None, request=None
     ref = plan.get('planning_evidence')
     if not ref:
         raise PlanningEvidenceError('legacy_plan', 'Legacy plan has no pre-plan evidence; create a new reviewed plan')
-    if ref.get('protocol') != PROTOCOL:
+    if ref.get('protocol') not in {PROTOCOL, INSTALL_PROTOCOL}:
         raise PlanningEvidenceError('evidence_integrity', 'Unsupported planning evidence protocol')
-    if plan.get('planning_protocol') != PROTOCOL:
+    if plan.get('planning_protocol') != ref['protocol']:
         raise PlanningEvidenceError('evidence_integrity', 'Planning protocol marker is missing')
     markers = [p for p in plan.get('parameters', []) if p.get('name') == 'planning_protocol']
-    if markers != [{'name': 'planning_protocol', 'value': PROTOCOL, 'source': 'evidence:' + ref.get('sha256', '')}]:
+    if markers != [{'name': 'planning_protocol', 'value': ref['protocol'], 'source': 'evidence:' + ref.get('sha256', '')}]:
         raise PlanningEvidenceError('evidence_integrity', 'Missing downgrade-protection parameter')
     relative = ref.get('path', '')
     if not (relative.startswith('workspace/tui/sessions/') or relative.startswith('.runtime/planning_evidence/')) or not relative.endswith('/bundle.json'):
@@ -630,7 +717,7 @@ def verify_planning_evidence(root, plan, *, stage='read', cfg=None, request=None
     if hashlib.sha256(path.read_bytes()).hexdigest() != ref.get('sha256'):
         raise PlanningEvidenceError('evidence_integrity', 'Planning evidence changed')
     bundle = json.loads(path.read_text(encoding='utf-8'))
-    if bundle.get('protocol') != PROTOCOL:
+    if bundle.get('protocol') != ref['protocol']:
         raise PlanningEvidenceError('evidence_integrity', 'Invalid evidence bundle protocol')
     if ref.get('retrieved_at', bundle['retrieved_at']) != bundle['retrieved_at']:
         raise PlanningEvidenceError('evidence_integrity', 'Evidence display time differs from source')
@@ -661,11 +748,15 @@ def verify_planning_evidence(root, plan, *, stage='read', cfg=None, request=None
         if any(file_hash(_path(root, i['path'])) != i['sha256'] for i in plan['inputs']):
             raise PlanningEvidenceError('evidence_integrity', 'Input changed after method verification')
     validate_method_bindings(plan.get('method_bindings'), bundle, plan)
+    if ref['protocol'] == INSTALL_PROTOCOL:
+        from .task_environment import specification
+        if plan.get('environment_spec') != specification(bundle, plan['method_bindings']):
+            raise PlanningEvidenceError('evidence_integrity', 'Environment specification differs from verified sources')
     if cfg is not None and stage in {'approve', 'execute'}:
         frozen = bundle['context']['configuration']
         if frozen != _configuration(cfg):
             raise PlanningEvidenceError('evidence_integrity', 'Method configuration changed; re-plan')
-        if reprobe:
+        if reprobe and ref['protocol'] == PROTOCOL:
             chosen = {b['id'] for b in plan['method_bindings']}
             candidates = [r['candidate'] for r in bundle['methods'] if r['candidate']['id'] in chosen]
             work = path.parent / ('verify_' + uuid.uuid4().hex)

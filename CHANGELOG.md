@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — task environments
+
+- Add source-verified/API-pending v2 plans with approval-bound dependency specifications, task-local uv/pak installation, actual API verification and runtime receipts.
+- Bind API probes, preflight and execution to the same verified environment; preserve failed attempts and allow unchanged approved installation retries.
+- Record pinned author repository provenance, package artifacts, locks and environment fingerprints. Generated analysis code still cannot install packages. Native acceptance remains platform-specific; no version release is included.
+
 ## v8.4.1 — 2026-11-09
 
 - Keep fixed controls and model settings in English while replying to Chinese tasks, including clarification questions, in Chinese. Preserve task language across retries and restored sessions.

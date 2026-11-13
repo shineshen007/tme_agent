@@ -577,7 +577,7 @@ def validate_plan(root: Path, raw: dict, request: str, cfg: dict, inspection: di
                 if str(node) != param["value"]:
                     parameter_errors.append(f"Configuration value mismatch: {source}")
         elif source.startswith('evidence:'):
-            if (param['name'] != 'planning_protocol' or param['value'] != 'method_evidence_v1'
+            if (param['name'] != 'planning_protocol' or param['value'] not in {'method_evidence_v1', 'method_evidence_v2'}
                     or source != 'evidence:' + raw.get('planning_evidence', {}).get('sha256', '')):
                 parameter_errors.append('Invalid planning evidence compatibility marker')
         elif source != "fixed_method" or re.search(r"\d", param["value"]):
@@ -703,6 +703,8 @@ def validate_plan(root: Path, raw: dict, request: str, cfg: dict, inspection: di
         evidence_plan = {**raw, **grounded, 'inputs': inputs, 'steps': steps}
         verify_planning_evidence(root, evidence_plan)
         grounded.update({key: raw[key] for key in ('planning_protocol', 'planning_evidence', 'method_bindings')})
+        if 'environment_spec' in raw:
+            grounded['environment_spec'] = raw['environment_spec']
     return {**grounded, "goal": raw["goal"].strip(), "analysis_unit": raw["analysis_unit"].strip(),
             "method": raw["method"].strip(), "parameters": parameters, "inputs": inputs,
             "steps": steps, "limitations": list(limitations) + extra_limitations}
@@ -775,7 +777,7 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
                 return validate_plan(root, {'questions': [{'id': 'matrix_view',
                     'prompt': choose(language, 'Select the feature identifier and sample-matching view for this mixed wide table; use a custom answer for other choices.', '请选择混合宽表的特征标识及样本匹配视图；未列出的选择可用自定义答案指定。'),
                     'mode': 'single', 'options': options}]}, source_request, cfg, inspection=inspected)
-        from .planning_evidence import collect_planning_evidence, PROTOCOL
+        from .planning_evidence import collect_planning_evidence, PROTOCOL, INSTALL_PROTOCOL
         evidence = collect_planning_evidence(client, root, request, inspected, cfg, task_id=task_id, source_request=source_request, reply_language=language)
         if 'questions' in evidence:
             return validate_plan(root, evidence, source_request, cfg, inspection=inspected)
@@ -792,7 +794,7 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
         bundle = evidence['bundle']
         public_methods = [{'id': row['candidate']['id'], 'name': row['candidate']['name'],
                            'language': row['candidate']['language'], 'package': row['candidate']['package'],
-                           'version': row['environment']['version'], 'apis': row['candidate']['apis'],
+                           'version': row['environment']['version'], 'api_status': row['environment']['status'], 'apis': row['candidate']['apis'],
                            'maintenance': row['software'].get('maintenance', {}),
                            'documentation': row['software']['documentation'],
                            'literature': row['literature']['records']} for row in bundle['methods']]
@@ -806,6 +808,8 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
                    'For utility tasks omit paper. Every step needs method_ids referencing its selected methods. '
                    'Use only verified packages/APIs for computation. Provenance checks do not prove applicability; '
                    'state evidence limits for human review. Do not provide planning_evidence or verification receipts.')
+        if evidence['protocol'] == INSTALL_PROTOCOL:
+            system += '\nSome sources are verified but their APIs are pending installation. Plan with the declared candidates; approval authorizes installation and mandatory API verification before execution. Do not claim these APIs are already verified.'
         protocol = pathway_scoring.draft_protocol(request, cfg)
         if protocol is not None:
             # Frozen locally; the model must not restate or change these choices.
@@ -821,7 +825,7 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
         system += "\nWrite all human-readable values and clarification questions in " + ("Chinese" if language == "zh" else "English") + ". Keep JSON keys, IDs, paths and code identifiers unchanged."
         from .r_env import availability_note
         note = availability_note(cfg)
-        if note:
+        if note and evidence['protocol'] != INSTALL_PROTOCOL:
             system += ("\nPlan steps that can run with the software already installed on this host. "
                        "Prefer installed mature APIs for the requested method. If the required method "
                        "is unavailable, return a dependency clarification rather than substitute a "
@@ -835,12 +839,15 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
                 raise ValueError("A new plan requires input_bindings grounded in the inspection")
             # Only locally retrieved knowledge may enter the approval snapshot.
             if isinstance(parsed, dict) and 'questions' not in parsed:
-                if any(key in parsed for key in ('planning_evidence', 'planning_protocol')):
+                if any(key in parsed for key in ('planning_evidence', 'planning_protocol', 'environment_spec')):
                     raise ValueError('Model must not generate planning verification receipts')
-                parsed = {**parsed, 'knowledge_snapshot': planning_knowledge, 'planning_protocol': PROTOCOL,
+                parsed = {**parsed, 'knowledge_snapshot': planning_knowledge, 'planning_protocol': evidence['protocol'],
                           'planning_evidence': {k: v for k, v in evidence.items() if k != 'bundle'},
                           'parameters': [p for p in parsed.get('parameters', []) if p.get('name') != 'planning_protocol'] +
-                              [{'name': 'planning_protocol', 'value': PROTOCOL, 'source': 'evidence:' + evidence['sha256']}]}
+                              [{'name': 'planning_protocol', 'value': evidence['protocol'], 'source': 'evidence:' + evidence['sha256']}]}
+                if evidence['protocol'] == INSTALL_PROTOCOL:
+                    from .task_environment import specification
+                    parsed['environment_spec'] = specification(bundle, parsed.get('method_bindings', []))
                 parsed['limitations'] = list(parsed.get('limitations') or []) + [
                     'Method provenance/API checks require human review of applicability and maintenance; they are not scientific acceptance.']
             return validate_plan(root, parsed, source_request, cfg, inspection=inspected)
@@ -861,15 +868,22 @@ def generate_plan(client, root: Path, request: str, cfg: dict, language: str = "
 
 def render_plan(task_id: str, plan: dict, plan_hash: str, language: str = "en", compact: bool = False) -> str:
     evidence_lines = []
+    environment_lines = []
+    if plan.get('environment_spec'):
+        environment_lines = [('批准后自动安装并核验 API：' if language == 'zh' else 'Install and verify APIs after approval:')]
+        environment_lines += [f"{d['language']}: {d['package']}=={d['version']} ({d['source']['kind']})" for d in plan['environment_spec']['dependencies']]
     if plan.get('planning_evidence'):
         ref = plan['planning_evidence']
         evidence_lines = [('方法证据：已核验；' if language == 'zh' else 'Method evidence: verified; ') +
                           ('cache' if ref.get('cache_hit') else 'retrieved') +
                           f"; {ref['cache_days']} days; " + ref.get('retrieved_at', 'see Details')]
+        if plan.get('environment_spec'):
+            evidence_lines[0] = ('方法来源已核验；安装及 API 核验待执行' if language == 'zh' else 'Method sources verified; installation/API verification pending')
         selected = {b['id'] for b in plan['method_bindings']}
         evidence_lines += [f"{s['package']} {s['version']}: " + ', '.join(s['apis'])
                           for s in ref.get('software', []) if s['id'] in selected]
         evidence_lines += [b['id'] + ': ' + b['rationale'] + '; ' + b['limitations'] for b in plan['method_bindings']]
+    evidence_lines += environment_lines
     if compact or language == "zh":
         from .language import choose
         def t(en, zh):

@@ -719,6 +719,21 @@ class Session:
             except (OSError, ValueError):
                 return Response("text", choose(language, "Unknown task session: ", "未知任务会话：") + task_id)
             language = self.tasks.reply_language(task_id)
+            if (state['status'] in {'blocked', 'failed', 'killed'} and
+                    str(state.get('current_stage', '')).startswith('environment:') and state.get('approved_hash')):
+                from .task_sessions import canonical_hash
+                plan = self.tasks.plan(task_id)
+                if state['approved_hash'] != canonical_hash(plan):
+                    return Response('text', 'Approved environment plan changed; create a new plan.')
+                if self.jobs.active_pipeline() is not None:
+                    return Response('text', 'A job is still active; wait before retrying environment preparation.')
+                state.update(status='awaiting_approval', error=None)
+                self.tasks.save(state)
+                with self._pending_lock:
+                    self.pending = {'id': uuid.uuid4().hex, 'action': 'task_plan', 'task_id': task_id,
+                                    'plan_hash': state['approved_hash'], 'ready': True}
+                    pending_id = self.pending['id']
+                return self.confirm(pending_id)
             if state["status"] not in {"draft", "blocked"}:
                 return Response("text", choose(language,
                     "Only draft or blocked tasks can retry planning; answer pending questions or review the current plan.",

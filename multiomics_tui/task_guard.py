@@ -146,6 +146,10 @@ def main(argv=None) -> int:
     if os.name == "nt":
         from multiomics_tui.windows_native import run_appcontainer
         return run_appcontainer(Path(args[0]), args[2:], dict(os.environ))
+    if os.environ.get('TASK_INSTALLER') == '1':
+        from .installer_guard import execute
+        execute(Path(args[0]), args[2:], dict(os.environ))
+        return 1
     restrict(Path(args[0]))
     os.execvpe(args[2], args[2:], os.environ)
     return 1

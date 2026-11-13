@@ -1,0 +1,49 @@
+name: Native task environment acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: ['validation/task-environments-*']
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.5'
+      - name: Prepare acceptance dependencies
+        run: python -m pip install -r native_dist/requirements-native.txt uv==0.13.7
+      - name: Prepare native R probe dependencies
+        run: Rscript -e 'install.packages(c("jsonlite", "digest"), repos="https://cloud.r-project.org")'
+      - name: Audit public source list
+        run: python -m native_dist.public_release audit
+      - name: Native installation and bound execution
+        run: python -m native_dist.task_environment_acceptance
+      - name: Environment regression
+        run: python -m pytest tests/test_task_environment.py tests/test_environment_contract.py -q
+      - name: Preserve native acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-environment-${{ runner.os }}
+          path: |
+            .runtime/environment_acceptance_*/acceptance.json
+            .runtime/environment_acceptance_*/.runtime/task_environments/**/install.log
+            .runtime/environment_acceptance_*/.runtime/task_environments/**/*.lock
+            .runtime/environment_acceptance_*/.runtime/task_environments/**/probe.log
+            .runtime/environment_acceptance_*/.runtime/task_environments/**/*.bootstrap.json
+          if-no-files-found: warn

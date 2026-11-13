@@ -270,21 +270,52 @@ def run_appcontainer(task_dir: Path, argv: list[str], env: dict) -> int:
     # Even if a future caller supplies an unexpected environment, do not pass keys.
     allowed_env = {"PATH", "LANG", "LC_ALL", "TZ", "PROJECT_ROOT", "TASK_DIR", "TMPDIR", "TEMP", "TMP",
                    "HOME", "USERPROFILE", "PYTHONDONTWRITEBYTECODE", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                   "MKL_NUM_THREADS", "SYSTEMROOT", "WINDIR", "R_LIBS_USER", "R_HOME", "PYTHONHOME"}
+                   "MKL_NUM_THREADS", "SYSTEMROOT", "WINDIR", "R_LIBS_USER", "R_HOME", "PYTHONHOME", "PKG_SYSREQS", "PKG_PACKAGE_CACHE_DIR", "PKG_METADATA_CACHE_DIR", "UV_CACHE_DIR", "UV_PYTHON_DOWNLOADS", "UV_LINK_MODE", "UV_NO_CONFIG", "PKG_CRAN_MIRROR", "PKG_GIT_SUBMODULES", "R_LIBS_SITE"}
     clean_env = {name: value for name, value in env.items() if name in allowed_env}
     clean_env.update(HOME=str(task_dir), USERPROFILE=str(task_dir), PYTHONUTF8='1',
                      PYTHONIOENCODING='utf-8', XDG_CACHE_HOME=str(task_dir/'tmp/.cache'))
+    extra_runtime = None
+    if env.get('TASK_BOUND_RUNTIME'):
+        from .planning_evidence import _path
+        raw_runtime = Path(env['TASK_BOUND_RUNTIME'])
+        relative_runtime = raw_runtime.relative_to(root).as_posix()
+        if not relative_runtime.startswith('.runtime/task_environments/') or not relative_runtime.endswith('/runtime'):
+            raise ValueError('Task runtime is outside environment storage')
+        extra_runtime = _path(root, relative_runtime)
+        if not extra_runtime.is_dir():
+            raise ValueError('Task runtime is missing')
     private_python = runtime / "python/python.exe"
     private_r = next(iter(sorted((runtime / "r").glob("bin/**/Rscript.exe"))), None)
     interpreter = private_r if Path(argv[0]).name.lower().startswith("rscript") else private_python
     if interpreter is None or not interpreter.is_file():
         raise RuntimeError("Private native interpreter is missing; rerun setup")
+    is_r = interpreter == private_r
+    if extra_runtime is not None and not is_r and env.get('TASK_PYTHON'):
+        interpreter = extra_runtime / 'python/Scripts/python.exe'
+        if not interpreter.is_file():
+            raise RuntimeError('Task Python is missing')
+    if env.get('TASK_INSTALLER') == '1':
+        requested = Path(argv[0]).resolve(strict=True)
+        if requested.is_relative_to(task_dir.resolve()):
+            interpreter = requested
     argv = [str(interpreter), *argv[1:]]
-    if interpreter == private_r:
+    if is_r:
         clean_env["R_HOME"] = str(runtime / "r")
         clean_env["R_LIBS_USER"] = str(runtime / "r/library")
+        if extra_runtime is not None:
+            clean_env['R_LIBS_USER'] = str(extra_runtime / 'r-library')
+            clean_env['R_LIBS_SITE'] = str(extra_runtime / 'r-library')
+        elif env.get('TASK_INSTALLER') == '1':
+            libraries = env.get('R_LIBS_USER', '').split(os.pathsep)
+            if any(not Path(p).resolve().is_relative_to(task_dir.resolve()) for p in libraries):
+                raise ValueError('Installer R library is outside its staging directory')
+            clean_env['R_LIBS_USER'] = env['R_LIBS_USER']
+            clean_env['R_LIBS_SITE'] = env['R_LIBS_USER']
     else:
-        clean_env["PYTHONHOME"] = str(runtime / "python")
+        if extra_runtime is None and env.get('TASK_INSTALLER') != '1':
+            clean_env["PYTHONHOME"] = str(runtime / "python")
+        else:
+            clean_env.pop('PYTHONHOME', None)
     clean_env["PATH"] = os.pathsep.join([str(interpreter.parent), str(Path(os.environ["SYSTEMROOT"]) / "System32")])
     userenv = C.WinDLL("userenv", use_last_error=True)
     create = userenv.CreateAppContainerProfile
@@ -335,6 +366,9 @@ def run_appcontainer(task_dir: Path, argv: list[str], env: dict) -> int:
         for target, rights in ((runtime, "RX"), (view, "RX"), (task_dir.resolve(), "M")):
             granted.append(target)
             _grant(target, sid_string.value, rights, True)
+        if extra_runtime is not None:
+            granted.append(extra_runtime)
+            _grant(extra_runtime, sid_string.value, 'RX', True)
         # Low integrity may write only the task-owned directory. The input view
         # and private runtime stay read-only; no original data ACL is touched.
         result = subprocess.run(["icacls", str(task_dir), "/setintegritylevel", "(OI)(CI)L", "/t", "/q"],

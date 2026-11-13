@@ -193,6 +193,10 @@ def execution_policy(task_dir: Path, argv: list[str], env: dict) -> tuple[str, l
                            argv[0] in (item['source'], item['target']) for item in snapshots):
         raise ValueError("Executable absent from trusted runtime snapshot")
     policy = profile(task_dir, reads, runtimes, snapshots)
+    if env.get('TASK_INSTALLER') == '1':
+        # pak/callr must reap their own worker processes on shutdown. Apple's
+        # child-target filter preserves denial for the controller and other tasks.
+        policy += '\n(allow signal process-info-pidinfo (target self) (target children))'
     tmp = Path(env.get("TMPDIR", str(task_dir / "tmp")))
     if tmp.is_symlink() and tmp.resolve() == (task_dir / "tmp").resolve():
         policy += '\n(allow file-read* (literal ' + json.dumps(str(tmp), ensure_ascii=False) + '))'

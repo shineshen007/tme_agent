@@ -37,6 +37,8 @@ def user_libraries() -> list[str]:
 def library_paths(cfg) -> list[str]:
     """Configured project libraries plus user and base/system libraries that exist."""
     runtime = (cfg or {}).get("runtime", {}) or {}
+    if runtime.get('task_r_library'):
+        return [runtime['task_r_library']]
     paths: list[str] = []
     paths.extend(str(p) for p in (runtime.get("r_library_paths") or []))
     home = runtime.get("r_home")
